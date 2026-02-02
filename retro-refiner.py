@@ -5498,15 +5498,14 @@ Pattern examples (--include / --exclude):
                 print("Download tool: Python urllib (sequential)")
             print("=" * 60)
 
-    # Step 3: Download the selected files (best ROM per game across all sources)
+    # Step 3: Collect all files to download across all systems
+    all_downloads = []  # List of (url, cached_path, system)
+    url_to_system = {}  # Map url -> system for result processing
+
     for system, filtered_urls in network_downloads.items():
         if not filtered_urls:
             continue
 
-        print(f"\n{system.upper()}: Downloading {len(filtered_urls)} ROMs...")
-
-        # Prepare download list with cache paths
-        downloads_to_ui = []
         for url in filtered_urls:
             url_clean = url.split('?')[0].split('#')[0]
             filename = urllib.request.unquote(url_clean.split('/')[-1])
@@ -5521,25 +5520,44 @@ Pattern examples (--include / --exclude):
             cache_subdir.mkdir(parents=True, exist_ok=True)
             cached_path = cache_subdir / filename
 
+            url_to_system[url] = system
+
             # Skip already cached
             if not cached_path.exists():
-                downloads_to_ui.append((url, cached_path))
+                all_downloads.append((url, cached_path, system))
 
-        # Run interactive download UI
-        if downloads_to_ui:
-            ui = DownloadUI(
-                system_name=system,
-                files=downloads_to_ui,
-                parallel=args.parallel,
-                connections=args.parallel
-            )
-            cached_files = ui.run()
-        else:
-            cached_files = {}
+    # Sort alphabetically by filename
+    all_downloads.sort(key=lambda x: x[1].name.lower())
 
-        # Also include already-cached files in results
+    # Count systems involved
+    systems_in_download = set(d[2] for d in all_downloads)
+    system_name = ', '.join(sorted(systems_in_download)) if len(systems_in_download) <= 3 else f"{len(systems_in_download)} systems"
+
+    # Run single download UI for all files
+    cached_files = {}  # url -> path
+    if all_downloads:
+        downloads_to_ui = [(url, path) for url, path, _ in all_downloads]
+        ui = DownloadUI(
+            system_name=system_name,
+            files=downloads_to_ui,
+            parallel=args.parallel,
+            connections=args.parallel
+        )
+        cached_files = ui.run()
+
+    check_shutdown()
+
+    # Process results back into per-system detected lists
+    for system, filtered_urls in network_downloads.items():
+        if not filtered_urls:
+            continue
+
         for url in filtered_urls:
-            if url not in cached_files:
+            # Check if downloaded or already cached
+            if url in cached_files:
+                cached = cached_files[url]
+            else:
+                # Check if already cached on disk
                 url_clean = url.split('?')[0].split('#')[0]
                 filename = urllib.request.unquote(url_clean.split('/')[-1])
                 filename = re.sub(r'[<>:"/\\|?*]', '_', filename) or 'unknown_file'
@@ -5549,14 +5567,10 @@ Pattern examples (--include / --exclude):
                 subdir = path_parts[-2] if len(path_parts) >= 2 else 'misc'
                 subdir = re.sub(r'[<>:"/\\|?*]', '_', subdir)
 
-                cached_path = cache_dir / subdir / filename
-                if cached_path.exists():
-                    cached_files[url] = cached_path
+                cached = cache_dir / subdir / filename
+                if not cached.exists():
+                    continue
 
-        check_shutdown()
-
-        # Add successfully downloaded files to detected
-        for url, cached in cached_files.items():
             source_url = url_to_source.get(url, network_sources[0] if network_sources else '')
             # Add to detected, handling duplicates
             if cached.name not in [x.name for x in detected[system]]:
