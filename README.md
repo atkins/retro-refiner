@@ -21,7 +21,7 @@ Whether you're building a curated collection for a Raspberry Pi, populating a Mi
 ## Features
 
 - **Safe by default**: Dry run mode shows what would be selected without copying, moving, linking, or downloading any files
-- **Progress bars**: Visual feedback during processing (requires `tqdm`)
+- **Progress bars**: Built-in visual feedback with ETA and throughput metrics
 - **Graceful shutdown**: Ctrl+C stops cleanly between operations
 - **DAT verification**: Validates ROMs against No-Intro checksums
 - **Portable**: No hardcoded paths - works on Windows, macOS, and Linux
@@ -37,7 +37,7 @@ Whether you're building a curated collection for a Raspberry Pi, populating a Mi
 ## Requirements
 
 - Python 3.10+
-- `tqdm` (optional, for progress bars): `pip install tqdm`
+- No external dependencies (YAML parsing and progress bars are built-in)
 
 ## Quick Start
 
@@ -300,7 +300,6 @@ Each system folder contains `_selection_log.txt` with:
 | `--include-unlicensed` | Include unlicensed ROMs |
 | `--year-from` | Filter by year (minimum) |
 | `--year-to` | Filter by year (maximum) |
-| `--1g1r` | Strict 1G1R mode: exactly one ROM per game |
 
 ### Export Options
 | Option | Description |
