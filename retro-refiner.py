@@ -307,6 +307,29 @@ def format_size(size_bytes: int) -> str:
         return f"{size_bytes / (1024 * 1024 * 1024):.2f} GB"
 
 
+def format_url(url: str, max_length: int = 0) -> str:
+    """
+    Format a URL for display: decode percent-encoding and make clickable.
+    Uses OSC 8 hyperlink escape sequences for terminal clickability when outputting to TTY.
+    """
+    # Decode URL for readability
+    decoded = urllib.request.unquote(url)
+
+    # Truncate display text if needed (but keep full URL for link)
+    display = decoded
+    if max_length > 0 and len(decoded) > max_length:
+        display = decoded[:max_length - 3] + "..."
+
+    # Only use OSC 8 hyperlinks when outputting to a TTY
+    # This prevents escape sequences from appearing in redirected/piped output
+    if sys.stdout.isatty():
+        # OSC 8 hyperlink: \033]8;;URL\033\\TEXT\033]8;;\033\\
+        # Makes text clickable in supported terminals (iTerm2, GNOME Terminal, Windows Terminal, etc.)
+        return f"\033]8;;{url}\033\\{display}\033]8;;\033\\"
+    else:
+        return display
+
+
 def get_file_size(filepath: Path) -> int:
     """Get the size of a file in bytes."""
     try:
@@ -854,7 +877,7 @@ def validate_all_sources(local_sources: List[Path], network_sources: List[str]) 
 
     # Validate network sources
     for source in network_sources:
-        print(f"Validating: {source}...", end=" ", flush=True)
+        print(f"Validating: {format_url(source)}...", end=" ", flush=True)
         success, error = validate_source(source)
         if success:
             print("OK")
@@ -1370,14 +1393,14 @@ def scan_network_source_urls(base_url: str, systems: List[str] = None,
         _url_sizes = {}
 
     if not _indent:
-        print(f"Scanning network source: {base_url}")
+        print(f"Scanning network source: {format_url(base_url)}")
 
     try:
         content, final_url = fetch_url(base_url)
         html = content.decode('utf-8', errors='replace')
         base_url = final_url
     except Exception as e:
-        print(f"{_indent}  Error fetching {base_url}: {e}")
+        print(f"{_indent}  Error fetching {format_url(base_url)}: {e}")
         return dict(detected), _url_sizes
 
     # Try to detect system from URL path (for Redump/Myrient style URLs)
