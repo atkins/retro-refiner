@@ -4615,62 +4615,72 @@ Pattern examples (--include / --exclude):
                             rom_sources[str(f)] = source_path
 
     # Process network sources with optimized filter-before-download flow
-    # First pass: scan all network sources and collect filtered URLs
-    network_downloads = {}  # {network_url: {system: [filtered_urls]}}
-    total_network_files = 0
-    total_network_source_size = 0
-    total_network_selected_size = 0
-    network_system_stats = {}  # Track stats per system for network sources
-
-    empty_network_sources = []  # Track sources that returned no ROMs
+    # Step 1: Scan ALL network sources first to collect URLs (no filtering yet)
+    all_network_urls = defaultdict(list)  # {system: [urls from all sources]}
+    all_url_sizes = {}  # {url: size}
+    url_to_source = {}  # {url: network_url} - track which source each URL came from
+    empty_network_sources = []
 
     for network_url in network_sources:
         check_shutdown()
         print()  # Blank line before network source
 
-        # Step 1: Scan for URLs only (no downloading yet) - now returns sizes too
+        # Scan for URLs only (no downloading yet)
         url_dict, url_sizes = scan_network_source_urls(network_url, args.systems)
-        network_downloads[network_url] = {}
 
         # Check if this source returned any ROMs at all
         total_urls_from_source = sum(len(urls) for urls in url_dict.values())
         if total_urls_from_source == 0:
             empty_network_sources.append(network_url)
 
+        # Collect URLs from all sources per system
         for system, urls in url_dict.items():
-            if not urls:
-                continue
+            for url in urls:
+                all_network_urls[system].append(url)
+                url_to_source[url] = network_url
+            all_url_sizes.update(url_sizes)
 
-            print(f"\n{system.upper()}: Pre-filtering {len(urls)} remote ROMs...")
+    # Step 2: Filter combined URL pool per system (select best ROM across ALL sources)
+    network_downloads = {}  # {system: [selected_urls]}
+    total_network_files = 0
+    total_network_source_size = 0
+    total_network_selected_size = 0
+    network_system_stats = {}
 
-            # Step 2: Filter URLs using filter_network_roms (handles patterns, flags, and best ROM selection)
-            filtered_urls, size_info = filter_network_roms(
-                urls, system,
-                include_patterns=args.include,
-                exclude_patterns=args.exclude,
-                exclude_protos=args.exclude_protos,
-                include_betas=args.include_betas,
-                include_unlicensed=args.include_unlicensed,
-                region_priority=region_priority,
-                keep_regions=keep_regions,
-                year_from=args.year_from,
-                year_to=args.year_to,
-                verbose=args.verbose,
-                url_sizes=url_sizes
-            )
+    for system, urls in all_network_urls.items():
+        if not urls:
+            continue
 
-            if filtered_urls:
-                network_downloads[network_url][system] = filtered_urls
-                total_network_files += len(filtered_urls)
-                # Track sizes
-                if system not in network_system_stats:
-                    network_system_stats[system] = {'source_size': 0, 'selected_size': 0}
-                network_system_stats[system]['source_size'] += size_info['source_size']
-                network_system_stats[system]['selected_size'] += size_info['selected_size']
-                total_network_source_size += size_info['source_size']
-                total_network_selected_size += size_info['selected_size']
-            else:
-                print(f"{system.upper()}: No ROMs remaining after filtering")
+        print(f"\n{system.upper()}: Filtering {len(urls)} remote ROMs from {len(network_sources)} source(s)...")
+
+        # Filter URLs using filter_network_roms (handles patterns, flags, and best ROM selection)
+        # This now selects the BEST ROM across ALL sources for each game
+        filtered_urls, size_info = filter_network_roms(
+            urls, system,
+            include_patterns=args.include,
+            exclude_patterns=args.exclude,
+            exclude_protos=args.exclude_protos,
+            include_betas=args.include_betas,
+            include_unlicensed=args.include_unlicensed,
+            region_priority=region_priority,
+            keep_regions=keep_regions,
+            year_from=args.year_from,
+            year_to=args.year_to,
+            verbose=args.verbose,
+            url_sizes=all_url_sizes
+        )
+
+        if filtered_urls:
+            network_downloads[system] = filtered_urls
+            total_network_files += len(filtered_urls)
+            network_system_stats[system] = {
+                'source_size': size_info['source_size'],
+                'selected_size': size_info['selected_size']
+            }
+            total_network_source_size += size_info['source_size']
+            total_network_selected_size += size_info['selected_size']
+        else:
+            print(f"{system.upper()}: No ROMs remaining after filtering")
 
     # Check if any network sources returned no ROMs
     if empty_network_sources:
@@ -4705,32 +4715,26 @@ Pattern examples (--include / --exclude):
             print("NETWORK DOWNLOAD SUMMARY")
             print("=" * 60)
 
-            for network_url, systems_dict in network_downloads.items():
-                if systems_dict:
-                    print(f"\nSource: {network_url}")
-                    for system, urls in sorted(systems_dict.items()):
-                        # Check how many are already cached
-                        cached_count = 0
-                        for url in urls:
-                            filename = get_filename_from_url(url)
-                            url_clean = url.split('?')[0].split('#')[0]
-                            url_path = url_clean.replace('://', '/').split('/', 1)[1] if '://' in url_clean else url_clean
-                            path_parts = [p for p in url_path.split('/') if p]
-                            if len(path_parts) >= 2:
-                                subdir = path_parts[-2]
-                            else:
-                                subdir = 'misc'
-                            cached_path = cache_dir / subdir / filename
-                            if cached_path.exists():
-                                cached_count += 1
+            for system, urls in sorted(network_downloads.items()):
+                # Check how many are already cached
+                cached_count = 0
+                for url in urls:
+                    filename = get_filename_from_url(url)
+                    url_clean = url.split('?')[0].split('#')[0]
+                    url_path = url_clean.replace('://', '/').split('/', 1)[1] if '://' in url_clean else url_clean
+                    path_parts = [p for p in url_path.split('/') if p]
+                    subdir = path_parts[-2] if len(path_parts) >= 2 else 'misc'
+                    cached_path = cache_dir / subdir / filename
+                    if cached_path.exists():
+                        cached_count += 1
 
-                        new_count = len(urls) - cached_count
-                        sys_size = network_system_stats.get(system, {}).get('selected_size', 0)
-                        size_str = f" ({format_size(sys_size)})" if sys_size > 0 else ""
-                        if cached_count > 0:
-                            print(f"  {system}: {len(urls)} files{size_str} ({cached_count} cached, {new_count} to download)")
-                        else:
-                            print(f"  {system}: {len(urls)} files{size_str} to download")
+                new_count = len(urls) - cached_count
+                sys_size = network_system_stats.get(system, {}).get('selected_size', 0)
+                size_str = f" ({format_size(sys_size)})" if sys_size > 0 else ""
+                if cached_count > 0:
+                    print(f"  {system}: {len(urls)} files{size_str} ({cached_count} cached, {new_count} to download)")
+                else:
+                    print(f"  {system}: {len(urls)} files{size_str} to download")
 
             if total_network_selected_size > 0:
                 print(f"\nTotal: {total_network_files} files ({format_size(total_network_selected_size)})")
@@ -4748,35 +4752,35 @@ Pattern examples (--include / --exclude):
                 print("Download tool: Python urllib (sequential)")
             print("=" * 60)
 
-    # Step 3: Download the filtered files
-    for network_url, systems_dict in network_downloads.items():
-        for system, filtered_urls in systems_dict.items():
-            if not filtered_urls:
-                continue
+    # Step 3: Download the selected files (best ROM per game across all sources)
+    for system, filtered_urls in network_downloads.items():
+        if not filtered_urls:
+            continue
 
-            print(f"\n{system.upper()}: Downloading {len(filtered_urls)} ROMs...")
+        print(f"\n{system.upper()}: Downloading {len(filtered_urls)} ROMs...")
 
-            # Use batch downloading for connection reuse and parallelism
-            with tqdm(total=len(filtered_urls), desc=f"  {system.upper()} Downloading", unit="file", leave=False) as pbar:
-                cached_files = download_files_cached_batch(
-                    filtered_urls, cache_dir,
-                    parallel=args.parallel,
-                    connections=args.parallel,  # Also use for multi-connection per file (aria2c)
-                    progress_callback=lambda: pbar.update(1)
-                )
+        # Use batch downloading for connection reuse and parallelism
+        with tqdm(total=len(filtered_urls), desc=f"  {system.upper()} Downloading", unit="file", leave=False) as pbar:
+            cached_files = download_files_cached_batch(
+                filtered_urls, cache_dir,
+                parallel=args.parallel,
+                connections=args.parallel,  # Also use for multi-connection per file (aria2c)
+                progress_callback=lambda: pbar.update(1)
+            )
 
-            check_shutdown()
+        check_shutdown()
 
-            # Add successfully downloaded files to detected
-            for url, cached in cached_files.items():
-                # Add to detected, handling duplicates
-                if cached.name not in [x.name for x in detected[system]]:
-                    detected[system].append(cached)
-                    rom_sources[str(cached)] = network_url
-                elif args.prefer_source and network_url == args.prefer_source:
-                    detected[system] = [x for x in detected[system] if x.name != cached.name]
-                    detected[system].append(cached)
-                    rom_sources[str(cached)] = network_url
+        # Add successfully downloaded files to detected
+        for url, cached in cached_files.items():
+            source_url = url_to_source.get(url, network_sources[0] if network_sources else '')
+            # Add to detected, handling duplicates
+            if cached.name not in [x.name for x in detected[system]]:
+                detected[system].append(cached)
+                rom_sources[str(cached)] = source_url
+            elif args.prefer_source and source_url == args.prefer_source:
+                detected[system] = [x for x in detected[system] if x.name != cached.name]
+                detected[system].append(cached)
+                rom_sources[str(cached)] = source_url
 
     detected = dict(detected)  # Convert from defaultdict
 
