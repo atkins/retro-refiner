@@ -41,6 +41,11 @@ python retro-refiner.py --commit
 python retro-refiner.py --list-systems
 ```
 
+### Clean cache and generated data
+```bash
+python retro-refiner.py --clean
+```
+
 ## System Detection
 
 The script supports two modes:
@@ -76,6 +81,8 @@ python retro-refiner.py -s https://myserver.com/roms/
 - Parses Apache/nginx autoindex HTML listings
 - Downloads to local cache (`<source>/cache/` or `--cache-dir`)
 - Caches files to avoid re-downloading
+- Parallel downloads with `--parallel N` (default: 4)
+- Uses aria2c (if installed) for best performance, otherwise curl
 
 ## Key Concepts
 
@@ -90,8 +97,13 @@ Default prioritizes English releases (customizable):
 1. USA releases (English - highest priority)
 2. World releases (Multi-language/English)
 3. Europe/Australia releases (English)
-4. English translations of Japan-only games
-5. Japan-only games (when no English exists)
+4. Fan translations of Japan-only games (when no official English exists)
+5. Untranslated Japan-only games (when no English or translation exists)
+
+When combining multiple sources (e.g., No-Intro + T-En Collection):
+- Official English releases are preferred over fan translations
+- Fan translations are preferred over untranslated foreign ROMs
+- This ensures Japan-only games get translations when available
 
 ### What Gets Filtered OUT
 - Betas, demos, promos, samples
@@ -194,6 +206,22 @@ In `FOLDER_ALIASES` dict at module level:
 ### Caching
 Downloaded files are stored in `<primary_source>/cache/<system>/filename`.
 Files are not re-downloaded if they already exist in cache.
+
+### Download Tools
+The script auto-detects and uses the best available download tool:
+1. **aria2c** (best) - Parallel downloads + multiple connections per file
+2. **curl** (good) - Parallel downloads
+3. **Python urllib** (fallback) - Sequential downloads
+
+Install aria2c for best performance with large files:
+- macOS: `brew install aria2`
+- Linux: `apt install aria2`
+
+### Parallel Downloads
+Use `--parallel N` to control concurrent downloads (default: 4):
+```bash
+python retro-refiner.py -s https://example.com/roms/ --parallel 8 --commit
+```
 
 ## Supported Systems (144)
 Run `python retro-refiner.py --list-systems` for full details.

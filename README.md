@@ -212,6 +212,12 @@ python retro-refiner.py -s https://myserver.com/roms/ --cache-dir /path/to/cache
 - Downloaded files are cached locally in `<source>/cache/` by default
 - Subsequent runs use cached files without re-downloading
 - Use `--cache-dir` to specify a custom cache location
+- Use `--clean` to delete cache and start fresh
+
+**Download Performance:**
+- Parallel downloads with `--parallel N` (default: 4)
+- Auto-detects best download tool: aria2c > curl > Python urllib
+- Install aria2c for best performance: `brew install aria2` (macOS) or `apt install aria2` (Linux)
 
 ## Arcade Filtering (MAME & FBNeo)
 
@@ -275,9 +281,15 @@ USA > World > Europe > Asia > Japan
 
 ### Included
 - Official USA/Europe/World releases (latest revision preferred)
-- English translations of Japan-only games (marked with `[T-En]`)
-- Japan-only games when no English version exists
+- Fan translations of Japan-only games (marked with `[T-En]`)
+- Untranslated Japan-only games when no English or translation exists
 - Prototype versions (marked with `(Proto)`)
+
+### Translation Preference (Multi-Source)
+When combining official ROM sets with translation collections:
+- Official English releases → preferred over fan translations
+- Fan translations → preferred over untranslated foreign ROMs
+- This ensures you get the best playable version of each game
 
 ### Excluded
 - Beta versions
@@ -396,6 +408,7 @@ Each system folder contains `_selection_log.txt` with:
 | Option | Description |
 |--------|-------------|
 | `--cache-dir` | Directory for caching network downloads |
+| `-p, --parallel` | Number of parallel downloads (default: 4) |
 
 ### DAT Options
 | Option | Description |
@@ -405,6 +418,7 @@ Each system folder contains `_selection_log.txt` with:
 | `--dat-dir` | Directory for DAT files |
 | `--mame-version` | MAME version for downloads |
 | `--no-chd` | Skip CHD files for MAME |
+| `--clean` | Delete cache, DAT files, and generated data |
 
 ### Default Behaviors
 | Feature | Default | Override |
