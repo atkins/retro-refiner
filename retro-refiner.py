@@ -4212,53 +4212,51 @@ Pattern examples (--include / --exclude):
             else:
                 print(f"{system.upper()}: No ROMs remaining after filtering")
 
-    # Show download summary and prompt for confirmation
+    # Show download summary and prompt for confirmation (only when actually downloading)
     if total_network_files > 0:
-        print("\n" + "=" * 60)
-        print("NETWORK DOWNLOAD SUMMARY")
-        print("=" * 60)
-
-        for network_url, systems_dict in network_downloads.items():
-            if systems_dict:
-                print(f"\nSource: {network_url}")
-                for system, urls in sorted(systems_dict.items()):
-                    # Check how many are already cached
-                    cached_count = 0
-                    for url in urls:
-                        filename = get_filename_from_url(url)
-                        url_clean = url.split('?')[0].split('#')[0]
-                        url_path = url_clean.replace('://', '/').split('/', 1)[1] if '://' in url_clean else url_clean
-                        path_parts = [p for p in url_path.split('/') if p]
-                        if len(path_parts) >= 2:
-                            subdir = path_parts[-2]
-                        else:
-                            subdir = 'misc'
-                        cached_path = cache_dir / subdir / filename
-                        if cached_path.exists():
-                            cached_count += 1
-
-                    new_count = len(urls) - cached_count
-                    sys_size = network_system_stats.get(system, {}).get('selected_size', 0)
-                    size_str = f" ({format_size(sys_size)})" if sys_size > 0 else ""
-                    if cached_count > 0:
-                        print(f"  {system}: {len(urls)} files{size_str} ({cached_count} cached, {new_count} to download)")
-                    else:
-                        print(f"  {system}: {len(urls)} files{size_str} to download")
-
-        if total_network_selected_size > 0:
-            print(f"\nTotal: {total_network_files} files ({format_size(total_network_selected_size)})")
-        else:
-            print(f"\nTotal: {total_network_files} files")
-        print(f"Cache directory: {cache_dir}")
-
         if dry_run:
-            # In dry run mode, skip downloads entirely - just show what would be selected
-            print("\nDry run: Skipping downloads. Use --commit to actually download and transfer files.")
-            print("=" * 60)
-            # Clear network_downloads so the download loop is skipped
+            # In dry run mode, skip downloads entirely
             network_downloads = {}
         else:
-            # Commit mode: prompt for confirmation unless --yes is set
+            # Show download summary only when committing
+            print("\n" + "=" * 60)
+            print("NETWORK DOWNLOAD SUMMARY")
+            print("=" * 60)
+
+            for network_url, systems_dict in network_downloads.items():
+                if systems_dict:
+                    print(f"\nSource: {network_url}")
+                    for system, urls in sorted(systems_dict.items()):
+                        # Check how many are already cached
+                        cached_count = 0
+                        for url in urls:
+                            filename = get_filename_from_url(url)
+                            url_clean = url.split('?')[0].split('#')[0]
+                            url_path = url_clean.replace('://', '/').split('/', 1)[1] if '://' in url_clean else url_clean
+                            path_parts = [p for p in url_path.split('/') if p]
+                            if len(path_parts) >= 2:
+                                subdir = path_parts[-2]
+                            else:
+                                subdir = 'misc'
+                            cached_path = cache_dir / subdir / filename
+                            if cached_path.exists():
+                                cached_count += 1
+
+                        new_count = len(urls) - cached_count
+                        sys_size = network_system_stats.get(system, {}).get('selected_size', 0)
+                        size_str = f" ({format_size(sys_size)})" if sys_size > 0 else ""
+                        if cached_count > 0:
+                            print(f"  {system}: {len(urls)} files{size_str} ({cached_count} cached, {new_count} to download)")
+                        else:
+                            print(f"  {system}: {len(urls)} files{size_str} to download")
+
+            if total_network_selected_size > 0:
+                print(f"\nTotal: {total_network_files} files ({format_size(total_network_selected_size)})")
+            else:
+                print(f"\nTotal: {total_network_files} files")
+            print(f"Cache directory: {cache_dir}")
+
+            # Prompt for confirmation unless --yes is set
             if not args.yes:
                 print()
                 try:
