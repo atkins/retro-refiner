@@ -36,15 +36,16 @@
 #   - mame
 
 # -----------------------------------------------------------------------------
-# Region Handling
+# Language Priority
 # -----------------------------------------------------------------------------
 
-# Region priority order (first = highest priority)
+# Set language priority via region order (first = highest priority)
+# Regions correspond to languages: USA/Europe = English, Japan = Japanese, etc.
 # Default: USA, World, Europe, Australia, England, Spain, France, Germany,
 #          Italy, Netherlands, Sweden, Asia, Japan, Korea, China, Taiwan, Brazil
 region_priority: "USA,World,Europe,Australia,Japan"
 
-# Keep multiple regional versions (one ROM per listed region)
+# Keep multiple language versions (one ROM per listed region)
 # Useful for collectors or language learners
 # keep_regions: "USA,Japan"
 

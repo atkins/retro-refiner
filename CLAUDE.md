@@ -90,10 +90,11 @@ python retro-refiner.py -s https://myserver.com/roms/
 - Language: (En), (En,Fr,De), (Japan) (En), etc.
 - Special: (Proto), (Beta), (Demo), [T-En by Translator], [Hack by], etc.
 
-### Selection Priority
-1. USA releases (highest priority)
-2. World releases
-3. Europe/Australia releases
+### Language Priority (via `--region-priority`)
+Default prioritizes English releases (customizable):
+1. USA releases (English - highest priority)
+2. World releases (Multi-language/English)
+3. Europe/Australia releases (English)
 4. English translations of Japan-only games
 5. Japan-only games (when no English exists)
 

@@ -27,7 +27,7 @@ Whether you're building a curated collection for a Raspberry Pi, populating a Mi
 - **Portable**: No hardcoded paths - works on Windows, macOS, and Linux
 - **Auto-detection**: Detects systems from folder names or file extensions
 - **One ROM per game**: Groups regional variants and selects the best version
-- **English priority**: Prefers USA > World > Europe > Australia releases
+- **Language priority**: Prefers English releases (USA > World > Europe > Australia) - customizable
 - **Translation support**: Includes fan translations for Japan-only games
 - **Japan-only inclusion**: Keeps Japan exclusives when no English version exists
 - **Smart filtering**: Excludes betas, demos, re-releases, compilations, BIOS, pirate dumps
@@ -284,11 +284,11 @@ Each system folder contains `_selection_log.txt` with:
 | `--move` | Move files instead of copying |
 | `--flat` | Output all ROMs to single folder (no subfolders) |
 
-### Region Handling
+### Language Priority
 | Option | Description |
 |--------|-------------|
-| `--region-priority` | Custom priority order (e.g., `"USA,Europe,Japan"`) |
-| `--keep-regions` | Keep multiple versions (e.g., `"USA,Japan"`) |
+| `--region-priority` | Set language priority via region order (e.g., `"USA,Europe,Japan"` for English first) |
+| `--keep-regions` | Keep multiple language versions (e.g., `"USA,Japan"` for English and Japanese) |
 
 ### Filtering
 | Option | Description |
