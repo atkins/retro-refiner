@@ -1538,6 +1538,36 @@ class DownloadUI:
 
         stdscr.refresh()
 
+    def _handle_input(self, stdscr) -> None:
+        """Handle keyboard input (non-blocking)."""
+        try:
+            key = stdscr.getch()
+        except curses.error:
+            return
+
+        if key == -1:
+            return
+
+        if key in (ord('i'), ord('I')):
+            self.detailed_mode = not self.detailed_mode
+            self._manual_scroll = False
+        elif key in (ord('q'), ord('Q')):
+            self.cancelled = True
+        elif key == curses.KEY_UP:
+            self.scroll_offset = max(0, self.scroll_offset - 1)
+            self._manual_scroll = True
+        elif key == curses.KEY_DOWN:
+            max_scroll = max(0, len(self.files) - 10)  # Approximate
+            self.scroll_offset = min(max_scroll, self.scroll_offset + 1)
+            self._manual_scroll = True
+        elif key == curses.KEY_PPAGE:  # Page Up
+            self.scroll_offset = max(0, self.scroll_offset - 10)
+            self._manual_scroll = True
+        elif key == curses.KEY_NPAGE:  # Page Down
+            max_scroll = max(0, len(self.files) - 10)
+            self.scroll_offset = min(max_scroll, self.scroll_offset + 10)
+            self._manual_scroll = True
+
 
 def download_files_cached_batch(
     urls: List[str],
