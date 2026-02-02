@@ -724,7 +724,7 @@ def test_network_rom_filtering():
     ]
 
     # Test include pattern filtering
-    filtered = filter_network_roms(
+    filtered, _ = filter_network_roms(
         test_urls, "nes",
         include_patterns=["*Mario*"],
         region_priority=DEFAULT_REGION_PRIORITY
@@ -737,7 +737,7 @@ def test_network_rom_filtering():
                     f"{mario_count} Mario, Zelda present: {any('Zelda' in u for u in filtered)}")
 
     # Test beta exclusion (default)
-    filtered = filter_network_roms(
+    filtered, _ = filter_network_roms(
         test_urls, "nes",
         include_betas=False,
         region_priority=DEFAULT_REGION_PRIORITY
@@ -753,7 +753,7 @@ def test_network_rom_filtering():
     proto_urls = [
         "https://example.com/nes/Proto Game (USA) (Proto).zip",
     ]
-    filtered = filter_network_roms(
+    filtered, _ = filter_network_roms(
         proto_urls, "nes",
         exclude_protos=False,
         region_priority=DEFAULT_REGION_PRIORITY
@@ -764,7 +764,7 @@ def test_network_rom_filtering():
         results.fail("Proto ROM inclusion", "1 ROM", f"{len(filtered)} ROMs")
 
     # Test region selection (USA preferred)
-    filtered = filter_network_roms(
+    filtered, _ = filter_network_roms(
         test_urls, "nes",
         region_priority=["USA", "Japan"],
         include_patterns=["*Mario Bros.*"]  # Match both USA and Japan versions
@@ -777,7 +777,7 @@ def test_network_rom_filtering():
         results.fail("Region priority", "USA version selected", f"Selected: {filtered}")
 
     # Test exclude pattern filtering
-    filtered = filter_network_roms(
+    filtered, _ = filter_network_roms(
         test_urls, "nes",
         exclude_patterns=["*Mario*"],
         region_priority=DEFAULT_REGION_PRIORITY
@@ -794,7 +794,7 @@ def test_network_rom_filtering():
         "https://example.com/nes/Super Mario Bros. (USA) (Beta).zip",
         "https://example.com/nes/Super Mario Bros. 2 (USA).zip",
     ]
-    filtered = filter_network_roms(
+    filtered, _ = filter_network_roms(
         mixed_urls, "nes",
         include_patterns=["*Mario*"],
         exclude_patterns=["*Beta*"],
@@ -809,7 +809,7 @@ def test_network_rom_filtering():
                     f"Mario: {has_mario}, Beta: {not no_beta}")
 
     # Test unlicensed exclusion (default)
-    filtered = filter_network_roms(
+    filtered, _ = filter_network_roms(
         test_urls, "nes",
         include_unlicensed=False,
         region_priority=DEFAULT_REGION_PRIORITY
@@ -822,7 +822,7 @@ def test_network_rom_filtering():
     # Test unlicensed inclusion - unlicensed ROMs should pass through filter
     # Note: select_best_rom may still filter unlicensed if pirate flag is set
     unlicensed_urls = ["https://example.com/nes/Bible Adventures (USA) (Unl).zip"]
-    filtered = filter_network_roms(
+    filtered, _ = filter_network_roms(
         unlicensed_urls, "nes",
         include_unlicensed=True,
         region_priority=DEFAULT_REGION_PRIORITY

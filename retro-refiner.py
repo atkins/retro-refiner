@@ -306,6 +306,130 @@ def is_directory_link(href: str) -> bool:
     return False
 
 
+def parse_size_string(size_str: str) -> int:
+    """
+    Parse a human-readable size string into bytes.
+    Handles formats like: 1.5M, 100K, 50G, 1.5 MB, 100 KB, 1536000
+    """
+    if not size_str:
+        return 0
+
+    size_str = size_str.strip().upper()
+
+    # Try to parse as raw number first
+    try:
+        return int(size_str)
+    except ValueError:
+        pass
+
+    # Match patterns like "1.5M", "100K", "50G", "1.5 MB", "100 KB"
+    match = re.match(r'^([\d.]+)\s*([KMGT])?B?$', size_str)
+    if not match:
+        return 0
+
+    try:
+        value = float(match.group(1))
+        unit = match.group(2) or ''
+
+        multipliers = {
+            '': 1,
+            'K': 1024,
+            'M': 1024 * 1024,
+            'G': 1024 * 1024 * 1024,
+            'T': 1024 * 1024 * 1024 * 1024,
+        }
+        return int(value * multipliers.get(unit, 1))
+    except (ValueError, TypeError):
+        return 0
+
+
+def extract_file_sizes_from_html(html: str) -> Dict[str, int]:
+    """
+    Extract file sizes from HTML directory listings.
+    Returns dict mapping filename -> size in bytes.
+
+    Handles formats:
+    - Apache autoindex: <a href="file.zip">file.zip</a>  2024-01-01 12:00  1.5M
+    - nginx autoindex: <a href="file.zip">file.zip</a>  01-Jan-2024 12:00  1536000
+    - Table format: <td><a href="file.zip">file.zip</a></td><td>1.5 MB</td>
+    """
+    sizes = {}
+
+    # Pattern 1: Apache/nginx autoindex format
+    # Matches: <a href="file.zip">file.zip</a>    date time    size
+    autoindex_pattern = re.compile(
+        r'<a\s+href=["\']?([^"\'<>\s]+)["\']?[^>]*>([^<]+)</a>\s*'
+        r'(?:\d{1,2}[-/]\w{3}[-/]\d{2,4}\s+\d{1,2}:\d{2}|\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2})\s*'
+        r'([\d.]+\s*[KMGT]?B?|\d+|-)',
+        re.IGNORECASE
+    )
+
+    for match in autoindex_pattern.finditer(html):
+        href = match.group(1)
+        filename = match.group(2).strip()
+        size_str = match.group(3).strip()
+
+        if size_str != '-':
+            size = parse_size_string(size_str)
+            if size > 0:
+                # Use both href and filename as keys (they might differ)
+                clean_href = urllib.request.unquote(href.split('?')[0].split('#')[0])
+                sizes[clean_href] = size
+                sizes[filename] = size
+
+    # Pattern 2: Table format with size in separate cell
+    # Matches rows like: <td><a href="file.zip">...</a></td>...<td>1.5 MB</td>
+    table_row_pattern = re.compile(
+        r'<tr[^>]*>.*?<a\s+href=["\']?([^"\'<>\s]+)["\']?[^>]*>([^<]+)</a>.*?'
+        r'<td[^>]*>\s*([\d.]+\s*[KMGT]?B?|\d+)\s*</td>.*?</tr>',
+        re.IGNORECASE | re.DOTALL
+    )
+
+    for match in table_row_pattern.finditer(html):
+        href = match.group(1)
+        filename = match.group(2).strip()
+        size_str = match.group(3).strip()
+
+        size = parse_size_string(size_str)
+        if size > 0:
+            clean_href = urllib.request.unquote(href.split('?')[0].split('#')[0])
+            sizes[clean_href] = size
+            sizes[filename] = size
+
+    # Pattern 3: Pre/listing block with sizes (FTP-style)
+    # Matches: -rw-r--r-- 1 user group 1536000 Jan 1 12:00 file.zip
+    # or:      file.zip    1536000
+    pre_sections = re.findall(
+        r'<(?:pre|code|listing)[^>]*>(.*?)</(?:pre|code|listing)>',
+        html, re.IGNORECASE | re.DOTALL
+    )
+
+    for section in pre_sections:
+        # FTP ls -l format
+        ftp_pattern = re.compile(
+            r'[-drwx]{10}\s+\d+\s+\S+\s+\S+\s+(\d+)\s+\w+\s+\d+\s+[\d:]+\s+(\S+)',
+            re.MULTILINE
+        )
+        for match in ftp_pattern.finditer(section):
+            size = int(match.group(1))
+            filename = match.group(2)
+            if size > 0:
+                sizes[filename] = size
+
+        # Simple "filename size" format
+        simple_pattern = re.compile(
+            r'(\S+\.(?:zip|7z|rar|iso|chd|cue|bin))\s+(\d+)',
+            re.IGNORECASE
+        )
+        for match in simple_pattern.finditer(section):
+            filename = match.group(1)
+            size = int(match.group(2))
+            if size > 0:
+                sizes[filename] = size
+
+    return sizes
+
+
 def parse_html_for_files(html: str, base_url: str) -> List[str]:
     """
     Parse HTML content and extract ROM file URLs.
@@ -335,6 +459,41 @@ def parse_html_for_files(html: str, base_url: str) -> List[str]:
         # Check if it's a ROM file
         if is_rom_file(url):
             files.append(url)
+
+    return files
+
+
+def parse_html_for_files_with_sizes(html: str, base_url: str) -> List[Tuple[str, int]]:
+    """
+    Parse HTML content and extract ROM file URLs with their sizes.
+    Returns list of (url, size) tuples. Size is 0 if unknown.
+    """
+    files = []
+    seen = set()
+
+    # Get file sizes from HTML
+    size_map = extract_file_sizes_from_html(html)
+
+    # Extract all links
+    links = extract_links_from_html(html)
+
+    for href in links:
+        # Normalize the URL
+        url = normalize_url(href, base_url)
+        if not url:
+            continue
+
+        # Skip if already seen
+        if url in seen:
+            continue
+        seen.add(url)
+
+        # Check if it's a ROM file
+        if is_rom_file(url):
+            # Try to find size for this file
+            filename = get_filename_from_url(url)
+            size = size_map.get(filename, 0) or size_map.get(href, 0)
+            files.append((url, size))
 
     return files
 
@@ -482,14 +641,16 @@ def download_file_cached(url: str, cache_dir: Path, force: bool = False) -> Opti
 
 def scan_network_source_urls(base_url: str, systems: List[str] = None,
                               recursive: bool = True, max_depth: int = 3,
-                              _indent: str = "") -> Dict[str, List[str]]:
+                              _indent: str = "", _url_sizes: Dict[str, int] = None) -> Tuple[Dict[str, List[str]], Dict[str, int]]:
     """
     Scan a network source and collect ROM URLs (without downloading).
-    Returns dict of system -> list of URLs.
+    Returns tuple of (dict of system -> list of URLs, dict of URL -> size in bytes).
 
     This allows filtering to happen before any files are downloaded.
     """
     detected = defaultdict(list)
+    if _url_sizes is None:
+        _url_sizes = {}
 
     if not _indent:
         print(f"Scanning network source: {base_url}")
@@ -500,21 +661,27 @@ def scan_network_source_urls(base_url: str, systems: List[str] = None,
         base_url = final_url
     except Exception as e:
         print(f"{_indent}  Error fetching {base_url}: {e}")
-        return dict(detected)
+        return dict(detected), _url_sizes
 
-    # Check for ROM files directly in this location
-    rom_urls = parse_html_for_files(html, base_url)
+    # Check for ROM files directly in this location (with sizes)
+    rom_files_with_sizes = parse_html_for_files_with_sizes(html, base_url)
 
-    if rom_urls:
+    if rom_files_with_sizes:
+        total_size = sum(size for _, size in rom_files_with_sizes)
         if not _indent:
-            print(f"  Found {len(rom_urls)} ROM files in root")
+            if total_size > 0:
+                print(f"  Found {len(rom_files_with_sizes)} ROM files in root ({format_size(total_size)})")
+            else:
+                print(f"  Found {len(rom_files_with_sizes)} ROM files in root")
         # Auto-detect system from extensions
-        for url in rom_urls:
+        for url, size in rom_files_with_sizes:
             url_clean = url.split('?')[0].split('#')[0]
             ext = '.' + url_clean.rsplit('.', 1)[-1].lower() if '.' in url_clean else ''
             system = EXTENSION_TO_SYSTEM.get(ext, 'unknown')
             if systems is None or system in systems:
                 detected[system].append(url)
+                if size > 0:
+                    _url_sizes[url] = size
 
     # Get subdirectories
     if recursive and max_depth > 0:
@@ -538,11 +705,19 @@ def scan_network_source_urls(base_url: str, systems: List[str] = None,
                 try:
                     content, final_url = fetch_url(subdir_url)
                     subdir_html = content.decode('utf-8', errors='replace')
-                    sub_rom_urls = parse_html_for_files(subdir_html, final_url)
+                    sub_files_with_sizes = parse_html_for_files_with_sizes(subdir_html, final_url)
 
-                    if sub_rom_urls:
-                        print(f"{_indent}    Found {len(sub_rom_urls)} ROM URLs")
+                    if sub_files_with_sizes:
+                        sub_rom_urls = [url for url, _ in sub_files_with_sizes]
+                        total_size = sum(size for _, size in sub_files_with_sizes)
+                        if total_size > 0:
+                            print(f"{_indent}    Found {len(sub_rom_urls)} ROM URLs ({format_size(total_size)})")
+                        else:
+                            print(f"{_indent}    Found {len(sub_rom_urls)} ROM URLs")
                         detected[system].extend(sub_rom_urls)
+                        for url, size in sub_files_with_sizes:
+                            if size > 0:
+                                _url_sizes[url] = size
 
                     # Check for nested subdirectories (region folders, etc.)
                     if max_depth > 1:
@@ -552,11 +727,19 @@ def scan_network_source_urls(base_url: str, systems: List[str] = None,
                             try:
                                 nested_content, nested_final = fetch_url(nested_url)
                                 nested_html = nested_content.decode('utf-8', errors='replace')
-                                nested_roms = parse_html_for_files(nested_html, nested_final)
-                                if nested_roms:
+                                nested_files = parse_html_for_files_with_sizes(nested_html, nested_final)
+                                if nested_files:
                                     nested_name = urllib.request.unquote(nested_url.rstrip('/').split('/')[-1])
-                                    print(f"{_indent}      Found {len(nested_roms)} ROM URLs in {nested_name}")
+                                    nested_roms = [url for url, _ in nested_files]
+                                    nested_size = sum(size for _, size in nested_files)
+                                    if nested_size > 0:
+                                        print(f"{_indent}      Found {len(nested_roms)} ROM URLs in {nested_name} ({format_size(nested_size)})")
+                                    else:
+                                        print(f"{_indent}      Found {len(nested_roms)} ROM URLs in {nested_name}")
                                     detected[system].extend(nested_roms)
+                                    for url, size in nested_files:
+                                        if size > 0:
+                                            _url_sizes[url] = size
                             except Exception:
                                 pass
 
@@ -566,15 +749,15 @@ def scan_network_source_urls(base_url: str, systems: List[str] = None,
             else:
                 # Recursively scan non-system folders
                 if max_depth > 1:
-                    sub_detected = scan_network_source_urls(
+                    sub_detected, _ = scan_network_source_urls(
                         subdir_url, systems,
                         recursive=True, max_depth=max_depth - 1,
-                        _indent=_indent + "  "
+                        _indent=_indent + "  ", _url_sizes=_url_sizes
                     )
                     for sys, urls in sub_detected.items():
                         detected[sys].extend(urls)
 
-    return dict(detected)
+    return dict(detected), _url_sizes
 
 
 def get_filename_from_url(url: str) -> str:
@@ -595,18 +778,23 @@ def filter_network_roms(rom_urls: List[str], system: str,
                         one_game_one_rom: bool = False,
                         year_from: int = None,
                         year_to: int = None,
-                        verbose: bool = False) -> List[str]:
+                        verbose: bool = False,
+                        url_sizes: Dict[str, int] = None) -> Tuple[List[str], Dict[str, int]]:
     """
     Filter network ROM URLs based on filename parsing (no downloading required).
-    Returns list of URLs that should be downloaded.
+    Returns tuple of (list of URLs to download, dict with size info).
     """
     if region_priority is None:
         region_priority = DEFAULT_REGION_PRIORITY
+    if url_sizes is None:
+        url_sizes = {}
 
     # Parse all ROMs from URLs
     all_roms = []
     url_map = {}  # Map filename to URL
+    size_map = {}  # Map filename to size
     filtered_by_pattern = 0
+    total_source_size = 0
 
     for url in rom_urls:
         filename = get_filename_from_url(url)
@@ -652,8 +840,14 @@ def filter_network_roms(rom_urls: List[str], system: str,
 
         all_roms.append(rom_info)
         url_map[filename] = url
+        file_size = url_sizes.get(url, 0)
+        size_map[filename] = file_size
+        total_source_size += file_size
 
-    print(f"{system.upper()}: {len(all_roms)} ROMs after filtering")
+    if total_source_size > 0:
+        print(f"{system.upper()}: {len(all_roms)} ROMs after filtering ({format_size(total_source_size)})")
+    else:
+        print(f"{system.upper()}: {len(all_roms)} ROMs after filtering")
     if filtered_by_pattern:
         print(f"{system.upper()}: {filtered_by_pattern} filtered by include/exclude patterns")
 
@@ -697,8 +891,18 @@ def filter_network_roms(rom_urls: List[str], system: str,
                 if verbose:
                     print(f"  [SELECT] {best.filename} (best of {len(roms)} for '{title}')")
 
-    print(f"{system.upper()}: Selected {len(selected_urls)} ROMs to download")
-    return selected_urls
+    # Calculate selected size
+    selected_size = sum(size_map.get(get_filename_from_url(url), 0) for url in selected_urls)
+
+    if total_source_size > 0:
+        print(f"{system.upper()}: Selected {len(selected_urls)} ROMs to download ({format_size(selected_size)})")
+        size_saved = total_source_size - selected_size
+        reduction_pct = (size_saved / total_source_size) * 100
+        print(f"{system.upper()}: Size reduction: {format_size(size_saved)} saved ({reduction_pct:.1f}%)")
+    else:
+        print(f"{system.upper()}: Selected {len(selected_urls)} ROMs to download")
+
+    return selected_urls, {'source_size': total_source_size, 'selected_size': selected_size}
 
 
 DEFAULT_CONFIG_CONTENT = """# =============================================================================
@@ -3909,14 +4113,16 @@ Pattern examples (--include / --exclude):
     # First pass: scan all network sources and collect filtered URLs
     network_downloads = {}  # {network_url: {system: [filtered_urls]}}
     total_network_files = 0
-    total_network_size_estimate = 0
+    total_network_source_size = 0
+    total_network_selected_size = 0
+    network_system_stats = {}  # Track stats per system for network sources
 
     for network_url in network_sources:
         check_shutdown()
         print()  # Blank line before network source
 
-        # Step 1: Scan for URLs only (no downloading yet)
-        url_dict = scan_network_source_urls(network_url, args.systems)
+        # Step 1: Scan for URLs only (no downloading yet) - now returns sizes too
+        url_dict, url_sizes = scan_network_source_urls(network_url, args.systems)
         network_downloads[network_url] = {}
 
         for system, urls in url_dict.items():
@@ -3926,7 +4132,7 @@ Pattern examples (--include / --exclude):
             print(f"\n{system.upper()}: Pre-filtering {len(urls)} remote ROMs...")
 
             # Step 2: Filter URLs using filter_network_roms (handles patterns, flags, and best ROM selection)
-            filtered_urls = filter_network_roms(
+            filtered_urls, size_info = filter_network_roms(
                 urls, system,
                 include_patterns=args.include,
                 exclude_patterns=args.exclude,
@@ -3938,12 +4144,20 @@ Pattern examples (--include / --exclude):
                 one_game_one_rom=args.one_game_one_rom,
                 year_from=args.year_from,
                 year_to=args.year_to,
-                verbose=args.verbose
+                verbose=args.verbose,
+                url_sizes=url_sizes
             )
 
             if filtered_urls:
                 network_downloads[network_url][system] = filtered_urls
                 total_network_files += len(filtered_urls)
+                # Track sizes
+                if system not in network_system_stats:
+                    network_system_stats[system] = {'source_size': 0, 'selected_size': 0}
+                network_system_stats[system]['source_size'] += size_info['source_size']
+                network_system_stats[system]['selected_size'] += size_info['selected_size']
+                total_network_source_size += size_info['source_size']
+                total_network_selected_size += size_info['selected_size']
             else:
                 print(f"{system.upper()}: No ROMs remaining after filtering")
 
@@ -3973,12 +4187,17 @@ Pattern examples (--include / --exclude):
                             cached_count += 1
 
                     new_count = len(urls) - cached_count
+                    sys_size = network_system_stats.get(system, {}).get('selected_size', 0)
+                    size_str = f" ({format_size(sys_size)})" if sys_size > 0 else ""
                     if cached_count > 0:
-                        print(f"  {system}: {len(urls)} files ({cached_count} cached, {new_count} to download)")
+                        print(f"  {system}: {len(urls)} files{size_str} ({cached_count} cached, {new_count} to download)")
                     else:
-                        print(f"  {system}: {len(urls)} files to download")
+                        print(f"  {system}: {len(urls)} files{size_str} to download")
 
-        print(f"\nTotal: {total_network_files} files")
+        if total_network_selected_size > 0:
+            print(f"\nTotal: {total_network_files} files ({format_size(total_network_selected_size)})")
+        else:
+            print(f"\nTotal: {total_network_files} files")
         print(f"Cache directory: {cache_dir}")
 
         if dry_run:
