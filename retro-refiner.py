@@ -1633,6 +1633,153 @@ class DownloadUI:
         except Exception:
             self.rpc_available = False
 
+    def _download_worker(self) -> None:
+        """Background thread that runs the actual downloads."""
+        downloads = [(f['url'], f['path']) for f in self.files]
+
+        tool = get_download_tool()
+
+        if tool == 'aria2c':
+            self._run_aria2c_with_rpc(downloads)
+        elif tool == 'curl':
+            self._run_curl_batch(downloads)
+        else:
+            self._run_python_downloads(downloads)
+
+    def _run_aria2c_with_rpc(self, downloads: List[Tuple[str, Path]]) -> None:
+        """Run aria2c with RPC enabled for status tracking."""
+        import tempfile
+
+        # Create input file
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
+            input_file = f.name
+            for url, dest_path in downloads:
+                dest_path.parent.mkdir(parents=True, exist_ok=True)
+                f.write(f"{url}\n")
+                f.write(f"  dir={dest_path.parent}\n")
+                f.write(f"  out={dest_path.name}\n")
+
+        # Start aria2c with RPC
+        rpc_port = 6800
+        rpc_secret = 'retro'
+
+        cmd = [
+            'aria2c',
+            '--enable-rpc',
+            f'--rpc-listen-port={rpc_port}',
+            f'--rpc-secret={rpc_secret}',
+            '--rpc-listen-all=false',
+            '-q', '--console-log-level=error',
+            '-j', str(self.parallel),
+            '-x', str(self.connections),
+            '-s', str(self.connections),
+            '--connect-timeout=30',
+            '--timeout=300',
+            '--file-allocation=none',
+            '-i', input_file
+        ]
+
+        try:
+            self.subprocess = subprocess.Popen(
+                cmd,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL
+            )
+
+            # Wait for RPC to become available
+            self.rpc = Aria2cRPC(port=rpc_port, secret=rpc_secret)
+            for _ in range(20):  # Try for 2 seconds
+                if self.cancelled:
+                    break
+                if self.rpc.get_global_stat() is not None:
+                    self.rpc_available = True
+                    break
+                _time.sleep(0.1)
+
+            # Wait for process to finish
+            while self.subprocess.poll() is None:
+                if self.cancelled:
+                    self.subprocess.terminate()
+                    try:
+                        self.subprocess.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        self.subprocess.kill()
+                    break
+                _time.sleep(0.1)
+
+        except Exception:
+            pass
+        finally:
+            try:
+                os.unlink(input_file)
+            except Exception:
+                pass
+
+            # Final status update from file system
+            self._update_status_from_files()
+
+    def _run_curl_batch(self, downloads: List[Tuple[str, Path]]) -> None:
+        """Run curl batch download (no per-file progress)."""
+        successful = download_batch_with_curl(downloads, parallel=self.parallel)
+
+        with self.lock:
+            for f in self.files:
+                if f['path'] in successful:
+                    f['status'] = self.STATUS_DONE
+                elif f['path'].exists() and f['path'].stat().st_size > 0:
+                    f['status'] = self.STATUS_DONE
+                elif not self.cancelled:
+                    f['status'] = self.STATUS_FAILED
+
+            self.completed_count = sum(1 for f in self.files if f['status'] == self.STATUS_DONE)
+            self.failed_count = sum(1 for f in self.files if f['status'] == self.STATUS_FAILED)
+
+    def _run_python_downloads(self, downloads: List[Tuple[str, Path]]) -> None:
+        """Fall back to Python urllib sequential downloads."""
+        for url, dest_path in downloads:
+            if self.cancelled:
+                break
+
+            # Mark as downloading
+            for f in self.files:
+                if f['url'] == url:
+                    f['status'] = self.STATUS_DOWNLOADING
+                    break
+
+            # Download
+            success = False
+            try:
+                dest_path.parent.mkdir(parents=True, exist_ok=True)
+                req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+                with urllib.request.urlopen(req, timeout=60) as resp:
+                    with open(dest_path, 'wb') as out:
+                        shutil.copyfileobj(resp, out)
+                success = dest_path.exists() and dest_path.stat().st_size > 0
+            except Exception:
+                pass
+
+            # Update status
+            with self.lock:
+                for f in self.files:
+                    if f['url'] == url:
+                        f['status'] = self.STATUS_DONE if success else self.STATUS_FAILED
+                        break
+                self.completed_count = sum(1 for f in self.files if f['status'] == self.STATUS_DONE)
+                self.failed_count = sum(1 for f in self.files if f['status'] == self.STATUS_FAILED)
+
+    def _update_status_from_files(self) -> None:
+        """Update status by checking which files exist on disk."""
+        with self.lock:
+            for f in self.files:
+                if f['status'] in (self.STATUS_QUEUED, self.STATUS_DOWNLOADING):
+                    if f['path'].exists() and f['path'].stat().st_size > 0:
+                        f['status'] = self.STATUS_DONE
+                    elif not self.cancelled:
+                        f['status'] = self.STATUS_FAILED
+
+            self.completed_count = sum(1 for f in self.files if f['status'] == self.STATUS_DONE)
+            self.failed_count = sum(1 for f in self.files if f['status'] == self.STATUS_FAILED)
+
 
 def download_files_cached_batch(
     urls: List[str],
