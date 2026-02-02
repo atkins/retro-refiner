@@ -1059,11 +1059,11 @@ def get_connection_pool() -> ConnectionPool:
 
 
 # Check for external download tools (much faster for some servers like Myrient)
-_download_tool: Optional[str] = None  # 'aria2c', 'curl', 'wget', or None
+_download_tool: Optional[str] = None  # 'aria2c', 'curl', or None
 
 
 def get_download_tool() -> Optional[str]:
-    """Check which download tool is available. Prefers aria2c, then curl, then wget."""
+    """Check which download tool is available. Prefers aria2c, then curl."""
     global _download_tool
     if _download_tool is not None:
         return _download_tool if _download_tool != '' else None
@@ -1086,21 +1086,12 @@ def get_download_tool() -> Optional[str]:
     except Exception:
         pass
 
-    # Check for wget (basic: sequential)
-    try:
-        result = subprocess.run(['wget', '--version'], capture_output=True, timeout=5)
-        if result.returncode == 0:
-            _download_tool = 'wget'
-            return 'wget'
-    except Exception:
-        pass
-
     _download_tool = ''  # Mark as checked but not found
     return None
 
 
 def download_with_external_tool(url: str, dest_path: Path, connections: int = 4) -> bool:
-    """Download a file using aria2c, curl, or wget. Returns True on success."""
+    """Download a file using aria2c or curl. Returns True on success."""
     tool = get_download_tool()
     if not tool:
         return False
@@ -1115,15 +1106,9 @@ def download_with_external_tool(url: str, dest_path: Path, connections: int = 4)
                 capture_output=True,
                 timeout=310
             )
-        elif tool == 'curl':
+        else:  # curl
             result = subprocess.run(
                 ['curl', '-sSL', '-o', str(dest_path), '--connect-timeout', '30', '--max-time', '300', url],
-                capture_output=True,
-                timeout=310
-            )
-        else:  # wget
-            result = subprocess.run(
-                ['wget', '-q', '-O', str(dest_path), '--timeout=30', url],
                 capture_output=True,
                 timeout=310
             )
@@ -1228,7 +1213,7 @@ def download_files_cached_batch(
 ) -> Dict[str, Path]:
     """
     Download multiple files with batched downloads for connection reuse.
-    Uses aria2c if available (best), otherwise curl, otherwise wget.
+    Uses aria2c if available (best), otherwise curl.
     Returns dict of url -> cached_path for successful downloads.
 
     Args:
@@ -4747,8 +4732,6 @@ Pattern examples (--include / --exclude):
                 print(f"Download tool: aria2c ({args.parallel} parallel, {args.parallel} connections/file)")
             elif tool == 'curl':
                 print(f"Download tool: curl ({args.parallel} parallel)")
-            elif tool == 'wget':
-                print(f"Download tool: wget (sequential)")
             else:
                 print("Download tool: Python urllib (sequential)")
             print("=" * 60)
