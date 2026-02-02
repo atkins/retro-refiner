@@ -1,0 +1,63 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.eggs/
+dist/
+build/
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Retro-Refiner specific
+dat_files/
+cache/
+*_refined/
+*_selection_log.txt
+*_verification_report.txt
+*.lpl
+
+# ROM files (don't commit actual ROMs)
+*.zip
+*.7z
+*.rar
+*.nes
+*.sfc
+*.smc
+*.gb
+*.gbc
+*.gba
+*.n64
+*.z64
+*.v64
+*.md
+*.gen
+*.sms
+*.gg
+*.pce
+*.iso
+*.bin
+*.cue
+*.chd
+*.gdi
+*.cdi
+*.nsp
+*.xci
+*.pbp
+*.cso
+*.wbfs
