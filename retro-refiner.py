@@ -3860,6 +3860,8 @@ Pattern examples (--include / --exclude):
                         help='Use filename parsing instead of DAT metadata')
     parser.add_argument('--update-dats', action='store_true',
                         help='Delete and re-download all DAT files, then exit (no ROM processing)')
+    parser.add_argument('--clean', action='store_true',
+                        help='Delete cache, DAT files, and other generated data, then exit')
     parser.add_argument('--dat-dir', default=None,
                         help='Directory for all DAT files (default: <source>/dat_files/)')
     parser.add_argument('--cache-dir', default=None,
@@ -3934,6 +3936,75 @@ Pattern examples (--include / --exclude):
         final_dats = list(dat_dir.glob('*.dat')) + list(dat_dir.glob('*.xml')) + list(dat_dir.glob('*.ini'))
         print("\n" + "=" * 60)
         print(f"DAT UPDATE COMPLETE: {len(final_dats)} files in {dat_dir}")
+        print("=" * 60)
+        return
+
+    # Clean mode - delete generated data
+    if args.clean:
+        print("=" * 60)
+        print("CLEANING GENERATED DATA")
+        print("=" * 60)
+
+        # Determine base directory
+        if args.source and not is_url(args.source[0]):
+            base_dir = Path(args.source[0]).resolve()
+        else:
+            base_dir = Path('.').resolve()
+
+        # Determine directories to clean
+        dat_dir = Path(args.dat_dir).resolve() if args.dat_dir else base_dir / 'dat_files'
+        cache_dir = Path(args.cache_dir).resolve() if args.cache_dir else base_dir / 'cache'
+
+        cleaned_count = 0
+        cleaned_size = 0
+
+        # Clean DAT directory
+        if dat_dir.exists():
+            dat_files = list(dat_dir.glob('**/*'))
+            dat_files = [f for f in dat_files if f.is_file()]
+            if dat_files:
+                print(f"\nDAT directory: {dat_dir}")
+                for f in dat_files:
+                    size = f.stat().st_size
+                    cleaned_size += size
+                    cleaned_count += 1
+                    f.unlink()
+                print(f"  Deleted {len(dat_files)} files")
+                # Remove empty directories
+                for d in sorted(dat_dir.glob('**/*'), reverse=True):
+                    if d.is_dir() and not any(d.iterdir()):
+                        d.rmdir()
+                if dat_dir.exists() and not any(dat_dir.iterdir()):
+                    dat_dir.rmdir()
+                    print(f"  Removed directory")
+
+        # Clean cache directory
+        if cache_dir.exists():
+            cache_files = list(cache_dir.glob('**/*'))
+            cache_files = [f for f in cache_files if f.is_file()]
+            if cache_files:
+                print(f"\nCache directory: {cache_dir}")
+                for f in cache_files:
+                    size = f.stat().st_size
+                    cleaned_size += size
+                    cleaned_count += 1
+                    f.unlink()
+                print(f"  Deleted {len(cache_files)} files")
+                # Remove empty directories
+                for d in sorted(cache_dir.glob('**/*'), reverse=True):
+                    if d.is_dir() and not any(d.iterdir()):
+                        d.rmdir()
+                if cache_dir.exists() and not any(cache_dir.iterdir()):
+                    cache_dir.rmdir()
+                    print(f"  Removed directory")
+
+        # Summary
+        print("\n" + "=" * 60)
+        if cleaned_count > 0:
+            size_str = f"{cleaned_size / 1024 / 1024:.1f} MB" if cleaned_size > 1024*1024 else f"{cleaned_size / 1024:.1f} KB"
+            print(f"CLEAN COMPLETE: Removed {cleaned_count} files ({size_str})")
+        else:
+            print("CLEAN COMPLETE: No generated data found")
         print("=" * 60)
         return
 
