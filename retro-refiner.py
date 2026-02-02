@@ -3745,6 +3745,15 @@ def filter_roms_from_files(rom_files: list, dest_dir: str, system: str, dry_run:
 
 def main():
     """Main entry point."""
+    # Show header
+    print(r"""
+    ____       __                ____       _____ _
+   / __ \___  / /__________     / __ \___  / __(_) ___  ___  _____
+  / /_/ / _ \/ __/ ___/ __ \   / /_/ / _ \/ /_/ / __ \/ _ \/ ___/
+ / _, _/  __/ /_/ /  / /_/ /  / _, _/  __/ __/ / / / /  __/ /
+/_/ |_|\___/\__/_/   \____/  /_/ |_|\___/_/ /_/_/ /_/\___/_/
+""", flush=True)
+
     import argparse
 
     parser = argparse.ArgumentParser(
