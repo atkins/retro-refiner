@@ -1213,6 +1213,58 @@ def download_batch_with_aria2c(downloads: List[Tuple[str, Path]], parallel: int 
     return successful
 
 
+class Aria2cRPC:
+    """Simple aria2c JSON-RPC client for download status polling."""
+
+    def __init__(self, port: int = 6800, secret: str = 'retro'):
+        self.url = f'http://localhost:{port}/jsonrpc'
+        self.secret = f'token:{secret}'
+
+    def _call(self, method: str, params: list = None) -> Optional[dict]:
+        """Make an RPC call. Returns None on error."""
+        payload = {
+            'jsonrpc': '2.0',
+            'id': '1',
+            'method': method,
+            'params': [self.secret] + (params or [])
+        }
+        try:
+            data = json.dumps(payload).encode('utf-8')
+            req = urllib.request.Request(
+                self.url,
+                data=data,
+                headers={'Content-Type': 'application/json'}
+            )
+            with urllib.request.urlopen(req, timeout=1) as resp:
+                result = json.loads(resp.read().decode('utf-8'))
+                return result.get('result')
+        except Exception:
+            return None
+
+    def get_active(self) -> List[dict]:
+        """Get active downloads with progress info."""
+        result = self._call('aria2.tellActive')
+        return result if result else []
+
+    def get_waiting(self, offset: int = 0, limit: int = 100) -> List[dict]:
+        """Get waiting/queued downloads."""
+        result = self._call('aria2.tellWaiting', [offset, limit])
+        return result if result else []
+
+    def get_stopped(self, offset: int = 0, limit: int = 100) -> List[dict]:
+        """Get completed/failed downloads."""
+        result = self._call('aria2.tellStopped', [offset, limit])
+        return result if result else []
+
+    def get_global_stat(self) -> Optional[dict]:
+        """Get global download stats (speed, active count)."""
+        return self._call('aria2.getGlobalStat')
+
+    def shutdown(self):
+        """Gracefully shutdown aria2c."""
+        self._call('aria2.shutdown')
+
+
 def download_files_cached_batch(
     urls: List[str],
     cache_dir: Path,
