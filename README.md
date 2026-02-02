@@ -21,44 +21,56 @@ That's it. The script combines both sources, picks the best English version of e
 <details>
 <summary>More systems (click to expand)</summary>
 
+**NES**
 ```bash
-# NES
 python retro-refiner.py \
   -s "https://myrient.erista.me/files/No-Intro/Nintendo%20-%20Nintendo%20Entertainment%20System%20(Headered)/" \
   -s "https://myrient.erista.me/files/T-En%20Collection/Nintendo%20-%20Nintendo%20Entertainment%20System%20%5BT-En%5D%20Collection/" \
   --yes --commit
+```
 
-# SNES
+**SNES**
+```bash
 python retro-refiner.py \
   -s "https://myrient.erista.me/files/No-Intro/Nintendo%20-%20Super%20Nintendo%20Entertainment%20System/" \
   -s "https://myrient.erista.me/files/T-En%20Collection/Nintendo%20-%20Super%20Nintendo%20Entertainment%20System%20%5BT-En%5D%20Collection/" \
   --yes --commit
+```
 
-# Game Boy
+**Game Boy**
+```bash
 python retro-refiner.py \
   -s "https://myrient.erista.me/files/No-Intro/Nintendo%20-%20Game%20Boy/" \
   -s "https://myrient.erista.me/files/T-En%20Collection/Nintendo%20-%20Game%20Boy%20%5BT-En%5D%20Collection/" \
   --yes --commit
+```
 
-# Game Boy Color
+**Game Boy Color**
+```bash
 python retro-refiner.py \
   -s "https://myrient.erista.me/files/No-Intro/Nintendo%20-%20Game%20Boy%20Color/" \
   -s "https://myrient.erista.me/files/T-En%20Collection/Nintendo%20-%20Game%20Boy%20Color%20%5BT-En%5D%20Collection/" \
   --yes --commit
+```
 
-# Nintendo DS
+**Nintendo DS**
+```bash
 python retro-refiner.py \
   -s "https://myrient.erista.me/files/No-Intro/Nintendo%20-%20Nintendo%20DS%20(Decrypted)/" \
   -s "https://myrient.erista.me/files/T-En%20Collection/Nintendo%20-%20Nintendo%20DS%20%5BT-En%5D%20Collection/" \
   --yes --commit
+```
 
-# Sega Genesis / Mega Drive
+**Sega Genesis / Mega Drive**
+```bash
 python retro-refiner.py \
   -s "https://myrient.erista.me/files/No-Intro/Sega%20-%20Mega%20Drive%20-%20Genesis/" \
   -s "https://myrient.erista.me/files/T-En%20Collection/Sega%20-%20Mega%20Drive%20-%20Genesis%20%5BT-En%5D%20Collection/" \
   --yes --commit
+```
 
-# PlayStation (Redump)
+**PlayStation**
+```bash
 python retro-refiner.py \
   -s "https://myrient.erista.me/files/Redump/Sony%20-%20PlayStation/" \
   -s "https://myrient.erista.me/files/T-En%20Collection/Sony%20-%20PlayStation%20%5BT-En%5D%20Collection/" \
