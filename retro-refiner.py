@@ -1780,6 +1780,122 @@ class DownloadUI:
             self.completed_count = sum(1 for f in self.files if f['status'] == self.STATUS_DONE)
             self.failed_count = sum(1 for f in self.files if f['status'] == self.STATUS_FAILED)
 
+    def run(self) -> Dict[str, Path]:
+        """
+        Run the download UI. Returns dict of url -> local_path for successful downloads.
+        """
+        if not self.files:
+            return {}
+
+        # Non-TTY: fall back to simple progress
+        if not self._is_tty():
+            return self._run_simple_fallback()
+
+        try:
+            return curses.wrapper(self._curses_main)
+        except Exception:
+            # Curses failed, fall back
+            return self._run_simple_fallback()
+
+    def _curses_main(self, stdscr) -> Dict[str, Path]:
+        """Main curses loop."""
+        # Setup curses
+        curses.curs_set(0)  # Hide cursor
+        stdscr.nodelay(True)  # Non-blocking input
+        stdscr.keypad(True)  # Enable arrow keys
+
+        # Setup colors if available
+        if curses.has_colors():
+            curses.start_color()
+            curses.use_default_colors()
+            curses.init_pair(1, curses.COLOR_RED, -1)     # Failed
+            curses.init_pair(2, curses.COLOR_GREEN, -1)   # Done
+            curses.init_pair(3, curses.COLOR_CYAN, -1)    # Downloading
+
+        self.start_time = _time.time()
+
+        # Start download thread
+        self.download_thread = threading.Thread(target=self._download_worker, daemon=True)
+        self.download_thread.start()
+
+        last_rpc_poll = 0
+        rpc_poll_interval = 0.5  # Poll every 500ms
+
+        # Main loop
+        while True:
+            # Check if downloads are complete
+            if not self.download_thread.is_alive():
+                # Final render
+                if self.detailed_mode:
+                    self._render_detailed(stdscr)
+                else:
+                    self._render_simple(stdscr)
+                _time.sleep(0.3)  # Brief pause to show final state
+                break
+
+            # Handle input
+            self._handle_input(stdscr)
+
+            if self.cancelled:
+                break
+
+            # Poll RPC for status (only in detailed mode to save CPU)
+            now = _time.time()
+            if self.detailed_mode and self.rpc_available and now - last_rpc_poll >= rpc_poll_interval:
+                self._update_from_rpc()
+                last_rpc_poll = now
+
+            # Render
+            if self.detailed_mode:
+                self._render_detailed(stdscr)
+            else:
+                self._render_simple(stdscr)
+
+            _time.sleep(0.05)  # ~20 fps
+
+        # Build result dict
+        results = {}
+        for f in self.files:
+            if f['status'] == self.STATUS_DONE:
+                results[f['url']] = f['path']
+
+        return results
+
+    def _run_simple_fallback(self) -> Dict[str, Path]:
+        """Non-TTY fallback: just run downloads with print-based progress."""
+        print(f"{self.system_name.upper()}: Downloading {len(self.files)} files...")
+
+        downloads = [(f['url'], f['path']) for f in self.files]
+        tool = get_download_tool()
+
+        if tool == 'aria2c':
+            successful = download_batch_with_aria2c(downloads, self.parallel, self.connections)
+        elif tool == 'curl':
+            successful = download_batch_with_curl(downloads, self.parallel)
+        else:
+            # Python fallback
+            successful = []
+            for url, path in downloads:
+                try:
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+                    with urllib.request.urlopen(req, timeout=60) as resp:
+                        with open(path, 'wb') as out:
+                            shutil.copyfileobj(resp, out)
+                    if path.exists() and path.stat().st_size > 0:
+                        successful.append(path)
+                except Exception:
+                    pass
+
+        # Build result dict
+        results = {}
+        for url, path in downloads:
+            if path in successful or (path.exists() and path.stat().st_size > 0):
+                results[url] = path
+
+        print(f"  Downloaded {len(results)}/{len(self.files)} files")
+        return results
+
 
 def download_files_cached_batch(
     urls: List[str],
