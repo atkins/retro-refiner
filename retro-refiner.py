@@ -1267,13 +1267,24 @@ class Aria2cRPC:
 
 
 class DownloadUI:
-    """Simple download UI with single-line progress bar."""
+    """Interactive download UI with simple and detailed modes.
+
+    Default mode: Single-line progress bar with connection stats.
+    Detailed mode (press 'i'): Fullscreen curses display with per-file progress.
+    """
 
     # Status constants
     STATUS_QUEUED = 'queued'
     STATUS_DOWNLOADING = 'downloading'
     STATUS_DONE = 'done'
     STATUS_FAILED = 'failed'
+
+    # ANSI colors for simple mode
+    GREEN = '\033[32m'
+    CYAN = '\033[36m'
+    RED = '\033[31m'
+    DIM = '\033[2m'
+    RESET = '\033[0m'
 
     def __init__(self, system_name: str, files: List[Tuple[str, Path]],
                  parallel: int = 4, connections: int = 4):
@@ -1285,6 +1296,9 @@ class DownloadUI:
         self.download_thread: Optional[threading.Thread] = None
         self.subprocess: Optional[subprocess.Popen] = None
         self.lock = threading.Lock()
+        self.download_tool = 'unknown'
+        self.detailed_mode = False
+        self.shutdown_requested = False
 
         # File tracking
         self.files = []
@@ -1331,14 +1345,25 @@ class DownloadUI:
         else:
             return f"{bytes_val / (1024 * 1024 * 1024):.1f} GB"
 
-    def _render(self) -> None:
-        """Render single-line progress bar (updates in place)."""
+    def _truncate(self, text: str, max_len: int) -> str:
+        """Truncate text with ellipsis if too long."""
+        if len(text) <= max_len:
+            return text
+        return text[:max_len - 3] + '...'
+
+    def _get_counts(self) -> tuple:
+        """Get current status counts."""
+        active = sum(1 for f in self.files if f['status'] == self.STATUS_DOWNLOADING)
+        queued = sum(1 for f in self.files if f['status'] == self.STATUS_QUEUED)
+        return self.completed_count, self.failed_count, active, queued
+
+    def _render_simple(self) -> None:
+        """Render simple single-line progress bar with connection stats."""
         if not self._is_tty():
             return
 
         total = len(self.files)
-        done = self.completed_count
-        failed = self.failed_count
+        done, failed, active, queued = self._get_counts()
         elapsed = _time.time() - self.start_time if self.start_time else 0
 
         # Progress bar
@@ -1350,30 +1375,170 @@ class DownloadUI:
         else:
             bar = '░' * bar_width
 
-        # Stats
+        # Time stats
         if done > 0 and elapsed > 0:
             rate = done / elapsed
             remaining = (total - done) / rate if rate > 0 else 0
             eta_str = self._format_time(remaining)
-            elapsed_str = self._format_time(elapsed)
-            rate_str = f"{rate:.1f}" if rate < 100 else f"{rate:.0f}"
         else:
             eta_str = '--:--'
-            elapsed_str = self._format_time(elapsed)
-            rate_str = '0'
+        elapsed_str = self._format_time(elapsed)
 
-        speed_str = self._format_size(self.total_speed) + '/s' if self.total_speed else ''
+        # Speed
+        speed_str = self._format_size(self.total_speed) + '/s' if self.total_speed else '-- B/s'
 
-        # Build single line
-        line = f"  {self.system_name.upper()} Downloading: |{bar}| {done}/{total}"
-        if speed_str:
-            line += f"  {speed_str}"
-        line += f"  [{elapsed_str}<{eta_str}, {rate_str}file/s]"
+        # Build line with all stats
+        # Format: SYSTEM |████░░░░| 24/150  aria2c 4∥ 16× ↓3 ○47  1.2MB/s  [1:15<2:34]  [i]
+        line = f"  {self.system_name.upper()} |{bar}| {done}/{total}"
+        line += f"  {self.download_tool}"
+        line += f" {self.parallel}∥ {self.connections}×"  # parallel, connections
+        line += f" ↓{active} ○{queued}"  # active, queued
         if failed:
-            line += f" ({failed} failed)"
+            line += f" {self.RED}✗{failed}{self.RESET}"
+        line += f"  {speed_str}"
+        line += f"  [{elapsed_str}<{eta_str}]"
+        line += f"  {self.DIM}[i]{self.RESET}"
 
         # Print with carriage return to update in place
-        print(f"\r{line:<100}", end='', flush=True)
+        print(f"\r{line:<120}", end='', flush=True)
+
+    def _render_detailed(self, stdscr) -> None:
+        """Render fullscreen curses detailed view."""
+        import curses
+
+        stdscr.clear()
+        height, width = stdscr.getmaxyx()
+
+        # Ensure minimum size
+        if height < 10 or width < 60:
+            stdscr.addstr(0, 0, "Terminal too small. Press 'i' to return.")
+            stdscr.refresh()
+            return
+
+        total = len(self.files)
+        done, failed, active, queued = self._get_counts()
+        elapsed = _time.time() - self.start_time if self.start_time else 0
+
+        # Colors
+        curses.start_color()
+        curses.use_default_colors()
+        curses.init_pair(1, curses.COLOR_GREEN, -1)
+        curses.init_pair(2, curses.COLOR_CYAN, -1)
+        curses.init_pair(3, curses.COLOR_RED, -1)
+        curses.init_pair(4, curses.COLOR_YELLOW, -1)
+
+        # Header
+        header = f" Downloading ROMs for {self.system_name.upper()}"
+        toggle_hint = "[i] simple view  [q] cancel "
+        stdscr.addstr(0, 0, header[:width-1], curses.A_BOLD)
+        if len(toggle_hint) < width:
+            stdscr.addstr(0, width - len(toggle_hint) - 1, toggle_hint, curses.A_DIM)
+
+        # Separator
+        stdscr.addstr(1, 0, '─' * (width - 1))
+
+        # Progress bar line
+        bar_width = min(30, width - 60)
+        if total > 0:
+            pct = done / total
+            filled = int(bar_width * pct)
+            bar = '█' * filled + '░' * (bar_width - filled)
+        else:
+            bar = '░' * bar_width
+
+        speed_str = self._format_size(self.total_speed) + '/s' if self.total_speed else '-- B/s'
+        if done > 0 and elapsed > 0:
+            rate = done / elapsed
+            remaining = (total - done) / rate if rate > 0 else 0
+            eta_str = self._format_time(remaining)
+        else:
+            eta_str = '--:--'
+        elapsed_str = self._format_time(elapsed)
+
+        progress_line = f" |{bar}| {done}/{total}  {speed_str}  [{elapsed_str}<{eta_str}]"
+        stdscr.addstr(2, 0, progress_line[:width-1])
+
+        # Connection stats line
+        stats_line = f" {self.download_tool} | {self.parallel} parallel | {self.connections} conn/file"
+        stats_line += f" | Active: {active} | Queued: {queued}"
+        if failed:
+            stats_line += f" | Failed: {failed}"
+        stdscr.addstr(3, 0, stats_line[:width-1])
+
+        # Separator
+        stdscr.addstr(4, 0, '─' * (width - 1))
+
+        # File list area
+        list_start = 5
+        list_height = height - list_start - 2  # Leave room for footer
+
+        # Sort files: downloading first, then queued, then done, then failed
+        def sort_key(f):
+            status_order = {
+                self.STATUS_DOWNLOADING: 0,
+                self.STATUS_QUEUED: 1,
+                self.STATUS_DONE: 2,
+                self.STATUS_FAILED: 3
+            }
+            return status_order.get(f['status'], 4)
+
+        sorted_files = sorted(self.files, key=sort_key)
+
+        # Display files
+        for i, f in enumerate(sorted_files[:list_height]):
+            row = list_start + i
+            if row >= height - 2:
+                break
+
+            status = f['status']
+            filename = self._truncate(f['path'].name, width - 30)
+
+            if status == self.STATUS_DONE:
+                icon = '✓'
+                color = curses.color_pair(1)
+                suffix = 'done'
+            elif status == self.STATUS_DOWNLOADING:
+                icon = '↓'
+                color = curses.color_pair(2)
+                if f['size'] > 0:
+                    pct = int(100 * f['completed'] / f['size'])
+                    speed = self._format_size(f['speed']) + '/s' if f['speed'] else ''
+                    suffix = f"{pct}% {speed}"
+                else:
+                    suffix = '...'
+            elif status == self.STATUS_FAILED:
+                icon = '✗'
+                color = curses.color_pair(3)
+                suffix = 'failed'
+            else:  # queued
+                icon = '○'
+                color = curses.A_DIM
+                suffix = 'queued'
+
+            # Build line
+            line = f" {icon} {filename:<{width-25}} {suffix:>15}"
+            try:
+                stdscr.addstr(row, 0, line[:width-1], color)
+            except curses.error:
+                pass  # Ignore if we go out of bounds
+
+        # Show count if more files
+        if len(sorted_files) > list_height:
+            remaining_msg = f" ... and {len(sorted_files) - list_height} more files"
+            try:
+                stdscr.addstr(height - 3, 0, remaining_msg[:width-1], curses.A_DIM)
+            except curses.error:
+                pass
+
+        # Footer
+        footer = " [i] simple view    [q] cancel downloads "
+        try:
+            stdscr.addstr(height - 1, 0, '─' * (width - 1))
+            stdscr.addstr(height - 1, (width - len(footer)) // 2, footer, curses.A_DIM)
+        except curses.error:
+            pass
+
+        stdscr.refresh()
 
     def _update_from_rpc(self) -> None:
         """Poll aria2c RPC for download status updates."""
@@ -1441,6 +1606,7 @@ class DownloadUI:
         downloads = [(f['url'], f['path']) for f in self.files]
 
         tool = get_download_tool()
+        self.download_tool = tool
 
         if tool == 'aria2c':
             self._run_aria2c_with_rpc(downloads)
@@ -1562,6 +1728,68 @@ class DownloadUI:
             self.completed_count = sum(1 for f in self.files if f['status'] == self.STATUS_DONE)
             self.failed_count = sum(1 for f in self.files if f['status'] == self.STATUS_FAILED)
 
+    def _check_keypress(self) -> Optional[str]:
+        """Non-blocking check for keypress. Returns key or None."""
+        import select
+        import termios
+        import tty
+
+        if not self._is_tty():
+            return None
+
+        try:
+            fd = sys.stdin.fileno()
+            old_settings = termios.tcgetattr(fd)
+            try:
+                tty.setraw(fd)
+                # Check if input is available
+                if select.select([sys.stdin], [], [], 0)[0]:
+                    key = sys.stdin.read(1)
+                    return key
+            finally:
+                termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+        except Exception:
+            pass
+        return None
+
+    def _run_curses_detailed(self) -> None:
+        """Run the detailed curses view until 'i' or 'q' is pressed."""
+        import curses
+
+        def curses_main(stdscr):
+            curses.curs_set(0)  # Hide cursor
+            stdscr.nodelay(True)  # Non-blocking input
+
+            while self.detailed_mode and self.download_thread and self.download_thread.is_alive():
+                # Check for keypress
+                try:
+                    key = stdscr.getch()
+                    if key == ord('i'):
+                        self.detailed_mode = False
+                        break
+                    elif key == ord('q'):
+                        self.shutdown_requested = True
+                        self.detailed_mode = False
+                        break
+                except Exception:
+                    pass
+
+                self._update_from_rpc()
+                self._render_detailed(stdscr)
+                _time.sleep(0.1)
+
+            # Final render if still in detailed mode
+            if self.detailed_mode:
+                self._update_status_from_files()
+                self._render_detailed(stdscr)
+                stdscr.getch()  # Wait for any key
+
+        try:
+            curses.wrapper(curses_main)
+        except Exception:
+            # If curses fails, just exit detailed mode
+            self.detailed_mode = False
+
     def run(self) -> Dict[str, Path]:
         """Run the download UI. Returns dict of url -> local_path for successful downloads."""
         if not self.files:
@@ -1571,30 +1799,52 @@ class DownloadUI:
             return self._run_simple_fallback()
 
         self.start_time = _time.time()
+        self.download_tool = get_download_tool()  # Set early for display
 
         # Start download thread
         self.download_thread = threading.Thread(target=self._download_worker, daemon=True)
         self.download_thread.start()
 
-        # Main loop
-        while self.download_thread.is_alive():
+        # Main loop - simple view with option to switch
+        while self.download_thread.is_alive() and not self.shutdown_requested:
+            # Check for 'i' keypress to toggle detailed mode
+            key = self._check_keypress()
+            if key == 'i':
+                # Clear the simple line first
+                print('\r' + ' ' * 120 + '\r', end='', flush=True)
+                self.detailed_mode = True
+                self._run_curses_detailed()
+                # After returning from curses, restore simple view
+                if self.shutdown_requested:
+                    break
+            elif key == 'q':
+                self.shutdown_requested = True
+                break
+
             self._update_from_rpc()
-            self._render()
-            _time.sleep(0.2)
+            self._render_simple()
+            _time.sleep(0.15)
 
-        # Final update and render
+        # Handle shutdown
+        if self.shutdown_requested and self.subprocess:
+            try:
+                self.subprocess.terminate()
+            except Exception:
+                pass
+
+        # Final update
         self._update_status_from_files()
-        self._render()
 
-        # Move to new line after progress bar
-        print()
+        if not self.detailed_mode:
+            self._render_simple()
+            print()  # Move to new line after progress bar
 
         # Print final summary
         done = self.completed_count
         failed = self.failed_count
-        print(f"  \033[32m✓\033[0m Downloaded {done}/{len(self.files)} files", end='')
+        print(f"  {self.GREEN}✓{self.RESET} Downloaded {done}/{len(self.files)} files", end='')
         if failed:
-            print(f" \033[31m({failed} failed)\033[0m")
+            print(f" {self.RED}({failed} failed){self.RESET}")
         else:
             print()
 
