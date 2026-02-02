@@ -132,15 +132,93 @@ def _parse_yaml_value(value: str):
     # Plain string
     return value
 
-try:
-    from tqdm import tqdm
-except ImportError:
-    # Fallback: simple wrapper that just iterates without progress bar
-    def tqdm(iterable, **kwargs):
-        desc = kwargs.get('desc', '')
-        if desc:
-            print(f"  {desc}...")
-        return iterable
+# Built-in progress bar (no external dependency)
+import time as _time
+
+class ProgressBar:
+    """Progress bar with ETA and throughput metrics."""
+
+    def __init__(self, iterable, desc='', unit='it', leave=True, total=None):
+        self.iterable = iterable
+        self.desc = desc
+        self.unit = unit
+        self.leave = leave
+        self.total = total if total is not None else len(iterable) if hasattr(iterable, '__len__') else None
+        self.current = 0
+        self.start_time = None
+        self.bar_width = 20
+
+    def __iter__(self):
+        self.start_time = _time.time()
+        self._print_bar()
+        for item in self.iterable:
+            yield item
+            self.current += 1
+            self._print_bar()
+        self._finish()
+
+    def _format_time(self, seconds):
+        """Format seconds into human-readable string."""
+        if seconds < 60:
+            return f"{seconds:.0f}s"
+        elif seconds < 3600:
+            mins, secs = divmod(int(seconds), 60)
+            return f"{mins}:{secs:02d}"
+        else:
+            hours, remainder = divmod(int(seconds), 3600)
+            mins, secs = divmod(remainder, 60)
+            return f"{hours}:{mins:02d}:{secs:02d}"
+
+    def _print_bar(self):
+        elapsed = _time.time() - self.start_time if self.start_time else 0
+
+        if self.total and self.total > 0:
+            pct = self.current / self.total
+            filled = int(self.bar_width * pct)
+            bar = '█' * filled + '░' * (self.bar_width - filled)
+
+            # Calculate throughput and ETA
+            if self.current > 0 and elapsed > 0:
+                rate = self.current / elapsed
+                remaining = (self.total - self.current) / rate if rate > 0 else 0
+                rate_str = f"{rate:.1f}" if rate < 100 else f"{rate:.0f}"
+                eta_str = self._format_time(remaining)
+                elapsed_str = self._format_time(elapsed)
+                stats = f" [{elapsed_str}<{eta_str}, {rate_str}{self.unit}/s]"
+            else:
+                stats = ""
+
+            line = f"\r  {self.desc}: |{bar}| {self.current}/{self.total}{stats}"
+        else:
+            # Unknown total - just show count and rate
+            if self.current > 0 and elapsed > 0:
+                rate = self.current / elapsed
+                rate_str = f"{rate:.1f}" if rate < 100 else f"{rate:.0f}"
+                stats = f" [{rate_str}{self.unit}/s]"
+            else:
+                stats = ""
+            line = f"\r  {self.desc}: {self.current} {self.unit}{stats}"
+
+        # Pad to clear previous longer lines
+        print(f"{line:<79}", end='', flush=True)
+
+    def _finish(self):
+        if self.leave:
+            print()  # Move to next line
+        else:
+            # Clear the line
+            print('\r' + ' ' * 79 + '\r', end='', flush=True)
+
+
+def tqdm(iterable, **kwargs):
+    """Compatibility wrapper matching tqdm's interface."""
+    return ProgressBar(
+        iterable,
+        desc=kwargs.get('desc', ''),
+        unit=kwargs.get('unit', 'it'),
+        leave=kwargs.get('leave', True),
+        total=kwargs.get('total')
+    )
 
 # Global flag for graceful shutdown
 _shutdown_requested = False
