@@ -2,7 +2,7 @@
 
 **Refine your ROM collection down to the essentials.**
 
-A portable Python script that simplifies the generation of RetroArch-friendly ROM sets. Point it at large ROM archives—local or network—and it automatically selects the best English version of each game, filtering out the clutter.
+A portable Python script that simplifies the generation of RetroArch-friendly ROM sets. Point it at large ROM archives—local or network—and it automatically selects the best version of each game, based on your native language and filters out the clutter.
 
 ## Why Retro-Refiner?
 
