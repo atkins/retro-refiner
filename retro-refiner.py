@@ -1683,7 +1683,6 @@ LIBRETRO_DAT_SYSTEMS = {
     'supergrafx': 'NEC - PC Engine SuperGrafx',
     'tgcd': 'NEC - PC Engine CD - TurboGrafx-CD',
     'pcfx': 'NEC - PC-FX',
-    'pc88': 'NEC - PC-88',
     'pc98': 'NEC - PC-98',
     # SNK
     'neogeo': 'SNK - Neo Geo',
@@ -1796,7 +1795,6 @@ REDUMP_DAT_SYSTEMS = {
     'cdtv': 'Commodore - CDTV',
     'atarijaguarcd': 'Atari - Jaguar CD Interactive Multimedia System',
     'fmtowns': 'Fujitsu - FM Towns series',
-    'pc88': 'NEC - PC-88 series',
     'pc98': 'NEC - PC-98 series',
     'x68000': 'Sharp - X68000',
 }
@@ -3781,8 +3779,6 @@ Pattern examples (--include / --exclude):
                         help='Auto-detect systems from file extensions (for flat directories)')
     parser.add_argument('--commit', '-c', action='store_true',
                         help='Actually transfer files (default is dry run which only shows what would be selected)')
-    parser.add_argument('--yes', action='store_true',
-                        help='Skip confirmation prompt for network downloads')
     parser.add_argument('--config', default=None,
                         help='Path to config file (default: retro-refiner.yaml in source dir)')
     parser.add_argument('--list-systems', action='store_true',
@@ -4247,23 +4243,6 @@ Pattern examples (--include / --exclude):
             else:
                 print(f"\nTotal: {total_network_files} files")
             print(f"Cache directory: {cache_dir}")
-
-            # Prompt for confirmation unless --yes is set
-            if not args.yes:
-                print()
-                try:
-                    prompt = "Proceed with download? [y/N]: "
-                    response = input(prompt).strip().lower()
-
-                    if response not in ('y', 'yes'):
-                        print("Download cancelled.")
-                        network_downloads = {}
-                        total_network_files = 0
-                except (EOFError, KeyboardInterrupt):
-                    print("\nCancelled.")
-                    network_downloads = {}
-                    total_network_files = 0
-
             print("=" * 60)
 
     # Step 3: Download the filtered files

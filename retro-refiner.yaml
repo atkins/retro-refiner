@@ -126,10 +126,6 @@ no_dat: false
 # Downloaded ROMs are cached here to avoid re-downloading
 # cache_dir: /path/to/cache
 
-# Skip confirmation prompt before downloading from network sources (--commit mode only)
-# In dry run mode, no downloads occur regardless of this setting
-yes: false
-
 # -----------------------------------------------------------------------------
 # MAME/Arcade Options
 # -----------------------------------------------------------------------------

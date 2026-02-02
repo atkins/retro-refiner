@@ -13,7 +13,7 @@ Grab a refined ROM set from Myrient in one command:
 python retro-refiner.py \
   -s "https://myrient.erista.me/files/No-Intro/Nintendo%20-%20Game%20Boy%20Advance/" \
   -s "https://myrient.erista.me/files/T-En%20Collection/Nintendo%20-%20Game%20Boy%20Advance%20%5BT-En%5D%20Collection/" \
-  --yes --commit
+  --commit
 ```
 
 That's it. The script combines both sources, picks the best English version of each game (official release or fan translation), and downloads only what you need.
@@ -26,7 +26,7 @@ That's it. The script combines both sources, picks the best English version of e
 python retro-refiner.py \
   -s "https://myrient.erista.me/files/No-Intro/Nintendo%20-%20Nintendo%20Entertainment%20System%20(Headered)/" \
   -s "https://myrient.erista.me/files/T-En%20Collection/Nintendo%20-%20Nintendo%20Entertainment%20System%20%5BT-En%5D%20Collection/" \
-  --yes --commit
+  --commit
 ```
 
 **SNES**
@@ -34,7 +34,7 @@ python retro-refiner.py \
 python retro-refiner.py \
   -s "https://myrient.erista.me/files/No-Intro/Nintendo%20-%20Super%20Nintendo%20Entertainment%20System/" \
   -s "https://myrient.erista.me/files/T-En%20Collection/Nintendo%20-%20Super%20Nintendo%20Entertainment%20System%20%5BT-En%5D%20Collection/" \
-  --yes --commit
+  --commit
 ```
 
 **Game Boy**
@@ -42,7 +42,7 @@ python retro-refiner.py \
 python retro-refiner.py \
   -s "https://myrient.erista.me/files/No-Intro/Nintendo%20-%20Game%20Boy/" \
   -s "https://myrient.erista.me/files/T-En%20Collection/Nintendo%20-%20Game%20Boy%20%5BT-En%5D%20Collection/" \
-  --yes --commit
+  --commit
 ```
 
 **Game Boy Color**
@@ -50,7 +50,7 @@ python retro-refiner.py \
 python retro-refiner.py \
   -s "https://myrient.erista.me/files/No-Intro/Nintendo%20-%20Game%20Boy%20Color/" \
   -s "https://myrient.erista.me/files/T-En%20Collection/Nintendo%20-%20Game%20Boy%20Color%20%5BT-En%5D%20Collection/" \
-  --yes --commit
+  --commit
 ```
 
 **Nintendo DS**
@@ -58,7 +58,7 @@ python retro-refiner.py \
 python retro-refiner.py \
   -s "https://myrient.erista.me/files/No-Intro/Nintendo%20-%20Nintendo%20DS%20(Decrypted)/" \
   -s "https://myrient.erista.me/files/T-En%20Collection/Nintendo%20-%20Nintendo%20DS%20%5BT-En%5D%20Collection/" \
-  --yes --commit
+  --commit
 ```
 
 **Sega Genesis / Mega Drive**
@@ -66,7 +66,7 @@ python retro-refiner.py \
 python retro-refiner.py \
   -s "https://myrient.erista.me/files/No-Intro/Sega%20-%20Mega%20Drive%20-%20Genesis/" \
   -s "https://myrient.erista.me/files/T-En%20Collection/Sega%20-%20Mega%20Drive%20-%20Genesis%20%5BT-En%5D%20Collection/" \
-  --yes --commit
+  --commit
 ```
 
 **PlayStation**
@@ -74,7 +74,7 @@ python retro-refiner.py \
 python retro-refiner.py \
   -s "https://myrient.erista.me/files/Redump/Sony%20-%20PlayStation/" \
   -s "https://myrient.erista.me/files/T-En%20Collection/Sony%20-%20PlayStation%20%5BT-En%5D%20Collection/" \
-  --yes --commit
+  --commit
 ```
 
 </details>
@@ -200,7 +200,7 @@ python retro-refiner.py -s https://myserver.com/roms/ --cache-dir /path/to/cache
 
 **Features:**
 - **Filter-before-download**: All filtering (patterns, regions, proto/beta exclusions) happens before downloading
-- **Confirmation prompt**: Shows download summary and asks for confirmation (use `--yes` to skip)
+- **Download summary**: Shows what will be downloaded before starting
 - Only selected ROMs are downloaded, saving bandwidth and time
 - Automatic redirect following
 - Recursive subdirectory scanning (up to 3 levels deep)
@@ -351,7 +351,6 @@ Each system folder contains `_selection_log.txt` with:
 | `-a, --auto-detect` | Auto-detect systems from file extensions |
 | `-c, --commit` | Actually transfer files (default is dry run: no copy/move/link/download) |
 | `-v, --verbose` | Show detailed output (filtering decisions, selections) |
-| `--yes` | Skip confirmation prompt for network downloads |
 | `--config` | Path to config file (default: `retro-refiner.yaml`) |
 | `--list-systems` | Show all supported systems |
 

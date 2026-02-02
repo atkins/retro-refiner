@@ -36,11 +36,6 @@ python retro-refiner.py --systems nes snes genesis
 python retro-refiner.py --commit
 ```
 
-### Skip network download confirmation
-```bash
-python retro-refiner.py -s https://example.com/roms/ --yes
-```
-
 ### List all supported systems
 ```bash
 python retro-refiner.py --list-systems
