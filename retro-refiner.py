@@ -30,6 +30,7 @@ import socket
 import http.client
 import ssl
 import subprocess
+import threading
 from urllib.parse import urlparse
 from pathlib import Path
 from collections import defaultdict
@@ -1263,6 +1264,52 @@ class Aria2cRPC:
     def shutdown(self):
         """Gracefully shutdown aria2c."""
         self._call('aria2.shutdown')
+
+
+class DownloadUI:
+    """Interactive download UI with simple/detailed view toggle."""
+
+    # Status constants
+    STATUS_QUEUED = 'queued'
+    STATUS_DOWNLOADING = 'downloading'
+    STATUS_DONE = 'done'
+    STATUS_FAILED = 'failed'
+
+    def __init__(self, system_name: str, files: List[Tuple[str, Path]],
+                 parallel: int = 4, connections: int = 4):
+        self.system_name = system_name
+        self.parallel = parallel
+        self.connections = connections
+        self.detailed_mode = False
+        self.scroll_offset = 0
+        self.cancelled = False
+        self.rpc: Optional[Aria2cRPC] = None
+        self.rpc_available = False
+        self.download_thread: Optional[threading.Thread] = None
+        self.subprocess: Optional[subprocess.Popen] = None
+        self.lock = threading.Lock()
+
+        # File tracking: list of dicts with url, path, status, size, progress, speed
+        self.files = []
+        for url, path in files:
+            self.files.append({
+                'url': url,
+                'path': path,
+                'status': self.STATUS_QUEUED,
+                'size': 0,
+                'completed': 0,
+                'speed': 0,
+            })
+
+        # Stats
+        self.start_time = 0
+        self.total_speed = 0
+        self.completed_count = 0
+        self.failed_count = 0
+
+    def _is_tty(self) -> bool:
+        """Check if running in a terminal."""
+        return sys.stdout.isatty()
 
 
 def download_files_cached_batch(
