@@ -26,6 +26,7 @@ import fnmatch
 import json
 import urllib.request
 import urllib.error
+import socket
 from pathlib import Path
 from collections import defaultdict
 from dataclasses import dataclass, field
@@ -736,6 +737,78 @@ def parse_html_for_directories(html: str, base_url: str) -> List[str]:
         dirs.append(url)
 
     return dirs
+
+
+def validate_source(source: str, timeout: int = 15) -> Tuple[bool, str]:
+    """
+    Validate a source path or URL is accessible.
+    Returns (success, error_message) tuple.
+    """
+    if is_url(source):
+        # Network source - try to fetch
+        try:
+            request = urllib.request.Request(
+                source,
+                headers={
+                    'User-Agent': 'Mozilla/5.0 (compatible; Retro-Refiner/1.0)',
+                    'Accept': 'text/html,application/xhtml+xml,*/*',
+                }
+            )
+            with urllib.request.urlopen(request, timeout=timeout) as response:
+                # Check we got a successful response
+                if response.status == 200:
+                    return True, ""
+                else:
+                    return False, f"HTTP {response.status}"
+        except urllib.error.HTTPError as e:
+            if e.code == 404:
+                return False, "Not found (404)"
+            elif e.code == 403:
+                return False, "Access denied (403)"
+            elif e.code == 401:
+                return False, "Authentication required (401)"
+            else:
+                return False, f"HTTP error {e.code}"
+        except urllib.error.URLError as e:
+            return False, f"Connection failed: {e.reason}"
+        except socket.timeout:
+            return False, "Connection timed out"
+        except Exception as e:
+            return False, str(e)
+    else:
+        # Local path - check exists
+        path = Path(source)
+        if not path.exists():
+            return False, "Path does not exist"
+        if not path.is_dir():
+            return False, "Path is not a directory"
+        return True, ""
+
+
+def validate_all_sources(local_sources: List[Path], network_sources: List[str]) -> List[Tuple[str, str]]:
+    """
+    Validate all sources are accessible.
+    Returns list of (source, error_message) tuples for failed sources.
+    """
+    errors = []
+
+    # Validate local sources
+    for source in local_sources:
+        success, error = validate_source(str(source))
+        if not success:
+            errors.append((str(source), error))
+
+    # Validate network sources
+    for source in network_sources:
+        print(f"Validating: {source}...", end=" ", flush=True)
+        success, error = validate_source(source)
+        if success:
+            print("OK")
+        else:
+            print(f"FAILED ({error})")
+            errors.append((source, error))
+
+    return errors
 
 
 def fetch_url(url: str, timeout: int = 30, max_redirects: int = 5) -> Tuple[bytes, str]:
@@ -4232,6 +4305,20 @@ Pattern examples (--include / --exclude):
     # For backward compatibility
     source_paths = local_sources
 
+    # Validate all sources are accessible before proceeding
+    if network_sources:
+        print("Validating sources...")
+    source_errors = validate_all_sources(local_sources, network_sources)
+    if source_errors:
+        print("\n" + "=" * 60)
+        print("ERROR: One or more sources could not be accessed")
+        print("=" * 60)
+        for source, error in source_errors:
+            print(f"  ✗ {source}")
+            print(f"    {error}")
+        print("\nPlease check your source paths/URLs and try again.")
+        sys.exit(1)
+
     # Load config file
     if args.config:
         config_path = Path(args.config)
@@ -4391,6 +4478,8 @@ Pattern examples (--include / --exclude):
     total_network_selected_size = 0
     network_system_stats = {}  # Track stats per system for network sources
 
+    empty_network_sources = []  # Track sources that returned no ROMs
+
     for network_url in network_sources:
         check_shutdown()
         print()  # Blank line before network source
@@ -4398,6 +4487,11 @@ Pattern examples (--include / --exclude):
         # Step 1: Scan for URLs only (no downloading yet) - now returns sizes too
         url_dict, url_sizes = scan_network_source_urls(network_url, args.systems)
         network_downloads[network_url] = {}
+
+        # Check if this source returned any ROMs at all
+        total_urls_from_source = sum(len(urls) for urls in url_dict.values())
+        if total_urls_from_source == 0:
+            empty_network_sources.append(network_url)
 
         for system, urls in url_dict.items():
             if not urls:
@@ -4433,6 +4527,28 @@ Pattern examples (--include / --exclude):
                 total_network_selected_size += size_info['selected_size']
             else:
                 print(f"{system.upper()}: No ROMs remaining after filtering")
+
+    # Check if any network sources returned no ROMs
+    if empty_network_sources:
+        # If ALL network sources are empty and there are no local sources with ROMs, fail
+        has_local_roms = bool(detected)
+        if len(empty_network_sources) == len(network_sources) and not has_local_roms:
+            print("\n" + "=" * 60)
+            print("ERROR: Network source(s) returned no ROM files")
+            print("=" * 60)
+            for src in empty_network_sources:
+                print(f"  ✗ {src}")
+            print("\nPossible causes:")
+            print("  • URL points to an empty directory")
+            print("  • URL points to a page without ROM download links")
+            print("  • ROM files use unrecognized extensions")
+            print("  • The page format is not supported for scraping")
+            sys.exit(1)
+        else:
+            # Just warn about empty sources if we have other data
+            print("\nWarning: The following source(s) returned no ROM files:")
+            for src in empty_network_sources:
+                print(f"  • {src}")
 
     # Show download summary and prompt for confirmation (only when actually downloading)
     if total_network_files > 0:
@@ -4520,9 +4636,25 @@ Pattern examples (--include / --exclude):
     detected = dict(detected)  # Convert from defaultdict
 
     if not detected:
-        print("\nNo ROM files found! Check your source directory.")
-        print("Use --list-systems to see supported file extensions.")
-        return
+        print("\n" + "=" * 60)
+        print("ERROR: No ROM files found in any source")
+        print("=" * 60)
+        if local_sources:
+            print("\nLocal sources checked:")
+            for src in local_sources:
+                print(f"  • {src}")
+        if network_sources:
+            print("\nNetwork sources checked:")
+            for src in network_sources:
+                print(f"  • {src}")
+        print("\nPossible causes:")
+        print("  • Source directory/URL contains no ROM files")
+        print("  • ROM files are in subdirectories not being scanned")
+        print("  • File extensions not recognized (use --list-systems to see supported extensions)")
+        print("  • All ROMs were filtered out by include/exclude patterns")
+        if args.systems:
+            print(f"  • Specified systems ({', '.join(args.systems)}) not found in sources")
+        sys.exit(1)
 
     if args.systems:
         print(f"Systems: {', '.join(sorted(detected.keys()))}")
