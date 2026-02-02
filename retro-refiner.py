@@ -32,6 +32,42 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Optional, Dict, List, Tuple
 
+# Title mappings cache (loaded from title_mappings.json)
+_title_mappings_cache: Optional[Dict[str, str]] = None
+
+
+def load_title_mappings() -> Dict[str, str]:
+    """
+    Load title mappings from title_mappings.json.
+    Returns a flat dict of {source_title: target_title}.
+    Caches the result for subsequent calls.
+    """
+    global _title_mappings_cache
+
+    if _title_mappings_cache is not None:
+        return _title_mappings_cache
+
+    mappings_path = Path(__file__).parent / 'title_mappings.json'
+    flat_mappings = {}
+
+    if mappings_path.exists():
+        try:
+            with open(mappings_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+
+            # Flatten the categorized structure into a single dict
+            for category, entries in data.items():
+                if category.startswith('_'):
+                    continue  # Skip metadata
+                if isinstance(entries, dict):
+                    flat_mappings.update(entries)
+        except (json.JSONDecodeError, IOError) as e:
+            print(f"Warning: Could not load title_mappings.json: {e}")
+
+    _title_mappings_cache = flat_mappings
+    return flat_mappings
+
+
 # Minimal YAML parser for config files (no external dependency)
 def parse_simple_yaml(content: str) -> dict:
     """
@@ -2246,386 +2282,9 @@ def normalize_title(title: str) -> str:
     for pattern, replacement in roman_map:
         normalized = re.sub(pattern, replacement, normalized)
 
-    # Handle common regional title variations
-    # Merge Final Fantasy regional numbering differences:
-    # - USA "Final Fantasy II" = Japan "Final Fantasy IV"
-    # - USA "Final Fantasy III" = Japan "Final Fantasy VI"
-    # (After roman numeral conversion: II->2, IV->4, etc.)
-    title_mappings = {
-        'super mario bros 4': 'super mario world',
-        'super mario world super mario bros 4': 'super mario world',
-        'sonic 3': 'sonic the hedgehog 3',
-        # Merge FF regional naming - use USA names as canonical (after roman->arabic conversion)
-        'final fantasy 4': 'final fantasy 2',
-        'final fantasy 4 easy type': 'final fantasy 2',
-        'final fantasy 6': 'final fantasy 3',
-        # Japan "64" suffix titles -> USA names
-        'mario golf 64': 'mario golf',
-        'mario tennis 64': 'mario tennis',
-        'mario story': 'paper mario',
-        'super metroid': 'super metroid',  # Same but ensure consistent
-        # Zelda title variations (after article and punctuation normalization)
-        'zelda no densetsu kamigami no triforce': 'legend of zelda a link to the past',
-        'legend of zelda triforce of the gods': 'legend of zelda a link to the past',
-        'zelda no densetsu mujura no kamen': 'legend of zelda majora s mask',
-        'zelda no densetsu toki no ocarina': 'legend of zelda ocarina of time',
-        'zelda no densetsu toki no ocarina gc': 'legend of zelda ocarina of time',
-        'zelda no densetsu toki no ocarina gc ura': 'legend of zelda ocarina of time master quest',
-        # Castlevania regional names
-        'castlevania vampire s kiss': 'castlevania dracula x',
-        'akumajou dracula': 'castlevania',
-        'akumajou dracula xx': 'castlevania dracula x',
-        # Castlevania Gameboy
-        'dracula densetsu': 'castlevania the adventure',
-        'dracula densetsu 2': 'castlevania 2 belmont s revenge',
-        'akumajou special boku dracula kun': 'kid dracula',
-        'castlevania special kid dracula': 'kid dracula',
-        'i m kid dracula!!': 'kid dracula',
-        # Castlevania NES
-        'akumajou densetsu': 'castlevania 3 dracula s curse',
-        'akumajou densetsu legend of demon castle': 'castlevania 3 dracula s curse',
-        # Castlevania GBA
-        'akumajou dracula circle of the moon': 'castlevania circle of the moon',
-        'akumajou dracula byakuya no concerto': 'castlevania harmony of dissonance',
-        'akumajou dracula akatsuki no minuet': 'castlevania aria of sorrow',
-        # Castlevania N64
-        'akumajou dracula mokushiroku real action adventure': 'castlevania',
-        'akumajou dracula mokushiroku gaiden legend of cornell': 'castlevania legacy of darkness',
-        # Castlevania Genesis
-        'castlevania the new generation': 'castlevania bloodlines',
-        'vampire killer': 'castlevania bloodlines',
-        # Super Mario regional names
-        'super mario usa': 'super mario bros 2',  # Japan release of SMB2
-        # Seiken Densetsu / Mana series
-        'seiken densetsu 2': 'secret of mana',
-        'seiken densetsu 3': 'trials of mana',
-        # Dragon Quest series (merge subtitled versions)
-        'dragon quest 5 tenkuu no hanayome': 'dragon quest 5',
-        'dragon quest 5 hand of the heavenly bride': 'dragon quest 5',
-        'dragon quest 6 maboroshi no daichi': 'dragon quest 6',
-        'dragon quest 6 realms of revelation': 'dragon quest 6',
-        # Final Fantasy misc
-        'final fantasy usa mystic quest': 'final fantasy mystic quest',
-        # Seiken Densetsu / Final Fantasy Adventure (Gameboy)
-        'seiken densetsu final fantasy gaiden': 'final fantasy adventure',
-        # Final Fantasy I & II compilations (GBA)
-        'final fantasy 1 2 advance': 'final fantasy 1 & 2 dawn of souls',
-        # Fire Emblem
-        'fire emblem monshou no nazo': 'fire emblem mystery of the emblem',
-        'fire emblem seisen no keifu': 'fire emblem genealogy of the holy war',
-        'fire emblem new theory of thracia 776': 'fire emblem thracia 776',
-        'fire emblem rekka no ken': 'fire emblem',
-        'fire emblem seima no kouseki': 'fire emblem the sacred stones',
-        'fire emblem fuuin no tsurugi': 'fire emblem the binding blade',
-        'fire emblem souen no kiseki': 'fire emblem path of radiance',
-        # TMNT - Hero Turtles (Europe) = Ninja Turtles (USA)
-        'teenage mutant hero turtles': 'teenage mutant ninja turtles',
-        'teenage mutant hero turtles fall of the foot clan': 'teenage mutant ninja turtles fall of the foot clan',
-        'teenage mutant hero turtles 2 back from the sewers': 'teenage mutant ninja turtles 2 back from the sewers',
-        'teenage mutant hero turtles 3 radical rescue': 'teenage mutant ninja turtles 3 radical rescue',
-        'teenage mutant hero turtles the hyperstone heist': 'teenage mutant ninja turtles the hyperstone heist',
-        'teenage mutant hero turtles tournament fighters': 'teenage mutant ninja turtles tournament fighters',
-        'teenage mutant hero turtles 4 turtles in time': 'teenage mutant ninja turtles 4 turtles in time',
-        'teenage mutant ninja turtles return of the shredder': 'teenage mutant ninja turtles the hyperstone heist',
-        'teenage mutant ninja turtles mutant warriors': 'teenage mutant ninja turtles tournament fighters',
-        'teenage mutant ninja turtles turtles in time': 'teenage mutant ninja turtles 4 turtles in time',
-        'teenage mutant ninja turtles 2 the manhattan project': 'teenage mutant ninja turtles 3 the manhattan project',
-        'tmnt teenage mutant ninja turtles': 'teenage mutant ninja turtles',
-        # Mortal Kombat Japan -> USA
-        'mortal kombat shinken kourin densetsu': 'mortal kombat',
-        'mortal kombat 2 kyuukyoku shinken': 'mortal kombat 2',
-        # Double Dragon
-        'double dragon 3 the rosetta stone': 'double dragon 3 the sacred stones',
-        'return of double dragon': 'super double dragon',
-        # Bomberman regional
-        'baku bomberman': 'bomberman 64',
-        'baku bomberman 2': 'bomberman 64 the second attack!',
-        'bomberman hero mirian oujo o sukue!': 'bomberman hero',
-        'bomberman story': 'bomberman tournament',
-        'bomberman max 2 bomberman version': 'bomberman max 2 blue advance',
-        'bomberman max 2 max version': 'bomberman max 2 red advance',
-        'bomberman max ain version': 'bomberman max blue champion',
-        'bomberman max hikari no yuusha': 'bomberman max blue champion',
-        'bomberman max yami no senshi': 'bomberman max red challenger',
-        # Tetris
-        'tetris flash': 'tetris blast',
-        'magical tetris challenge featuring mickey': 'magical tetris challenge',
-        'defi au tetris magique': 'magical tetris challenge',
-        'tetris adventure susume mickey to nakama tachi': 'magical tetris challenge',
-        # Gradius / Nemesis / Life Force / Salamander
-        'gradius generation': 'gradius galaxies',
-        'gradius advance': 'gradius galaxies',
-        'nemesis 2 the return of the hero': 'nemesis 2',
-        'life force salamander': 'life force',
-        'parodius da!': 'parodius',
-        'parodius da! shinwa kara owarai e': 'parodius',
-        'parodius from myth to laughter': 'parodius',
-        # Other common Japan -> USA title mappings
-        'contra spirits': 'contra 3 the alien wars',
-        'super probotector alien rebels': 'contra 3 the alien wars',
-        # Rockman -> Mega Man (comprehensive)
-        'rockman': 'mega man',
-        'rockman 2 dr wily no nazo': 'mega man 2',
-        'rockman 2 dr wily s riddle': 'mega man 2',
-        'rockman 3 dr wily no saigo': 'mega man 3',
-        'rockman 3 dr wily no saigo!': 'mega man 3',
-        'rockman 4 aratanaru yabou': 'mega man 4',
-        'rockman 4 aratanaru yabou!!': 'mega man 4',
-        'rockman 5 blues no wana': 'mega man 5',
-        'rockman 5 blues no wana!': 'mega man 5',
-        'rockman 6 shijou saidai no tatakai': 'mega man 6',
-        'rockman 6 shijou saidai no tatakai!!': 'mega man 6',
-        'rockman 6 the greatest battle in history!!': 'mega man 6',
-        'rockman 7 shukumei no taiketsu!': 'mega man 7',
-        'rockman 7 ep': 'mega man 7',
-        'rockman x': 'mega man x',
-        'rockman x2': 'mega man x2',
-        'rockman x3': 'mega man x3',
-        # Rockman World (Gameboy) -> Mega Man
-        'rockman world': 'mega man dr wily s revenge',
-        'rockman world 2': 'mega man 2',
-        'rockman world 3': 'mega man 3',
-        'rockman world 4': 'mega man 4',
-        'rockman world 5': 'mega man 5',
-        # Rockman Xtreme (GBC)
-        'rockman x cyber mission': 'mega man xtreme',
-        'rockman x2 soul eraser': 'mega man xtreme 2',
-        # Rockman EXE -> Mega Man Battle Network
-        'battle network rockman exe': 'megaman battle network',
-        'battle network rockman exe 2': 'megaman battle network 2',
-        'battle network rockman exe 3': 'megaman battle network 3 white version',
-        'battle network rockman exe 3 black': 'megaman battle network 3 blue version',
-        'rockman exe battle chip gp': 'megaman battle chip challenge',
-        'rockman exe 4 tournament red sun': 'megaman battle network 4 red sun',
-        'rockman exe 4 tournament blue moon': 'megaman battle network 4 blue moon',
-        'rockman exe 4.5 real operation': 'mega man battle network 4.5 real operation',
-        'rockman exe 5 team of blues': 'megaman battle network 5 team protoman',
-        'rockman exe 5 team of colonel': 'megaman battle network 5 team colonel',
-        'rockman exe 6 dennoujuu gregar': 'megaman battle network 6 cybeast gregar',
-        'rockman exe 6 dennoujuu falzar': 'megaman battle network 6 cybeast falzar',
-        # Rockman Zero
-        'rockman zero': 'megaman zero',
-        'rockman zero 2': 'megaman zero 2',
-        'rockman zero 3': 'megaman zero 3',
-        'rockman zero 4': 'megaman zero 4',
-        # Rockman & Forte
-        'rockman & forte': 'megaman & bass',
-        'rockman & forte mirai kara no chousensha': 'megaman & bass challenger from the future',
-        'rockman & forte challenger from the future': 'megaman & bass challenger from the future',
-        # Other Rockman
-        'rockman mega world': 'mega man the wily wars',
-        'rockman dash hagane no boukenshin': 'mega man 64',
-        'rockman s soccer': 'mega man soccer',
-        'wily & right s rockboard that s paradise!!': 'wily & right s rockboard that s paradise',
-        'rockman exe ws': 'mega man battle network ws',
-        'rockman exe n1 battle': 'mega man battle network ws',
-        'star fox': 'starfox',
-        'starwing': 'starfox',
-        # Kirby (Hoshi no Kirby) series
-        'hoshi no kirby': 'kirby s dream land',
-        'hoshi no kirby 2': 'kirby s dream land 2',
-        'hoshi no kirby 3': 'kirby s dream land 3',
-        'kirby no block ball': 'kirby s block ball',
-        'kirby no pinball': 'kirby s pinball land',
-        'kirby no kirakira kids': 'kirby s star stacker',
-        'korokoro kirby': 'kirby tilt n tumble',
-        'hoshi no kirby kagami no daimeikyuu': 'kirby & the amazing mirror',
-        'hoshi no kirby yume no izumi deluxe': 'kirby nightmare in dream land',
-        'hoshi no kirby 64': 'kirby 64 the crystal shards',
-        'hoshi no kirby yume no izumi no monogatari': 'kirby s adventure',
-        'hoshi no kirby super deluxe': 'kirby super star',
-        'kirby bowl': 'kirby s dream course',
-        'kirby s fun pak': 'kirby super star',
-        'kirby s ghost trap': 'kirby s avalanche',
-        'kirby s super star stacker': 'kirby s star stacker',
-        # Donkey Kong (Super Donkey Kong) series
-        'super donkey kong': 'donkey kong country',
-        'super donkey kong 2 dixie & diddy': 'donkey kong country 2 diddy s kong quest',
-        'super donkey kong 2': 'donkey kong country 2',
-        'super donkey kong 3 nazo no kremis tou': 'donkey kong country 3 dixie kong s double trouble!',
-        'super donkey kong 3': 'donkey kong country 3',
-        'super donkey kong gb': 'donkey kong land',
-        'donkey kong 2001': 'donkey kong country',
-        'donkey kong gb dinky kong & dixie kong': 'donkey kong land 3',
-        'donkey kong jr no sansuu asobi': 'donkey kong jr math',
-        # Puyo Puyo
-        'puyo puyo 2': 'puyo puyo tsuu',
-        # Street Fighter (Zero = Alpha in Japan)
-        'street fighter zero': 'street fighter alpha',
-        'street fighter zero 2': 'street fighter alpha 2',
-        'street fighter zero 3': 'street fighter alpha 3',
-        'street fighter zero 3 upper': 'street fighter alpha 3',
-        'super street fighter 2 x revival': 'super street fighter 2 turbo revival',
-        'super street fighter 2 the new challengers': 'super street fighter 2',
-        'street fighter 2 plus champion edition': 'street fighter 2 special champion edition',
-        '2010 street fighter': 'street fighter 2010 the final fight',
-        # Dragon Quest / Dragon Warrior
-        'dragon quest 1 & 2': 'dragon warrior 1 & 2',
-        'dragon quest 3 soshite densetsu e': 'dragon warrior 3',
-        'dragon quest 3': 'dragon warrior 3',
-        'dragon quest monsters terry no wonderland': 'dragon warrior monsters',
-        'dragon quest monsters': 'dragon warrior monsters',
-        'dragon quest monsters 2 maruta no fushigi na kagi iru no bouken': 'dragon warrior monsters 2 cobi s journey',
-        'dragon quest monsters 2 maruta no fushigi na kagi ruka no tabidachi': 'dragon warrior monsters 2 tara s adventure',
-        # Pokemon foreign language versions -> English names
-        'pokemon blaue edition': 'pokemon blue version',
-        'pokemon rote edition': 'pokemon red version',
-        'pokemon gelbe edition special pikachu edition': 'pokemon yellow version special pikachu edition',
-        'pokemon version bleue': 'pokemon blue version',
-        'pokemon version rouge': 'pokemon red version',
-        'pokemon version jaune edition speciale pikachu': 'pokemon yellow version special pikachu edition',
-        'pokemon edicion azul': 'pokemon blue version',
-        'pokemon edicion roja': 'pokemon red version',
-        'pokemon edicion amarilla edicion especial pikachu': 'pokemon yellow version special pikachu edition',
-        'pokemon versione blu': 'pokemon blue version',
-        'pokemon versione rossa': 'pokemon red version',
-        'pokemon versione gialla speciale edizione pikachu': 'pokemon yellow version special pikachu edition',
-        # Pokemon Gold/Silver/Crystal
-        'pokemon goldene edition': 'pokemon gold version',
-        'pokemon silberne edition': 'pokemon silver version',
-        'pokemon kristall edition': 'pokemon crystal version',
-        'pokemon version or': 'pokemon gold version',
-        'pokemon version argent': 'pokemon silver version',
-        'pokemon version cristal': 'pokemon crystal version',
-        'pokemon edicion oro': 'pokemon gold version',
-        'pokemon edicion plata': 'pokemon silver version',
-        'pokemon edicion cristal': 'pokemon crystal version',
-        'pokemon versione oro': 'pokemon gold version',
-        'pokemon versione argento': 'pokemon silver version',
-        'pokemon versione cristallo': 'pokemon crystal version',
-        # Pokemon GBA
-        'pokemon rubin edition': 'pokemon ruby version',
-        'pokemon saphir edition': 'pokemon sapphire version',
-        'pokemon smaragd edition': 'pokemon emerald version',
-        'pokemon feuerrote edition': 'pokemon firered version',
-        'pokemon blattgruene edition': 'pokemon leafgreen version',
-        'pokemon version rubis': 'pokemon ruby version',
-        'pokemon version saphir': 'pokemon sapphire version',
-        'pokemon version emeraude': 'pokemon emerald version',
-        'pokemon version rouge feu': 'pokemon firered version',
-        'pokemon version vert feuille': 'pokemon leafgreen version',
-        'pokemon edicion rubi': 'pokemon ruby version',
-        'pokemon edicion zafiro': 'pokemon sapphire version',
-        'pokemon edicion esmeralda': 'pokemon emerald version',
-        'pokemon edicion rojo fuego': 'pokemon firered version',
-        'pokemon edicion verde hoja': 'pokemon leafgreen version',
-        'pokemon versione rubino': 'pokemon ruby version',
-        'pokemon versione zaffiro': 'pokemon sapphire version',
-        'pokemon versione smeraldo': 'pokemon emerald version',
-        'pokemon versione rosso fuoco': 'pokemon firered version',
-        'pokemon versione verde foglia': 'pokemon leafgreen version',
-        # Pokemon Japan titles (Pocket Monsters -> Pokemon)
-        # Gen 1
-        'pocket monsters aka': 'pokemon red version',
-        'pocket monsters ao': 'pokemon blue version',
-        'pocket monsters midori': 'pokemon green version',
-        'pocket monsters pikachu': 'pokemon yellow version special pikachu edition',
-        # Pocket Monsters X Version (retranslation hacks using JP branding)
-        'pocket monsters red version': 'pokemon red version',
-        'pocket monsters red version dx': 'pokemon red version',
-        'pocket monsters blue version': 'pokemon blue version',
-        'pocket monsters blue version dx': 'pokemon blue version',
-        'pocket monsters green version': 'pokemon green version',
-        'pocket monsters green version dx': 'pokemon green version',
-        # Gen 2
-        'pocket monsters kin': 'pokemon gold version',
-        'pocket monsters gin': 'pokemon silver version',
-        'pocket monsters crystal version': 'pokemon crystal version',
-        # Gen 3
-        'pocket monsters ruby': 'pokemon ruby version',
-        'pocket monsters sapphire': 'pokemon sapphire version',
-        'pocket monsters emerald': 'pokemon emerald version',
-        'pocket monsters firered': 'pokemon firered version',
-        'pocket monsters leafgreen': 'pokemon leafgreen version',
-        # Pokemon Korean titles
-        'pocket monsters geum': 'pokemon gold version',
-        'pocket monsters eun': 'pokemon silver version',
-        # Pokemon spinoffs Japan
-        'pokemon fushigi no dungeon aka no kyuujotai': 'pokemon mystery dungeon red rescue team',
-        'pokemon card gb': 'pokemon trading card game',
-        'pokemon card gb 2 gr dan sanjou!': 'pokemon trading card game 2 the invasion of team gr!',
-        'pokemon de panepon': 'pokemon puzzle challenge',
-        'pokemon stadium kin gin': 'pokemon stadium 2',
-        # Classic NES / Famicom Mini series
-        'famicom mini 01 super mario bros': 'classic nes series super mario bros',
-        'famicom mini 02 donkey kong': 'classic nes series donkey kong',
-        'famicom mini 03 ice climber': 'classic nes series ice climber',
-        'famicom mini 04 excitebike': 'classic nes series excitebike',
-        'famicom mini 05 zelda no densetsu 1': 'classic nes series legend of zelda',
-        'famicom mini 06 pac man': 'classic nes series pac man',
-        'famicom mini 07 xevious': 'classic nes series xevious',
-        'famicom mini 08 mappy': 'classic nes series mappy',
-        'famicom mini 09 bomberman': 'classic nes series bomberman',
-        'famicom mini 10 star soldier': 'classic nes series star soldier',
-        'famicom mini 11 mario bros': 'classic nes series mario bros',
-        'famicom mini 12 clu clu land': 'classic nes series clu clu land',
-        'famicom mini 13 balloon fight': 'classic nes series balloon fight',
-        'famicom mini 14 wrecking crew': 'classic nes series wrecking crew',
-        'famicom mini 15 dr mario': 'classic nes series dr mario',
-        'famicom mini 16 dig dug': 'classic nes series dig dug',
-        'famicom mini 17 takahashi meijin no bouken jima': 'classic nes series adventure island',
-        'famicom mini 19 twin bee': 'classic nes series twinbee',
-        'famicom mini 20 ganbare goemon': 'classic nes series ganbare goemon',
-        'famicom mini 21 super mario bros 2': 'classic nes series super mario bros the lost levels',
-        'famicom mini 22 nazo no murasame jou': 'classic nes series mysterious murasame castle',
-        'famicom mini 23 metroid': 'classic nes series metroid',
-        'famicom mini 24 hikari shinwa palthena no kagami': 'classic nes series kid icarus',
-        'famicom mini 25 link no bouken': 'classic nes series zelda 2 the adventure of link',
-        'famicom mini 26 famicom mukashi banashi': 'classic nes series famicom mukashi banashi',
-        'famicom mini 27 famicom tantei club': 'classic nes series famicom detective club',
-        'famicom mini 28 famicom tantei club part 2': 'classic nes series famicom detective club part 2',
-        'famicom mini 29 akumajou dracula': 'classic nes series castlevania',
-        'famicom mini 30 sd gundam world': 'classic nes series sd gundam world',
-        # Mario regional variations
-        'mario golf gba tour': 'mario golf advance tour',
-        'mario kart advance': 'mario kart super circuit',
-        'mario tennis advance': 'mario tennis power tour',
-        'mario & luigi rpg': 'mario & luigi superstar saga',
-        'super mario ball': 'mario pinball land',
-        'dr mario & panel de pon': 'dr mario & puzzle league',
-        # Mario Japan -> USA
-        'super mario land 2 6 tsu no kinka': 'super mario land 2 6 golden coins',
-        'mario golf gb': 'mario golf',
-        'mario tennis gb': 'mario tennis',
-        'super mario yoshi island': 'super mario world 2 yoshi s island',
-        'super mario rpg': 'super mario rpg legend of the seven stars',
-        # Zelda regional titles
-        'zelda no densetsu fushigi no kinomi daichi no shou': 'legend of zelda oracle of seasons',
-        'zelda no densetsu fushigi no kinomi jikuu no shou': 'legend of zelda oracle of ages',
-        'zelda no densetsu yume o miru shima dx': 'legend of zelda link s awakening dx',
-        'zelda no densetsu yume o miru shima': 'legend of zelda link s awakening',
-        'zelda no densetsu 1 the hyrule fantasy': 'legend of zelda',
-        'zelda no densetsu fushigi no boushi': 'legend of zelda the minish cap',
-        'zelda no densetsu kamigami no triforce & 4tsu no tsurugi': 'legend of zelda a link to the past & four swords',
-        # Famicom Mini Zelda -> Classic NES Series
-        'famicom mini 05 zelda no densetsu 1 the hyrule fantasy': 'classic nes series the legend of zelda',
-        'famicom mini 25 the legend of zelda 2 link no bouken': 'classic nes series zelda 2 the adventure of link',
-        # Game Gear Sonic
-        'sonic & tails': 'sonic chaos',
-        'sonic & tails 2': 'sonic triple trouble',
-        'sonic the hedgehog triple trouble': 'sonic triple trouble',
-        # Castlevania GBA
-        'castlevania akatsuki no minuet': 'castlevania harmony of dissonance',
-        'castlevania byakuya no concerto': 'castlevania aria of sorrow',
-        'nes classics castlevania': 'classic nes series castlevania',
-        # Contra series regional names
-        'super contra': 'super c',  # NES Japan -> USA
-        'contra the hard corps': 'contra hard corps',  # Genesis Japan -> USA
-        # Probotector series (European names for Contra games)
-        # Note: Standalone "Probotector" means different games on different systems:
-        # - NES: Probotector = Contra
-        # - Genesis: Probotector = Contra Hard Corps
-        # - Gameboy: Probotector = Operation C
-        # Since we can't do system-specific mappings, we leave standalone Probotector unmapped.
-        # The USA versions will be selected for their respective games.
-        'probotector 2 return of the evil forces': 'super c',  # NES Europe -> USA
-        'probotector 2': 'super c',  # GB Europe (same normalized name, different actual game)
-        'contra spirits': 'contra 3 the alien wars',  # SNES Japan -> USA
-        'super probotector alien rebels': 'contra 3 the alien wars',  # SNES Europe -> USA
-        'contra the alien wars': 'contra 3 the alien wars',  # Gameboy version (no III in title)
-        'contra hard spirits': 'contra advance the alien wars ex',  # GBA Japan -> USA
-    }
-
+    # Load title mappings from external JSON file
+    # This allows easier maintenance and automated updates
+    title_mappings = load_title_mappings()
     for variant, canonical in title_mappings.items():
         if normalized == variant:  # Exact match only
             normalized = canonical
