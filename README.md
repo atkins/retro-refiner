@@ -134,114 +134,6 @@ python retro-refiner.py -s https://myserver.com/roms/ --cache-dir /path/to/cache
 - Subsequent runs use cached files without re-downloading
 - Use `--cache-dir` to specify a custom cache location
 
-## Supported Systems (144)
-
-Run `python retro-refiner.py --list-systems` for full details.
-
-### Nintendo
-| System | Extensions | Folder Aliases |
-|--------|-----------|----------------|
-| NES | `.nes` | nes, famicom, fc |
-| Famicom Disk System | `.fds` | fds |
-| SNES | `.sfc`, `.smc` | snes, super-nes, superfamicom, sfc |
-| Nintendo 64 | `.n64`, `.z64`, `.v64` | n64, nintendo64 |
-| Nintendo 64DD | `.ndd` | n64dd, 64dd |
-| GameCube | `.gcm`, `.gcz`, `.rvz` | gamecube, gc, ngc |
-| Wii | `.wbfs`, `.wia` | wii |
-| Switch | `.nsp`, `.xci` | switch |
-| Game Boy | `.gb` | gameboy, gb |
-| Game Boy Color | `.gbc` | gameboy-color, gbc |
-| Game Boy Advance | `.gba` | gba |
-| Nintendo DS | `.nds`, `.dsi` | nds, ds |
-| Nintendo 3DS | `.3ds`, `.cia` | 3ds |
-| Virtual Boy | `.vb` | virtualboy, vboy |
-| Pokemon Mini | `.min` | pokemini |
-
-### Sega
-| System | Extensions | Folder Aliases |
-|--------|-----------|----------------|
-| SG-1000 | `.sg` | sg1000 |
-| Master System | `.sms` | mastersystem, sms |
-| Genesis/Mega Drive | `.md`, `.gen`, `.smd` | genesis, megadrive, md |
-| Sega CD | `.cue`, `.chd` | segacd, megacd |
-| Sega 32X | `.32x` | sega32x, 32x |
-| Saturn | - | saturn, ss |
-| Dreamcast | `.gdi`, `.cdi` | dreamcast, dc |
-| Game Gear | `.gg` | gamegear |
-| Sega Pico | `.pco` | segapico, pico |
-
-### Sony
-| System | Extensions | Folder Aliases |
-|--------|-----------|----------------|
-| PlayStation | `.iso` | psx, ps1, playstation |
-| PlayStation 2 | - | ps2, playstation2 |
-| PlayStation 3 | - | ps3, playstation3 |
-| PSP | `.pbp`, `.cso` | psp |
-| PS Vita | - | psvita, vita |
-
-### Atari
-| System | Extensions | Folder Aliases |
-|--------|-----------|----------------|
-| Atari 2600 | `.a26` | atari2600, vcs |
-| Atari 5200 | `.a52` | atari5200 |
-| Atari 7800 | `.a78` | atari7800 |
-| Atari 800/XL/XE | `.atr`, `.xex`, `.a8` | atari800 |
-| Atari ST | `.st`, `.stx` | atarist |
-| Atari Jaguar | `.j64`, `.jag` | atarijaguar, jaguar |
-| Atari Lynx | `.lnx` | atarilynx, lynx |
-
-### NEC
-| System | Extensions | Folder Aliases |
-|--------|-----------|----------------|
-| TurboGrafx-16/PC Engine | `.pce`, `.sgx` | tg16, pcengine, pce |
-| TurboGrafx-CD | - | tgcd, pcecd |
-| PC-FX | - | pcfx |
-| SuperGrafx | - | supergrafx |
-
-### SNK
-| System | Extensions | Folder Aliases |
-|--------|-----------|----------------|
-| Neo Geo | `.neo` | neogeo |
-| Neo Geo CD | - | neogeocd |
-| Neo Geo Pocket | `.ngp` | ngp |
-| Neo Geo Pocket Color | `.ngc` | ngpc |
-
-### Computers
-| System | Extensions | Folder Aliases |
-|--------|-----------|----------------|
-| Commodore 64 | `.d64`, `.t64`, `.prg`, `.crt` | c64, commodore64 |
-| Amiga | `.adf`, `.adz`, `.ipf`, `.lha` | amiga |
-| ZX Spectrum | `.tap`, `.tzx`, `.z80`, `.sna` | zxspectrum, spectrum |
-| Amstrad CPC | `.dsk`, `.cdt` | amstradcpc, cpc |
-| MSX | `.mx1`, `.rom`, `.cas` | msx |
-| MSX2 | `.mx2` | msx2 |
-| PC-88 | - | pc88 |
-| PC-98 | - | pc98 |
-| Sharp X68000 | - | x68000 |
-| FM Towns | - | fmtowns |
-| Apple II | - | apple2 |
-| TRS-80 | - | trs80 |
-
-### Other
-| System | Extensions | Folder Aliases |
-|--------|-----------|----------------|
-| ColecoVision | `.col` | colecovision |
-| Intellivision | `.int` | intellivision |
-| Vectrex | `.vec` | vectrex |
-| Odyssey 2 | `.o2` | odyssey2, videopac |
-| Channel F | `.fcf` | channelf, fairchild |
-| 3DO | `.3do` | 3do |
-| WonderSwan | `.ws` | wonderswan |
-| WonderSwan Color | `.wsc` | wonderswan-color |
-
-### Arcade
-| System | Folder Aliases |
-|--------|----------------|
-| MAME | mame, arcade |
-| CPS1/CPS2/CPS3 | cps1, cps2, cps3 |
-| Naomi | naomi |
-| FinalBurn Neo | fbneo, fba |
-
 ## Arcade Filtering (MAME & FBNeo)
 
 MAME and FBNeo ROMs use category-based filtering with shared `catver.ini` data.
@@ -554,6 +446,114 @@ Check `_selection_log.txt` for details. Common issues:
 | Folder aliases | 200+ |
 | Title mappings | 315+ |
 | File extensions | 90+ |
+
+## Supported Systems (144)
+
+Run `python retro-refiner.py --list-systems` for full details.
+
+### Nintendo
+| System | Extensions | Folder Aliases |
+|--------|-----------|----------------|
+| NES | `.nes` | nes, famicom, fc |
+| Famicom Disk System | `.fds` | fds |
+| SNES | `.sfc`, `.smc` | snes, super-nes, superfamicom, sfc |
+| Nintendo 64 | `.n64`, `.z64`, `.v64` | n64, nintendo64 |
+| Nintendo 64DD | `.ndd` | n64dd, 64dd |
+| GameCube | `.gcm`, `.gcz`, `.rvz` | gamecube, gc, ngc |
+| Wii | `.wbfs`, `.wia` | wii |
+| Switch | `.nsp`, `.xci` | switch |
+| Game Boy | `.gb` | gameboy, gb |
+| Game Boy Color | `.gbc` | gameboy-color, gbc |
+| Game Boy Advance | `.gba` | gba |
+| Nintendo DS | `.nds`, `.dsi` | nds, ds |
+| Nintendo 3DS | `.3ds`, `.cia` | 3ds |
+| Virtual Boy | `.vb` | virtualboy, vboy |
+| Pokemon Mini | `.min` | pokemini |
+
+### Sega
+| System | Extensions | Folder Aliases |
+|--------|-----------|----------------|
+| SG-1000 | `.sg` | sg1000 |
+| Master System | `.sms` | mastersystem, sms |
+| Genesis/Mega Drive | `.md`, `.gen`, `.smd` | genesis, megadrive, md |
+| Sega CD | `.cue`, `.chd` | segacd, megacd |
+| Sega 32X | `.32x` | sega32x, 32x |
+| Saturn | - | saturn, ss |
+| Dreamcast | `.gdi`, `.cdi` | dreamcast, dc |
+| Game Gear | `.gg` | gamegear |
+| Sega Pico | `.pco` | segapico, pico |
+
+### Sony
+| System | Extensions | Folder Aliases |
+|--------|-----------|----------------|
+| PlayStation | `.iso` | psx, ps1, playstation |
+| PlayStation 2 | - | ps2, playstation2 |
+| PlayStation 3 | - | ps3, playstation3 |
+| PSP | `.pbp`, `.cso` | psp |
+| PS Vita | - | psvita, vita |
+
+### Atari
+| System | Extensions | Folder Aliases |
+|--------|-----------|----------------|
+| Atari 2600 | `.a26` | atari2600, vcs |
+| Atari 5200 | `.a52` | atari5200 |
+| Atari 7800 | `.a78` | atari7800 |
+| Atari 800/XL/XE | `.atr`, `.xex`, `.a8` | atari800 |
+| Atari ST | `.st`, `.stx` | atarist |
+| Atari Jaguar | `.j64`, `.jag` | atarijaguar, jaguar |
+| Atari Lynx | `.lnx` | atarilynx, lynx |
+
+### NEC
+| System | Extensions | Folder Aliases |
+|--------|-----------|----------------|
+| TurboGrafx-16/PC Engine | `.pce`, `.sgx` | tg16, pcengine, pce |
+| TurboGrafx-CD | - | tgcd, pcecd |
+| PC-FX | - | pcfx |
+| SuperGrafx | - | supergrafx |
+
+### SNK
+| System | Extensions | Folder Aliases |
+|--------|-----------|----------------|
+| Neo Geo | `.neo` | neogeo |
+| Neo Geo CD | - | neogeocd |
+| Neo Geo Pocket | `.ngp` | ngp |
+| Neo Geo Pocket Color | `.ngc` | ngpc |
+
+### Computers
+| System | Extensions | Folder Aliases |
+|--------|-----------|----------------|
+| Commodore 64 | `.d64`, `.t64`, `.prg`, `.crt` | c64, commodore64 |
+| Amiga | `.adf`, `.adz`, `.ipf`, `.lha` | amiga |
+| ZX Spectrum | `.tap`, `.tzx`, `.z80`, `.sna` | zxspectrum, spectrum |
+| Amstrad CPC | `.dsk`, `.cdt` | amstradcpc, cpc |
+| MSX | `.mx1`, `.rom`, `.cas` | msx |
+| MSX2 | `.mx2` | msx2 |
+| PC-88 | - | pc88 |
+| PC-98 | - | pc98 |
+| Sharp X68000 | - | x68000 |
+| FM Towns | - | fmtowns |
+| Apple II | - | apple2 |
+| TRS-80 | - | trs80 |
+
+### Other
+| System | Extensions | Folder Aliases |
+|--------|-----------|----------------|
+| ColecoVision | `.col` | colecovision |
+| Intellivision | `.int` | intellivision |
+| Vectrex | `.vec` | vectrex |
+| Odyssey 2 | `.o2` | odyssey2, videopac |
+| Channel F | `.fcf` | channelf, fairchild |
+| 3DO | `.3do` | 3do |
+| WonderSwan | `.ws` | wonderswan |
+| WonderSwan Color | `.wsc` | wonderswan-color |
+
+### Arcade
+| System | Folder Aliases |
+|--------|----------------|
+| MAME | mame, arcade |
+| CPS1/CPS2/CPS3 | cps1, cps2, cps3 |
+| Naomi | naomi |
+| FinalBurn Neo | fbneo, fba |
 
 ## License
 
