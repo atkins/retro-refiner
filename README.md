@@ -1,12 +1,5 @@
 # Retro-Refiner
 
-```
-   ___  ___ _____  ___  ___        ___  ___ ___ ___ _  _ ___ ___
-  | _ \| __|_   _|| _ \/ _ \  ___ | _ \| __| __|_ _| \| | __| _ \
-  |   /| _|  | |  |   / (_) ||___||   /| _|| _| | || .` | _||   /
-  |_|_\|___| |_|  |_|_\\___/      |_|_\|___|_| |___|_|\_|___|_|_\
-```
-
 **Refine your RetroArch ROM collection down to the essentials.**
 
 A portable Python script that simplifies the generation of RetroArch-friendly ROM sets. Point it at large ROM archives—local or network—and it automatically selects the best version of each game, based on your native language and filters out the clutter.
