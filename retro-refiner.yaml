@@ -100,14 +100,6 @@ include_unlicensed: false
 # genres: "platformer,shooter,puzzle"
 
 # -----------------------------------------------------------------------------
-# Selection Mode
-# -----------------------------------------------------------------------------
-
-# Strict 1G1R mode: exactly one ROM per game, no exceptions
-# When false, may include translations alongside official releases
-1g1r: false
-
-# -----------------------------------------------------------------------------
 # DAT File Options
 # -----------------------------------------------------------------------------
 
@@ -170,7 +162,6 @@ gamelist: false
 
 # --- Minimal English-only collection ---
 # region_priority: "USA,World,Europe"
-# 1g1r: true
 # no_verify: true
 # no_dat: true
 
@@ -184,7 +175,6 @@ gamelist: false
 
 # --- Space-saving setup ---
 # link: true
-# 1g1r: true
 
 # --- Mario/Nintendo fan ---
 # include:

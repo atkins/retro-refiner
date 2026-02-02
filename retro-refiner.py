@@ -984,7 +984,6 @@ def filter_network_roms(rom_urls: List[str], system: str,
                         include_unlicensed: bool = False,
                         region_priority: List[str] = None,
                         keep_regions: List[str] = None,
-                        one_game_one_rom: bool = False,
                         year_from: int = None,
                         year_to: int = None,
                         verbose: bool = False,
@@ -1217,12 +1216,6 @@ include_unlicensed: false
 # -----------------------------------------------------------------------------
 # Selection Mode
 # -----------------------------------------------------------------------------
-
-# Strict 1G1R mode: exactly one ROM per game, no exceptions
-# When false, may include translations alongside official releases
-1g1r: false
-
-# -----------------------------------------------------------------------------
 # DAT File Options
 # -----------------------------------------------------------------------------
 
@@ -1285,7 +1278,6 @@ gamelist: false
 
 # --- Minimal English-only collection ---
 # region_priority: "USA,World,Europe"
-# 1g1r: true
 # no_verify: true
 # no_dat: true
 
@@ -1299,7 +1291,6 @@ gamelist: false
 
 # --- Space-saving setup ---
 # link: true
-# 1g1r: true
 
 # --- Mario/Nintendo fan ---
 # include:
@@ -1374,7 +1365,6 @@ def apply_config_to_args(args, config: dict):
         'link': 'link',
         'hardlink': 'hardlink',
         'move': 'move',
-        '1g1r': 'one_game_one_rom',
         'playlists': 'playlists',
         'gamelist': 'gamelist',
         'retroarch_playlists': 'retroarch_playlists',
@@ -3816,7 +3806,6 @@ def filter_roms_from_files(rom_files: list, dest_dir: str, system: str, dry_run:
                            keep_regions: List[str] = None,
                            flat_output: bool = False,
                            transfer_mode: str = 'copy',
-                           one_game_one_rom: bool = False,
                            year_from: int = None,
                            year_to: int = None,
                            verbose: bool = False):
@@ -3946,13 +3935,6 @@ def filter_roms_from_files(rom_files: list, dest_dir: str, system: str, dry_run:
                     selected_roms.append(best)
                     if verbose:
                         print(f"  [SELECT] {best.filename} (fallback for '{title}')")
-        elif one_game_one_rom:
-            # Strict 1G1R: only one ROM, prefer English
-            best = select_best_rom(roms, region_priority)
-            if best:
-                selected_roms.append(best)
-                if verbose:
-                    print(f"  [SELECT] {best.filename} (1G1R for '{title}')")
         else:
             best = select_best_rom(roms, region_priority)
             if best:
@@ -4119,10 +4101,6 @@ Pattern examples (--include / --exclude):
                         help='Include only ROMs from this year or later')
     parser.add_argument('--year-to', type=int, default=None,
                         help='Include only ROMs up to this year')
-
-    # Selection modes
-    parser.add_argument('--1g1r', dest='one_game_one_rom', action='store_true',
-                        help='Strict 1G1R mode: exactly one ROM per game')
 
     # Export options
     parser.add_argument('--playlists', action='store_true',
@@ -4354,8 +4332,6 @@ Pattern examples (--include / --exclude):
     if args.year_from or args.year_to:
         year_range = f"{args.year_from or '...'}-{args.year_to or '...'}"
         options.append(f"years: {year_range}")
-    if args.one_game_one_rom:
-        options.append("1G1R strict mode")
     if options:
         print(f"Options: {', '.join(options)}")
 
@@ -4439,7 +4415,6 @@ Pattern examples (--include / --exclude):
                 include_unlicensed=args.include_unlicensed,
                 region_priority=region_priority,
                 keep_regions=keep_regions,
-                one_game_one_rom=args.one_game_one_rom,
                 year_from=args.year_from,
                 year_to=args.year_to,
                 verbose=args.verbose,
@@ -4716,7 +4691,6 @@ Pattern examples (--include / --exclude):
                 keep_regions=keep_regions,
                 flat_output=args.flat,
                 transfer_mode=transfer_mode,
-                one_game_one_rom=args.one_game_one_rom,
                 year_from=args.year_from,
                 year_to=args.year_to,
                 verbose=args.verbose
