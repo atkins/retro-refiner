@@ -1307,6 +1307,7 @@ class DownloadUI:
         self.total_speed = 0
         self.completed_count = 0
         self.failed_count = 0
+        self._manual_scroll = False
 
     def _is_tty(self) -> bool:
         """Check if running in a terminal."""
@@ -1386,6 +1387,156 @@ class DownloadUI:
             return f"{bytes_val / (1024 * 1024):.1f} MB"
         else:
             return f"{bytes_val / (1024 * 1024 * 1024):.1f} GB"
+
+    def _render_detailed(self, stdscr) -> None:
+        """Render full-screen detailed view with file list."""
+        height, width = stdscr.getmaxyx()
+        stdscr.clear()
+
+        # Check minimum size
+        if height < 10 or width < 60:
+            try:
+                msg = "Terminal too small (need 60x10)"
+                stdscr.addstr(height // 2, max(0, (width - len(msg)) // 2), msg)
+            except curses.error:
+                pass
+            stdscr.refresh()
+            return
+
+        total = len(self.files)
+        done = self.completed_count
+        failed = self.failed_count
+        elapsed = _time.time() - self.start_time if self.start_time else 0
+
+        # Calculate ETA
+        if done > 0 and elapsed > 0:
+            rate = done / elapsed
+            remaining = (total - done) / rate if rate > 0 else 0
+            eta_str = self._format_time(remaining)
+            elapsed_str = self._format_time(elapsed)
+        else:
+            eta_str = '--:--'
+            elapsed_str = self._format_time(elapsed)
+
+        speed_str = self._format_size(self.total_speed) + '/s' if self.total_speed else '0 B/s'
+
+        # Header
+        try:
+            title = f"Downloading ROMs for {self.system_name.upper()}"
+            hint = "[i] simple view"
+            stdscr.addstr(0, 2, title[:width-20], curses.A_BOLD)
+            stdscr.addstr(0, width - len(hint) - 2, hint, curses.A_DIM)
+
+            # Separator
+            stdscr.addstr(1, 0, '─' * width)
+
+            # Stats line
+            stats = f"Progress: {done}/{total} files    {speed_str}    ETA: {eta_str}    Elapsed: {elapsed_str}"
+            if failed:
+                stats += f"    Failed: {failed}"
+                stdscr.addstr(2, 2, stats[:width-4])
+                # Highlight failed count in red
+                fail_pos = stats.find('Failed:')
+                if fail_pos >= 0 and curses.has_colors():
+                    stdscr.addstr(2, 2 + fail_pos, f"Failed: {failed}", curses.color_pair(1))
+            else:
+                stdscr.addstr(2, 2, stats[:width-4])
+
+            # Another separator
+            stdscr.addstr(3, 0, '─' * width)
+        except curses.error:
+            pass
+
+        # File list area
+        list_start = 4
+        list_height = height - list_start - 2  # Leave room for footer
+
+        # Auto-scroll to show active downloads
+        active_indices = [i for i, f in enumerate(self.files) if f['status'] == self.STATUS_DOWNLOADING]
+        if active_indices and not self._manual_scroll:
+            first_active = active_indices[0]
+            if first_active < self.scroll_offset:
+                self.scroll_offset = first_active
+            elif first_active >= self.scroll_offset + list_height:
+                self.scroll_offset = first_active - list_height + 1
+
+        # Clamp scroll
+        max_scroll = max(0, len(self.files) - list_height)
+        self.scroll_offset = max(0, min(self.scroll_offset, max_scroll))
+
+        # Render visible files
+        for i in range(list_height):
+            file_idx = self.scroll_offset + i
+            if file_idx >= len(self.files):
+                break
+
+            f = self.files[file_idx]
+            y = list_start + i
+
+            # Status icon and color
+            if f['status'] == self.STATUS_DONE:
+                icon = '✓'
+                attr = curses.color_pair(2) if curses.has_colors() else curses.A_NORMAL
+            elif f['status'] == self.STATUS_DOWNLOADING:
+                icon = '↓'
+                attr = curses.color_pair(3) if curses.has_colors() else curses.A_BOLD
+            elif f['status'] == self.STATUS_FAILED:
+                icon = '✗'
+                attr = curses.color_pair(1) if curses.has_colors() else curses.A_NORMAL
+            else:  # queued
+                icon = '○'
+                attr = curses.A_DIM
+
+            # Filename (truncate if needed)
+            filename = f['path'].name
+            max_name_len = width - 30
+            if len(filename) > max_name_len:
+                filename = filename[:max_name_len - 3] + '...'
+
+            # Size and progress
+            size_str = self._format_size(f['size']) if f['size'] else ''
+            if f['status'] == self.STATUS_DOWNLOADING:
+                if f['size'] > 0 and f['completed'] > 0:
+                    pct = int(100 * f['completed'] / f['size'])
+                    progress_str = f"{pct}%"
+                else:
+                    progress_str = '...'
+            elif f['status'] == self.STATUS_DONE:
+                progress_str = 'done'
+            elif f['status'] == self.STATUS_FAILED:
+                progress_str = 'failed'
+            else:
+                progress_str = 'queued'
+
+            # Build line
+            line = f" {icon} {filename:<{max_name_len}}  {size_str:>10}  {progress_str:>8}"
+
+            try:
+                stdscr.addstr(y, 0, line[:width], attr)
+            except curses.error:
+                pass
+
+        # Scroll indicator
+        if len(self.files) > list_height:
+            if self.scroll_offset > 0:
+                try:
+                    stdscr.addstr(list_start, width - 3, ' ↑ ', curses.A_DIM)
+                except curses.error:
+                    pass
+            if self.scroll_offset < max_scroll:
+                try:
+                    stdscr.addstr(list_start + list_height - 1, width - 3, ' ↓ ', curses.A_DIM)
+                except curses.error:
+                    pass
+
+        # Footer
+        footer = "[i] simple view    [q] cancel    [↑↓] scroll"
+        try:
+            stdscr.addstr(height - 1, 2, footer[:width-4], curses.A_DIM)
+        except curses.error:
+            pass
+
+        stdscr.refresh()
 
 
 def download_files_cached_batch(
