@@ -1729,26 +1729,42 @@ class DownloadUI:
             self.completed_count = sum(1 for f in self.files if f['status'] == self.STATUS_DONE)
             self.failed_count = sum(1 for f in self.files if f['status'] == self.STATUS_FAILED)
 
+    def _setup_keyboard(self) -> None:
+        """Set up non-blocking keyboard input."""
+        import termios
+        import tty
+
+        if not self._is_tty():
+            return
+
+        try:
+            self._old_term_settings = termios.tcgetattr(sys.stdin.fileno())
+            tty.setcbreak(sys.stdin.fileno())  # cbreak mode: read keys immediately, but allow Ctrl-C
+        except Exception:
+            self._old_term_settings = None
+
+    def _restore_keyboard(self) -> None:
+        """Restore normal keyboard input."""
+        import termios
+
+        if hasattr(self, '_old_term_settings') and self._old_term_settings:
+            try:
+                termios.tcsetattr(sys.stdin.fileno(), termios.TCSADRAIN, self._old_term_settings)
+            except Exception:
+                pass
+
     def _check_keypress(self) -> Optional[str]:
         """Non-blocking check for keypress. Returns key or None."""
         import select
-        import termios
-        import tty
 
         if not self._is_tty():
             return None
 
         try:
-            fd = sys.stdin.fileno()
-            old_settings = termios.tcgetattr(fd)
-            try:
-                tty.setraw(fd)
-                # Check if input is available
-                if select.select([sys.stdin], [], [], 0)[0]:
-                    key = sys.stdin.read(1)
-                    return key
-            finally:
-                termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+            # Check if input is available (non-blocking)
+            if select.select([sys.stdin], [], [], 0)[0]:
+                key = sys.stdin.read(1)
+                return key
         except Exception:
             pass
         return None
@@ -1806,25 +1822,36 @@ class DownloadUI:
         self.download_thread = threading.Thread(target=self._download_worker, daemon=True)
         self.download_thread.start()
 
-        # Main loop - simple view with option to switch
-        while self.download_thread.is_alive() and not self.shutdown_requested:
-            # Check for 'i' keypress to toggle detailed mode
-            key = self._check_keypress()
-            if key == 'i':
-                # Clear the simple line first
-                print('\r' + ' ' * 120 + '\r', end='', flush=True)
-                self.detailed_mode = True
-                self._run_curses_detailed()
-                # After returning from curses, restore simple view
-                if self.shutdown_requested:
-                    break
-            elif key == 'q':
-                self.shutdown_requested = True
-                break
+        # Set up keyboard for non-blocking input
+        self._setup_keyboard()
 
-            self._update_from_rpc()
-            self._render_simple()
-            _time.sleep(0.15)
+        try:
+            # Main loop - simple view with option to switch
+            while self.download_thread.is_alive() and not self.shutdown_requested:
+                # Check for 'i' keypress to toggle detailed mode
+                key = self._check_keypress()
+                if key == 'i':
+                    # Restore keyboard before curses takes over
+                    self._restore_keyboard()
+                    # Clear the simple line first
+                    sys.stdout.write('\r\033[K')
+                    sys.stdout.flush()
+                    self.detailed_mode = True
+                    self._run_curses_detailed()
+                    # After returning from curses, set up keyboard again
+                    self._setup_keyboard()
+                    if self.shutdown_requested:
+                        break
+                elif key == 'q':
+                    self.shutdown_requested = True
+                    break
+
+                self._update_from_rpc()
+                self._render_simple()
+                _time.sleep(0.15)
+        finally:
+            # Always restore keyboard
+            self._restore_keyboard()
 
         # Handle shutdown
         if self.shutdown_requested and self.subprocess:
