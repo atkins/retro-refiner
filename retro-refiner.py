@@ -308,26 +308,13 @@ def format_size(size_bytes: int) -> str:
 
 
 def format_url(url: str, max_length: int = 0) -> str:
-    """
-    Format a URL for display: decode percent-encoding and make clickable.
-    Uses OSC 8 hyperlink escape sequences for terminal clickability when outputting to TTY.
-    """
-    # Decode URL for readability
+    """Format a URL for display: decode percent-encoding for readability."""
     decoded = urllib.request.unquote(url)
 
-    # Truncate display text if needed (but keep full URL for link)
-    display = decoded
     if max_length > 0 and len(decoded) > max_length:
-        display = decoded[:max_length - 3] + "..."
+        return decoded[:max_length - 3] + "..."
 
-    # Only use OSC 8 hyperlinks when outputting to a TTY
-    # This prevents escape sequences from appearing in redirected/piped output
-    if sys.stdout.isatty():
-        # OSC 8 hyperlink: \033]8;;URL\033\\TEXT\033]8;;\033\\
-        # Makes text clickable in supported terminals (iTerm2, GNOME Terminal, Windows Terminal, etc.)
-        return f"\033]8;;{url}\033\\{display}\033]8;;\033\\"
-    else:
-        return display
+    return decoded
 
 
 def get_file_size(filepath: Path) -> int:
