@@ -31,6 +31,7 @@ import http.client
 import ssl
 import subprocess
 import threading
+import curses
 from urllib.parse import urlparse
 from pathlib import Path
 from collections import defaultdict
@@ -1310,6 +1311,81 @@ class DownloadUI:
     def _is_tty(self) -> bool:
         """Check if running in a terminal."""
         return sys.stdout.isatty()
+
+    def _render_simple(self, stdscr) -> None:
+        """Render simple one-line progress bar."""
+        height, width = stdscr.getmaxyx()
+        stdscr.clear()
+
+        total = len(self.files)
+        done = self.completed_count
+        failed = self.failed_count
+        elapsed = _time.time() - self.start_time if self.start_time else 0
+
+        # Progress bar
+        bar_width = min(30, width - 50)
+        if total > 0:
+            pct = done / total
+            filled = int(bar_width * pct)
+            bar = '█' * filled + '░' * (bar_width - filled)
+        else:
+            bar = '░' * bar_width
+
+        # Stats
+        if done > 0 and elapsed > 0:
+            rate = done / elapsed
+            remaining = (total - done) / rate if rate > 0 else 0
+            eta_str = self._format_time(remaining)
+            elapsed_str = self._format_time(elapsed)
+            speed_str = self._format_size(self.total_speed) + '/s' if self.total_speed else ''
+        else:
+            eta_str = '--:--'
+            elapsed_str = self._format_time(elapsed)
+            speed_str = ''
+
+        # Build status line
+        status = f"{self.system_name.upper()} Downloading: |{bar}| {done}/{total}"
+        if failed:
+            status += f" ({failed} failed)"
+        if speed_str:
+            status += f"  {speed_str}"
+        status += f"  [{elapsed_str}<{eta_str}]"
+
+        # Hint
+        hint = "  Press [i] for details, [q] to cancel"
+
+        # Center vertically
+        y = height // 2
+        try:
+            stdscr.addstr(y, 2, status[:width-4])
+            stdscr.addstr(y + 1, 2, hint[:width-4], curses.A_DIM)
+        except curses.error:
+            pass
+
+        stdscr.refresh()
+
+    def _format_time(self, seconds: float) -> str:
+        """Format seconds as MM:SS or HH:MM:SS."""
+        if seconds < 0 or seconds > 86400:
+            return '--:--'
+        seconds = int(seconds)
+        if seconds < 3600:
+            mins, secs = divmod(seconds, 60)
+            return f"{mins}:{secs:02d}"
+        hours, remainder = divmod(seconds, 3600)
+        mins, secs = divmod(remainder, 60)
+        return f"{hours}:{mins:02d}:{secs:02d}"
+
+    def _format_size(self, bytes_val: int) -> str:
+        """Format bytes as human-readable size."""
+        if bytes_val < 1024:
+            return f"{bytes_val} B"
+        elif bytes_val < 1024 * 1024:
+            return f"{bytes_val / 1024:.1f} KB"
+        elif bytes_val < 1024 * 1024 * 1024:
+            return f"{bytes_val / (1024 * 1024):.1f} MB"
+        else:
+            return f"{bytes_val / (1024 * 1024 * 1024):.1f} GB"
 
 
 def download_files_cached_batch(
