@@ -1132,7 +1132,7 @@ DEFAULT_CONFIG_CONTENT = """# ==================================================
 #   - /path/to/more/roms
 #   - https://myserver.com/roms/
 
-# Destination directory (default: <system>_refined in script dir)
+# Destination directory (default: refined/ in script dir)
 # dest: /path/to/output
 
 # Prefer ROMs from this source when duplicates exist across multiple sources
@@ -4065,7 +4065,7 @@ Pattern examples (--include / --exclude):
     parser.add_argument('--source', '-s', action='append', default=None,
                         help='Source ROM directory (can specify multiple times)')
     parser.add_argument('--dest', '-d', default=None,
-                        help='Destination directory (default: <system>_refined in script dir)')
+                        help='Destination directory (default: refined/ in script dir)')
     parser.add_argument('--systems', '-y', nargs='+', default=None,
                         help='Systems to process (default: auto-detect from folders)')
     parser.add_argument('--auto-detect', '-a', action='store_true',
@@ -4274,36 +4274,10 @@ Pattern examples (--include / --exclude):
         print(f"Loaded config from: {config_path}")
         apply_config_to_args(args, config)
 
-    # Set default destination (subfolder where script is located, named by system)
+    # Set default destination (refined/ subfolder where script is located)
     if args.dest is None:
         script_dir = Path(__file__).parent.resolve()
-
-        # Try to detect system name for the destination folder
-        dest_system = None
-
-        # For network sources, detect from URL
-        if network_sources:
-            for url in network_sources:
-                dest_system = detect_system_from_path(url)
-                if dest_system:
-                    break
-
-        # For local sources, check if pointing at a system folder
-        if not dest_system and source_paths:
-            for src in source_paths:
-                folder_name = src.name.lower()
-                if folder_name in FOLDER_ALIASES:
-                    dest_system = FOLDER_ALIASES[folder_name]
-                    break
-                elif folder_name in KNOWN_SYSTEMS:
-                    dest_system = folder_name
-                    break
-
-        # Build destination path
-        if dest_system:
-            args.dest = str(script_dir / f"{dest_system}_refined")
-        else:
-            args.dest = str(script_dir / "roms_refined")
+        args.dest = str(script_dir / "refined")
 
     # Parse region priority
     if args.region_priority:
