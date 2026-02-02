@@ -4270,25 +4270,29 @@ Pattern examples (--include / --exclude):
     detected = dict(detected)  # Convert from defaultdict
 
     if not detected:
-        print("\n" + "=" * 60)
-        print("ERROR: No ROM files found in any source")
-        print("=" * 60)
-        if local_sources:
-            print("\nLocal sources checked:")
-            for src in local_sources:
-                print(f"  • {src}")
-        if network_sources:
-            print("\nNetwork sources checked:")
-            for src in network_sources:
-                print(f"  • {src}")
-        print("\nPossible causes:")
-        print("  • Source directory/URL contains no ROM files")
-        print("  • ROM files are in subdirectories not being scanned")
-        print("  • File extensions not recognized (use --list-systems to see supported extensions)")
-        print("  • All ROMs were filtered out by include/exclude patterns")
-        if args.systems:
-            print(f"  • Specified systems ({', '.join(args.systems)}) not found in sources")
-        sys.exit(1)
+        if dry_run:
+            print("\nNo ROM files found. No files changed (dry run).")
+            sys.exit(0)
+        else:
+            print("\n" + "=" * 60)
+            print("ERROR: No ROM files found in any source")
+            print("=" * 60)
+            if local_sources:
+                print("\nLocal sources checked:")
+                for src in local_sources:
+                    print(f"  • {src}")
+            if network_sources:
+                print("\nNetwork sources checked:")
+                for src in network_sources:
+                    print(f"  • {src}")
+            print("\nPossible causes:")
+            print("  • Source directory/URL contains no ROM files")
+            print("  • ROM files are in subdirectories not being scanned")
+            print("  • File extensions not recognized (use --list-systems to see supported extensions)")
+            print("  • All ROMs were filtered out by include/exclude patterns")
+            if args.systems:
+                print(f"  • Specified systems ({', '.join(args.systems)}) not found in sources")
+            sys.exit(1)
 
     if args.systems:
         print(f"Systems: {', '.join(sorted(detected.keys()))}")
