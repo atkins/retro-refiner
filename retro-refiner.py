@@ -68,6 +68,26 @@ def check_shutdown():
         sys.exit(0)
 
 
+def format_size(size_bytes: int) -> str:
+    """Format a size in bytes to a human-readable string."""
+    if size_bytes < 1024:
+        return f"{size_bytes} B"
+    elif size_bytes < 1024 * 1024:
+        return f"{size_bytes / 1024:.1f} KB"
+    elif size_bytes < 1024 * 1024 * 1024:
+        return f"{size_bytes / (1024 * 1024):.1f} MB"
+    else:
+        return f"{size_bytes / (1024 * 1024 * 1024):.2f} GB"
+
+
+def get_file_size(filepath: Path) -> int:
+    """Get the size of a file in bytes."""
+    try:
+        return filepath.stat().st_size
+    except (OSError, IOError):
+        return 0
+
+
 # =============================================================================
 # Network Source Support
 # =============================================================================
@@ -2677,19 +2697,28 @@ def filter_mame_roms(source_dir: str, dest_dir: str, catver_path: str, dat_path:
     source_path = Path(source_dir)
     available_roms = set()
     available_chds = {}  # rom_name -> [chd_paths]
+    rom_sizes = {}  # rom_name -> file size
+    chd_sizes = {}  # rom_name -> total CHD size
+    total_source_size = 0
 
     if source_path.exists():
         for f in source_path.iterdir():
             if f.suffix.lower() == '.zip':
                 available_roms.add(f.stem)
+                size = get_file_size(f)
+                rom_sizes[f.stem] = size
+                total_source_size += size
             elif f.is_dir():
                 # Check for CHDs in subdirectory
                 chds = list(f.glob('*.chd'))
                 if chds:
                     available_chds[f.name] = [c.name for c in chds]
+                    chd_size = sum(get_file_size(c) for c in chds)
+                    chd_sizes[f.name] = chd_size
+                    total_source_size += chd_size
 
-    print(f"{label}: Found {len(available_roms)} ROM files")
-    print(f"{label}: Found {len(available_chds)} games with CHDs")
+    print(f"{label}: Found {len(available_roms)} ROM files ({format_size(sum(rom_sizes.values()))})")
+    print(f"{label}: Found {len(available_chds)} games with CHDs ({format_size(sum(chd_sizes.values()))})")
 
     # Group clones by parent
     parent_clones = defaultdict(list)
@@ -2738,7 +2767,18 @@ def filter_mame_roms(source_dir: str, dest_dir: str, catver_path: str, dat_path:
             # Fallback to first available
             selected_roms.append(games[available_versions[0]])
 
-    print(f"{label}: Selected {len(selected_roms)} games")
+    # Calculate selected size
+    selected_size = 0
+    for game in selected_roms:
+        selected_size += rom_sizes.get(game.name, 0)
+        if copy_chds and game.name in chd_sizes:
+            selected_size += chd_sizes.get(game.name, 0)
+
+    print(f"{label}: Selected {len(selected_roms)} games ({format_size(selected_size)})")
+    if total_source_size > 0:
+        size_saved = total_source_size - selected_size
+        reduction_pct = (size_saved / total_source_size) * 100
+        print(f"{label}: Size reduction: {format_size(size_saved)} saved ({reduction_pct:.1f}%)")
 
     # Print inclusion/exclusion stats
     print(f"\n{label} Inclusion reasons:")
@@ -2798,6 +2838,10 @@ def filter_mame_roms(source_dir: str, dest_dir: str, catver_path: str, dat_path:
             f.write(f"Games with CHDs: {len(available_chds)}\n")
             f.write(f"Selected: {len(selected_roms)}\n")
             f.write(f"Skipped: {len(skipped_games)}\n\n")
+            size_saved = total_source_size - selected_size
+            f.write(f"Source size: {format_size(total_source_size)}\n")
+            f.write(f"Selected size: {format_size(selected_size)}\n")
+            f.write(f"Size saved: {format_size(size_saved)}\n\n")
 
             f.write("SELECTED GAMES\n")
             f.write("-" * 60 + "\n")
@@ -2818,7 +2862,7 @@ def filter_mame_roms(source_dir: str, dest_dir: str, catver_path: str, dat_path:
     if not dry_run:
         print(f"{label}: Selection log written to {log_path}")
 
-    return selected_roms
+    return selected_roms, {'source_size': total_source_size, 'selected_size': selected_size}
 
 
 # File extension to system mapping for auto-detection
@@ -3301,7 +3345,9 @@ def filter_roms_from_files(rom_files: list, dest_dir: str, system: str, dry_run:
     # Parse all ROMs
     all_roms = []
     file_map = {}  # Map filename to full path
+    size_map = {}  # Map filename to file size
     filtered_by_pattern = 0
+    total_source_size = 0
 
     for filepath in tqdm(rom_files, desc=f"{system.upper()} Parsing", unit="ROM", leave=False):
         if _shutdown_requested:
@@ -3366,8 +3412,11 @@ def filter_roms_from_files(rom_files: list, dest_dir: str, system: str, dry_run:
 
         all_roms.append(rom_info)
         file_map[filename] = filepath
+        file_size = get_file_size(filepath)
+        size_map[filename] = file_size
+        total_source_size += file_size
 
-    print(f"\n{system.upper()}: Found {len(all_roms)} total ROMs")
+    print(f"\n{system.upper()}: Found {len(all_roms)} total ROMs ({format_size(total_source_size)})")
     if filtered_by_pattern:
         print(f"{system.upper()}: {filtered_by_pattern} filtered by include/exclude patterns")
     if dat_entries:
@@ -3423,10 +3472,17 @@ def filter_roms_from_files(rom_files: list, dest_dir: str, system: str, dry_run:
                 if verbose:
                     print(f"  [SKIP] No suitable ROM for '{title}' (sample: {sample})")
 
-    print(f"{system.upper()}: Selected {len(selected_roms)} ROMs")
+    # Calculate selected size
+    selected_size = sum(size_map.get(rom.filename, 0) for rom in selected_roms)
+    size_saved = total_source_size - selected_size
+
+    print(f"{system.upper()}: Selected {len(selected_roms)} ROMs ({format_size(selected_size)})")
+    if total_source_size > 0:
+        reduction_pct = (size_saved / total_source_size) * 100
+        print(f"{system.upper()}: Size reduction: {format_size(size_saved)} saved ({reduction_pct:.1f}%)")
 
     if dry_run:
-        return selected_roms
+        return selected_roms, {'source_size': total_source_size, 'selected_size': selected_size}
 
     # Create destination directory (clear existing files first for non-flat)
     if not flat_output:
@@ -3459,6 +3515,9 @@ def filter_roms_from_files(rom_files: list, dest_dir: str, system: str, dry_run:
         f.write(f"Total ROMs scanned: {len(all_roms)}\n")
         f.write(f"Unique games found: {len(grouped)}\n")
         f.write(f"ROMs selected: {len(selected_roms)}\n\n")
+        f.write(f"Source size: {format_size(total_source_size)}\n")
+        f.write(f"Selected size: {format_size(selected_size)}\n")
+        f.write(f"Size saved: {format_size(size_saved)}\n\n")
 
         f.write("SELECTED ROMS:\n")
         f.write("-" * 60 + "\n")
@@ -3480,7 +3539,7 @@ def filter_roms_from_files(rom_files: list, dest_dir: str, system: str, dry_run:
 
     print(f"{system.upper()}: Selection log written to {log_path}")
 
-    return selected_roms
+    return selected_roms, {'source_size': total_source_size, 'selected_size': selected_size}
 
 
 def main():
@@ -3982,6 +4041,9 @@ Pattern examples (--include / --exclude):
 
     print()
     total_selected = 0
+    total_source_size = 0
+    total_selected_size = 0
+    system_stats = {}  # Track stats per system
 
     for system in sorted(detected.keys()):
         check_shutdown()
@@ -4062,7 +4124,7 @@ Pattern examples (--include / --exclude):
             print(f"{arcade_system}: Using catver.ini from {catver_path}")
             print(f"{arcade_system}: Using DAT from {arcade_dat_path}")
 
-            selected = filter_mame_roms(
+            result = filter_mame_roms(
                 str(rom_source),
                 args.dest,
                 str(catver_path),
@@ -4072,6 +4134,10 @@ Pattern examples (--include / --exclude):
                 system_name=system,
                 include_adult=not args.no_adult
             )
+            selected, size_info = result
+            system_stats[system] = size_info
+            total_source_size += size_info['source_size']
+            total_selected_size += size_info['selected_size']
             if selected:
                 total_selected += len(selected)
             print()
@@ -4123,7 +4189,7 @@ Pattern examples (--include / --exclude):
 
                     print(f"{system.upper()}: Verification report written to {report_path}")
 
-            selected = filter_roms_from_files(
+            result = filter_roms_from_files(
                 rom_files, args.dest, system, dry_run,
                 dat_entries=dat_entries if use_dat else None,
                 include_patterns=args.include,
@@ -4140,6 +4206,10 @@ Pattern examples (--include / --exclude):
                 year_to=args.year_to,
                 verbose=args.verbose
             )
+            selected, size_info = result
+            system_stats[system] = size_info
+            total_source_size += size_info['source_size']
+            total_selected_size += size_info['selected_size']
 
             # Generate playlists if requested
             if selected and not dry_run:
@@ -4165,6 +4235,26 @@ Pattern examples (--include / --exclude):
     check_shutdown()
     print("=" * 60)
     print(f"Total ROMs selected: {total_selected}")
+
+    # Print size summary if we have data
+    if system_stats:
+        print()
+        print("SIZE SUMMARY")
+        print("-" * 60)
+        print(f"{'System':<15} {'Source':>12} {'Selected':>12} {'Saved':>12} {'%':>6}")
+        print("-" * 60)
+        for sys_name in sorted(system_stats.keys()):
+            stats = system_stats[sys_name]
+            src = stats['source_size']
+            sel = stats['selected_size']
+            saved = src - sel
+            pct = (saved / src * 100) if src > 0 else 0
+            print(f"{sys_name:<15} {format_size(src):>12} {format_size(sel):>12} {format_size(saved):>12} {pct:>5.1f}%")
+        print("-" * 60)
+        total_saved = total_source_size - total_selected_size
+        total_pct = (total_saved / total_source_size * 100) if total_source_size > 0 else 0
+        print(f"{'TOTAL':<15} {format_size(total_source_size):>12} {format_size(total_selected_size):>12} {format_size(total_saved):>12} {total_pct:>5.1f}%")
+        print("=" * 60)
 
 
 if __name__ == '__main__':
