@@ -309,7 +309,7 @@ def is_directory_link(href: str) -> bool:
 def parse_size_string(size_str: str) -> int:
     """
     Parse a human-readable size string into bytes.
-    Handles formats like: 1.5M, 100K, 50G, 1.5 MB, 100 KB, 1536000
+    Handles formats like: 1.5M, 100K, 50G, 1.5 MB, 100 KB, 175.9 MiB, 1536000
     """
     if not size_str:
         return 0
@@ -322,8 +322,9 @@ def parse_size_string(size_str: str) -> int:
     except ValueError:
         pass
 
-    # Match patterns like "1.5M", "100K", "50G", "1.5 MB", "100 KB"
-    match = re.match(r'^([\d.]+)\s*([KMGT])?B?$', size_str)
+    # Match patterns like "1.5M", "100K", "175.9 MIB", "1.5 MB", "100 KB"
+    # Handle both "MB" and "MiB" (binary) formats
+    match = re.match(r'^([\d.]+)\s*([KMGT])I?B?$', size_str)
     if not match:
         return 0
 
@@ -352,15 +353,40 @@ def extract_file_sizes_from_html(html: str) -> Dict[str, int]:
     - Apache autoindex: <a href="file.zip">file.zip</a>  2024-01-01 12:00  1.5M
     - nginx autoindex: <a href="file.zip">file.zip</a>  01-Jan-2024 12:00  1536000
     - Table format: <td><a href="file.zip">file.zip</a></td><td>1.5 MB</td>
+    - Myrient format: <td class="link"><a href="...">file</a></td><td class="size">175.9 MiB</td>
     """
     sizes = {}
 
-    # Pattern 1: Apache/nginx autoindex format
+    # Pattern 1: Myrient/structured table format (most efficient, check first)
+    # Matches: <td class="link"><a href="...">filename</a></td><td class="size">size</td>
+    myrient_pattern = re.compile(
+        r'<td[^>]*class="link"[^>]*>\s*<a\s+href="([^"]+)"[^>]*>([^<]+)</a>\s*</td>\s*'
+        r'<td[^>]*class="size"[^>]*>\s*([\d.]+\s*[KMGT]i?B|[\d.]+|-)\s*</td>',
+        re.IGNORECASE
+    )
+
+    for match in myrient_pattern.finditer(html):
+        href = match.group(1)
+        filename = match.group(2).strip()
+        size_str = match.group(3).strip()
+
+        if size_str != '-':
+            size = parse_size_string(size_str)
+            if size > 0:
+                clean_href = urllib.request.unquote(href.split('?')[0].split('#')[0])
+                sizes[clean_href] = size
+                sizes[filename] = size
+
+    # If we found sizes with the Myrient pattern, skip slower patterns
+    if sizes:
+        return sizes
+
+    # Pattern 2: Apache/nginx autoindex format
     # Matches: <a href="file.zip">file.zip</a>    date time    size
     autoindex_pattern = re.compile(
         r'<a\s+href=["\']?([^"\'<>\s]+)["\']?[^>]*>([^<]+)</a>\s*'
         r'(?:\d{1,2}[-/]\w{3}[-/]\d{2,4}\s+\d{1,2}:\d{2}|\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2})\s*'
-        r'([\d.]+\s*[KMGT]?B?|\d+|-)',
+        r'([\d.]+\s*[KMGT]i?B?|\d+|-)',
         re.IGNORECASE
     )
 
@@ -372,16 +398,19 @@ def extract_file_sizes_from_html(html: str) -> Dict[str, int]:
         if size_str != '-':
             size = parse_size_string(size_str)
             if size > 0:
-                # Use both href and filename as keys (they might differ)
                 clean_href = urllib.request.unquote(href.split('?')[0].split('#')[0])
                 sizes[clean_href] = size
                 sizes[filename] = size
 
-    # Pattern 2: Table format with size in separate cell
+    # If we found sizes, skip the slow table pattern
+    if sizes:
+        return sizes
+
+    # Pattern 3: Generic table format with size in separate cell (slower, last resort)
     # Matches rows like: <td><a href="file.zip">...</a></td>...<td>1.5 MB</td>
     table_row_pattern = re.compile(
         r'<tr[^>]*>.*?<a\s+href=["\']?([^"\'<>\s]+)["\']?[^>]*>([^<]+)</a>.*?'
-        r'<td[^>]*>\s*([\d.]+\s*[KMGT]?B?|\d+)\s*</td>.*?</tr>',
+        r'<td[^>]*>\s*([\d.]+\s*[KMGT]i?B?|\d+)\s*</td>.*?</tr>',
         re.IGNORECASE | re.DOTALL
     )
 
@@ -663,6 +692,18 @@ def scan_network_source_urls(base_url: str, systems: List[str] = None,
         print(f"{_indent}  Error fetching {base_url}: {e}")
         return dict(detected), _url_sizes
 
+    # Try to detect system from URL path (for Redump/Myrient style URLs)
+    url_system = None
+    url_path = urllib.request.unquote(base_url)
+    for path_part in url_path.split('/'):
+        path_lower = path_part.lower().strip()
+        if path_lower in FOLDER_ALIASES:
+            url_system = FOLDER_ALIASES[path_lower]
+            break
+        elif path_lower in KNOWN_SYSTEMS:
+            url_system = path_lower
+            break
+
     # Check for ROM files directly in this location (with sizes)
     rom_files_with_sizes = parse_html_for_files_with_sizes(html, base_url)
 
@@ -673,11 +714,16 @@ def scan_network_source_urls(base_url: str, systems: List[str] = None,
                 print(f"  Found {len(rom_files_with_sizes)} ROM files in root ({format_size(total_size)})")
             else:
                 print(f"  Found {len(rom_files_with_sizes)} ROM files in root")
-        # Auto-detect system from extensions
+        # Auto-detect system from extensions, fall back to URL path detection
         for url, size in rom_files_with_sizes:
             url_clean = url.split('?')[0].split('#')[0]
             ext = '.' + url_clean.rsplit('.', 1)[-1].lower() if '.' in url_clean else ''
-            system = EXTENSION_TO_SYSTEM.get(ext, 'unknown')
+            system = EXTENSION_TO_SYSTEM.get(ext)
+            # If extension didn't give a system, use URL path detection
+            if not system and url_system:
+                system = url_system
+            elif not system:
+                system = 'unknown'
             if systems is None or system in systems:
                 detected[system].append(url)
                 if size > 0:
@@ -3292,12 +3338,17 @@ FOLDER_ALIASES = {
     'ps1': 'psx',
     'psone': 'psx',
     'sony-playstation': 'psx',
+    'sony - playstation': 'psx',  # Redump naming
     'playstation-2': 'ps2',
     'playstation2': 'ps2',
+    'sony - playstation 2': 'ps2',  # Redump naming
     'playstation-3': 'ps3',
     'playstation3': 'ps3',
+    'sony - playstation 3': 'ps3',  # Redump naming
     'playstation-portable': 'psp',
+    'sony - playstation portable': 'psp',  # Redump naming
     'playstation-vita': 'psvita',
+    'sony - playstation vita': 'psvita',  # Redump naming
     'vita': 'psvita',
     # NEC
     'turbografx16': 'tg16',
