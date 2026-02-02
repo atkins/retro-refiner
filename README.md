@@ -4,6 +4,73 @@
 
 A portable Python script that simplifies the generation of RetroArch-friendly ROM sets. Point it at large ROM archives—local or network—and it automatically selects the best version of each game, based on your native language and filters out the clutter.
 
+## TL;DR
+
+Grab a refined ROM set from Myrient in one command:
+
+```bash
+# Game Boy Advance (No-Intro + English translations, best of each game)
+python retro-refiner.py \
+  -s "https://myrient.erista.me/files/No-Intro/Nintendo%20-%20Game%20Boy%20Advance/" \
+  -s "https://myrient.erista.me/files/T-En%20Collection/Nintendo%20-%20Game%20Boy%20Advance%20%5BT-En%5D%20Collection/" \
+  --yes --commit
+```
+
+That's it. The script combines both sources, picks the best English version of each game (official release or fan translation), and downloads only what you need.
+
+<details>
+<summary>More systems (click to expand)</summary>
+
+```bash
+# NES
+python retro-refiner.py \
+  -s "https://myrient.erista.me/files/No-Intro/Nintendo%20-%20Nintendo%20Entertainment%20System%20(Headered)/" \
+  -s "https://myrient.erista.me/files/T-En%20Collection/Nintendo%20-%20Nintendo%20Entertainment%20System%20%5BT-En%5D%20Collection/" \
+  --yes --commit
+
+# SNES
+python retro-refiner.py \
+  -s "https://myrient.erista.me/files/No-Intro/Nintendo%20-%20Super%20Nintendo%20Entertainment%20System/" \
+  -s "https://myrient.erista.me/files/T-En%20Collection/Nintendo%20-%20Super%20Nintendo%20Entertainment%20System%20%5BT-En%5D%20Collection/" \
+  --yes --commit
+
+# Game Boy
+python retro-refiner.py \
+  -s "https://myrient.erista.me/files/No-Intro/Nintendo%20-%20Game%20Boy/" \
+  -s "https://myrient.erista.me/files/T-En%20Collection/Nintendo%20-%20Game%20Boy%20%5BT-En%5D%20Collection/" \
+  --yes --commit
+
+# Game Boy Color
+python retro-refiner.py \
+  -s "https://myrient.erista.me/files/No-Intro/Nintendo%20-%20Game%20Boy%20Color/" \
+  -s "https://myrient.erista.me/files/T-En%20Collection/Nintendo%20-%20Game%20Boy%20Color%20%5BT-En%5D%20Collection/" \
+  --yes --commit
+
+# Nintendo DS
+python retro-refiner.py \
+  -s "https://myrient.erista.me/files/No-Intro/Nintendo%20-%20Nintendo%20DS%20(Decrypted)/" \
+  -s "https://myrient.erista.me/files/T-En%20Collection/Nintendo%20-%20Nintendo%20DS%20%5BT-En%5D%20Collection/" \
+  --yes --commit
+
+# Sega Genesis / Mega Drive
+python retro-refiner.py \
+  -s "https://myrient.erista.me/files/No-Intro/Sega%20-%20Mega%20Drive%20-%20Genesis/" \
+  -s "https://myrient.erista.me/files/T-En%20Collection/Sega%20-%20Mega%20Drive%20-%20Genesis%20%5BT-En%5D%20Collection/" \
+  --yes --commit
+
+# PlayStation (Redump)
+python retro-refiner.py \
+  -s "https://myrient.erista.me/files/Redump/Sony%20-%20PlayStation/" \
+  -s "https://myrient.erista.me/files/T-En%20Collection/Sony%20-%20PlayStation%20%5BT-En%5D%20Collection/" \
+  --yes --commit
+```
+
+</details>
+
+**Dry run first?** Remove `--commit` to preview what will be selected without downloading anything.
+
+---
+
 ## Why Retro-Refiner?
 
 Inspired by the [1G1R (One Game, One ROM)](https://wiki.recalbox.com/en/tutorials/utilities/rom-management/1g1r) philosophy, Retro-Refiner automatically selects the single best version of each game—no duplicates, no clutter, just the ROMs you actually want to play.
