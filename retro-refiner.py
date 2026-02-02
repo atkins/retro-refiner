@@ -1399,8 +1399,9 @@ class DownloadUI:
         line += f"  [{elapsed_str}<{eta_str}]"
         line += f"  {self.DIM}[i]{self.RESET}"
 
-        # Print with carriage return to update in place
-        print(f"\r{line:<120}", end='', flush=True)
+        # Use ANSI escape: \r = carriage return, \033[K = clear to end of line
+        sys.stdout.write(f"\r\033[K{line}")
+        sys.stdout.flush()
 
     def _render_detailed(self, stdscr) -> None:
         """Render fullscreen curses detailed view."""
