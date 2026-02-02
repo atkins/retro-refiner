@@ -1568,6 +1568,71 @@ class DownloadUI:
             self.scroll_offset = min(max_scroll, self.scroll_offset + 10)
             self._manual_scroll = True
 
+    def _update_from_rpc(self) -> None:
+        """Poll aria2c RPC for download status updates."""
+        if not self.rpc or not self.rpc_available:
+            return
+
+        try:
+            # Get global stats
+            stats = self.rpc.get_global_stat()
+            if stats:
+                self.total_speed = int(stats.get('downloadSpeed', 0))
+
+            # Get active downloads
+            active = self.rpc.get_active()
+            active_paths = set()
+
+            for dl in active:
+                try:
+                    # Extract filename from aria2c response
+                    files = dl.get('files', [])
+                    if not files:
+                        continue
+                    path = Path(files[0].get('path', ''))
+                    active_paths.add(path.name)
+
+                    # Find matching file in our list
+                    for f in self.files:
+                        if f['path'].name == path.name:
+                            f['status'] = self.STATUS_DOWNLOADING
+                            f['size'] = int(dl.get('totalLength', 0))
+                            f['completed'] = int(dl.get('completedLength', 0))
+                            f['speed'] = int(dl.get('downloadSpeed', 0))
+                            break
+                except (KeyError, ValueError):
+                    continue
+
+            # Get stopped (completed/failed)
+            stopped = self.rpc.get_stopped()
+            for dl in stopped:
+                try:
+                    files = dl.get('files', [])
+                    if not files:
+                        continue
+                    path = Path(files[0].get('path', ''))
+                    status = dl.get('status', '')
+
+                    for f in self.files:
+                        if f['path'].name == path.name:
+                            if status == 'complete':
+                                f['status'] = self.STATUS_DONE
+                                f['size'] = int(dl.get('totalLength', 0))
+                                f['completed'] = f['size']
+                            elif status == 'error':
+                                f['status'] = self.STATUS_FAILED
+                            break
+                except (KeyError, ValueError):
+                    continue
+
+            # Update counts
+            with self.lock:
+                self.completed_count = sum(1 for f in self.files if f['status'] == self.STATUS_DONE)
+                self.failed_count = sum(1 for f in self.files if f['status'] == self.STATUS_FAILED)
+
+        except Exception:
+            self.rpc_available = False
+
 
 def download_files_cached_batch(
     urls: List[str],
