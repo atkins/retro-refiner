@@ -1,6 +1,6 @@
 # Retro-Refiner
 
-**Distill your ROM collection down to the essentials.**
+**Refine your ROM collection down to the essentials.**
 
 ## Overview
 Inspired by the 1G1R (One Game, One ROM) philosophy, Retro-Refiner simplifies the generation of RetroArch-friendly ROM sets. Point it at large ROM archives—local or network—and it automatically selects the best English version of each game. Ideal for grabbing optimized, customized sets from archive sites. Supports 144 systems with 200+ folder aliases.
