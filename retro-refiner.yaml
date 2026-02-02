@@ -1,0 +1,198 @@
+# =============================================================================
+# Retro-Refiner Configuration File
+# =============================================================================
+# Place this file in your ROM source directory or specify with --config
+# CLI arguments override these settings
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Source and Destination
+# -----------------------------------------------------------------------------
+
+# Source directories (list for multiple sources)
+# Supports both local paths and network URLs (https://)
+# source:
+#   - /path/to/roms
+#   - /path/to/more/roms
+#   - https://myserver.com/roms/
+
+# Destination directory (default: <source>_refined)
+# dest: /path/to/output
+
+# Prefer ROMs from this source when duplicates exist across multiple sources
+# prefer_source: /path/to/preferred/source
+
+# -----------------------------------------------------------------------------
+# System Selection
+# -----------------------------------------------------------------------------
+
+# Systems to process (default: auto-detect all)
+# Use --list-systems to see all supported system names
+# systems:
+#   - nes
+#   - snes
+#   - genesis
+#   - gba
+#   - mame
+
+# -----------------------------------------------------------------------------
+# Region Handling
+# -----------------------------------------------------------------------------
+
+# Region priority order (first = highest priority)
+# Default: USA, World, Europe, Australia, England, Spain, France, Germany,
+#          Italy, Netherlands, Sweden, Asia, Japan, Korea, China, Taiwan, Brazil
+region_priority: "USA,World,Europe,Australia,Japan"
+
+# Keep multiple regional versions (one ROM per listed region)
+# Useful for collectors or language learners
+# keep_regions: "USA,Japan"
+
+# -----------------------------------------------------------------------------
+# File Operations
+# -----------------------------------------------------------------------------
+
+# Transfer mode: copy (default), link (symlink), hardlink, or move
+# link: true       # Use symbolic links (saves disk space)
+# hardlink: true   # Use hard links (same filesystem only)
+# move: true       # Move files (destructive - use with caution!)
+
+# Output all ROMs to a single flat folder (no system subfolders)
+flat: false
+
+# -----------------------------------------------------------------------------
+# Inclusion Filters
+# -----------------------------------------------------------------------------
+
+# Include only ROMs matching these glob patterns
+# Multiple patterns act as OR (match any)
+# include:
+#   - "*Mario*"
+#   - "*Zelda*"
+#   - "*Metroid*"
+
+# Exclude ROMs matching these glob patterns
+# Applied after include filter
+# exclude:
+#   - "*Beta*"
+#   - "*Demo*"
+#   - "*Sample*"
+
+# Include prototype ROMs (normally excluded)
+include_protos: false
+
+# Include beta ROMs (normally excluded)
+include_betas: false
+
+# Include unlicensed/pirate ROMs (normally excluded)
+include_unlicensed: false
+
+# -----------------------------------------------------------------------------
+# Metadata Filters
+# -----------------------------------------------------------------------------
+
+# Filter by release year (requires year in filename or DAT)
+# year_from: 1985
+# year_to: 1995
+
+# Filter by genre (for arcade systems with catver.ini)
+# genres: "platformer,shooter,puzzle"
+
+# -----------------------------------------------------------------------------
+# Selection Mode
+# -----------------------------------------------------------------------------
+
+# Strict 1G1R mode: exactly one ROM per game, no exceptions
+# When false, may include translations alongside official releases
+1g1r: false
+
+# -----------------------------------------------------------------------------
+# DAT File Options
+# -----------------------------------------------------------------------------
+
+# Skip ROM checksum verification against DAT files
+# Faster but less accurate
+no_verify: false
+
+# Use filename parsing instead of DAT metadata
+# Faster but less accurate region detection
+no_dat: false
+
+# Delete and re-download all DAT files (standalone operation, no ROM processing)
+# Typically used via command line: python retro-refiner.py --update-dats
+# update_dats: false
+
+# Custom directory for DAT files
+# dat_dir: /path/to/dat_files
+
+# -----------------------------------------------------------------------------
+# Network Source Options
+# -----------------------------------------------------------------------------
+
+# Cache directory for files downloaded from network sources
+# Downloaded ROMs are cached here to avoid re-downloading
+# cache_dir: /path/to/cache
+
+# Skip confirmation prompt before downloading from network sources (--commit mode only)
+# In dry run mode, no downloads occur regardless of this setting
+yes: false
+
+# -----------------------------------------------------------------------------
+# MAME/Arcade Options
+# -----------------------------------------------------------------------------
+
+# MAME version for auto-downloading data files
+# mame_version: "0.274"
+
+# Skip copying CHD files for MAME (saves significant space)
+no_chd: false
+
+# Exclude adult/mature MAME games (included by default)
+no_adult: false
+
+# -----------------------------------------------------------------------------
+# Export Options
+# -----------------------------------------------------------------------------
+
+# Generate M3U playlists for each system
+playlists: false
+
+# Generate EmulationStation gamelist.xml files
+gamelist: false
+
+# Generate Retroarch .lpl playlists to this directory
+# retroarch_playlists: /path/to/retroarch/playlists
+
+# -----------------------------------------------------------------------------
+# Example Configurations
+# -----------------------------------------------------------------------------
+
+# --- Minimal English-only collection ---
+# region_priority: "USA,World,Europe"
+# 1g1r: true
+# no_verify: true
+# no_dat: true
+
+# --- Japanese games collector ---
+# region_priority: "Japan,USA,World"
+# keep_regions: "Japan,USA"
+# include_protos: true
+
+# --- Retro gaming (pre-2000) ---
+# year_to: 1999
+# include_protos: true
+# playlists: true
+
+# --- Space-saving setup ---
+# link: true
+# 1g1r: true
+
+# --- Mario/Nintendo fan ---
+# include:
+#   - "*Mario*"
+#   - "*Zelda*"
+#   - "*Metroid*"
+#   - "*Kirby*"
+#   - "*Pokemon*"
+# playlists: true
+# gamelist: true
