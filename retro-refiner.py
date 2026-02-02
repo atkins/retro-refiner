@@ -2263,9 +2263,6 @@ def normalize_title(title: str) -> str:
         'mario golf 64': 'mario golf',
         'mario tennis 64': 'mario tennis',
         'mario story': 'paper mario',
-        # Japan regional titles -> USA names
-        'rockman': 'mega man',
-        'contra spirits': 'contra 3 the alien wars',
         'super metroid': 'super metroid',  # Same but ensure consistent
         # Zelda title variations (after article and punctuation normalization)
         'zelda no densetsu kamigami no triforce': 'legend of zelda a link to the past',
@@ -2303,7 +2300,6 @@ def normalize_title(title: str) -> str:
         'seiken densetsu 2': 'secret of mana',
         'seiken densetsu 3': 'trials of mana',
         # Dragon Quest series (merge subtitled versions)
-        'dragon quest 3 soshite densetsu e': 'dragon quest 3',
         'dragon quest 5 tenkuu no hanayome': 'dragon quest 5',
         'dragon quest 5 hand of the heavenly bride': 'dragon quest 5',
         'dragon quest 6 maboroshi no daichi': 'dragon quest 6',
@@ -3755,7 +3751,6 @@ FOLDER_ALIASES = {
     'pico-8': 'pico8',
     'tic-80': 'tic80',
     'game-and-watch': 'gameandwatch',
-    'vtech-creativision': 'vtech',
     # Nintendo add-ons
     'bs-x': 'satellaview',
     'bsx': 'satellaview',

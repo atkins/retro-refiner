@@ -1,0 +1,51 @@
+[MAIN]
+# Specify a score threshold under which the program will exit with error
+fail-under=8.0
+
+[MESSAGES CONTROL]
+# Disable specific warnings that don't apply well to this single-file script
+disable=
+    # Code complexity - this is a large single-file script by design
+    too-many-lines,
+    too-many-branches,
+    too-many-statements,
+    too-many-locals,
+    too-many-arguments,
+    too-many-positional-arguments,
+    too-many-instance-attributes,
+    too-many-return-statements,
+    too-many-nested-blocks,
+    too-many-public-methods,
+    too-few-public-methods,
+    # Module naming - filename is intentionally hyphenated for CLI use
+    invalid-name,
+    # Import placement - argparse imported in main() to avoid unnecessary load
+    wrong-import-position,
+    import-outside-toplevel,
+    # Exception handling - broad exceptions are intentional for robustness
+    broad-exception-caught,
+    broad-exception-raised,
+    bare-except,
+    # Other style issues that don't affect functionality
+    line-too-long,
+    no-else-return,
+    no-else-continue,
+    consider-using-in,
+    global-statement,
+    redefined-outer-name,
+    f-string-without-interpolation,
+    singleton-comparison,
+    try-except-raise,
+    missing-class-docstring,
+    disallowed-name,
+
+[FORMAT]
+# Maximum line length (for reference, not enforced)
+max-line-length=120
+
+[DESIGN]
+# These are set high since we've disabled the checks anyway
+max-args=20
+max-locals=60
+max-branches=60
+max-statements=200
