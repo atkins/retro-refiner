@@ -27,6 +27,10 @@ import json
 import urllib.request
 import urllib.error
 import socket
+import http.client
+import ssl
+import subprocess
+from urllib.parse import urlparse
 from pathlib import Path
 from collections import defaultdict
 from dataclasses import dataclass, field
@@ -886,7 +890,217 @@ def fetch_url(url: str, timeout: int = 30, max_redirects: int = 5) -> Tuple[byte
     raise Exception(f"Too many redirects for {url}")
 
 
-def download_file_cached(url: str, cache_dir: Path, force: bool = False) -> Optional[Path]:
+class ConnectionPool:
+    """HTTP/HTTPS connection pool using raw sockets for maximum download speed."""
+
+    def __init__(self):
+        self._sockets: Dict[str, ssl.SSLSocket] = {}
+        self._ssl_context = ssl.create_default_context()
+
+    def _get_socket(self, host: str, port: int = 443) -> ssl.SSLSocket:
+        """Get or create an SSL socket to the specified host."""
+        key = f"{host}:{port}"
+
+        if key in self._sockets:
+            return self._sockets[key]
+
+        # Create optimized socket
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+        sock.settimeout(120)
+
+        # Resolve and connect
+        addr = socket.gethostbyname(host)
+        sock.connect((addr, port))
+
+        # Wrap with SSL
+        ssock = self._ssl_context.wrap_socket(sock, server_hostname=host)
+        self._sockets[key] = ssock
+        return ssock
+
+    def _remove_socket(self, host: str, port: int = 443):
+        """Remove a socket from the pool."""
+        key = f"{host}:{port}"
+        if key in self._sockets:
+            try:
+                self._sockets[key].close()
+            except Exception:
+                pass
+            del self._sockets[key]
+
+    def download(self, url: str, _redirect_count: int = 0) -> Optional[bytes]:
+        """Download a file using a pooled socket connection."""
+        if _redirect_count > 5:
+            return None
+
+        parsed = urlparse(url)
+        host = parsed.netloc
+        path = parsed.path or '/'
+        if parsed.query:
+            path += '?' + parsed.query
+
+        # Try up to 2 times (retry once on connection failure)
+        for attempt in range(2):
+            try:
+                ssock = self._get_socket(host)
+
+                # Send HTTP request
+                request = (
+                    f"GET {path} HTTP/1.1\r\n"
+                    f"Host: {host}\r\n"
+                    f"User-Agent: Mozilla/5.0 (compatible; Retro-Refiner/1.0)\r\n"
+                    f"Accept: */*\r\n"
+                    f"Connection: keep-alive\r\n"
+                    f"\r\n"
+                )
+                ssock.sendall(request.encode())
+
+                # Read response headers
+                response = b''
+                while b'\r\n\r\n' not in response:
+                    chunk = ssock.recv(4096)
+                    if not chunk:
+                        break
+                    response += chunk
+
+                if not response:
+                    raise ConnectionError("Empty response")
+
+                # Parse headers
+                header_end = response.index(b'\r\n\r\n')
+                header_data = response[:header_end].decode('utf-8', errors='replace')
+                body_start = response[header_end + 4:]
+
+                # Parse status line
+                lines = header_data.split('\r\n')
+                status_line = lines[0]
+                status_code = int(status_line.split()[1])
+
+                # Parse headers into dict
+                headers = {}
+                for line in lines[1:]:
+                    if ':' in line:
+                        k, v = line.split(':', 1)
+                        headers[k.lower().strip()] = v.strip()
+
+                # Handle redirects
+                if status_code in (301, 302, 303, 307, 308):
+                    location = headers.get('location')
+                    if location:
+                        # Drain any remaining body
+                        content_length = int(headers.get('content-length', 0))
+                        remaining = content_length - len(body_start)
+                        if remaining > 0:
+                            ssock.recv(remaining)
+                        return self.download(location, _redirect_count + 1)
+                    return None
+
+                if status_code != 200:
+                    return None
+
+                # Read body with large buffer
+                content_length = headers.get('content-length')
+                if content_length:
+                    total_size = int(content_length)
+                    body = body_start
+                    while len(body) < total_size:
+                        chunk = ssock.recv(min(1048576, total_size - len(body)))
+                        if not chunk:
+                            break
+                        body += chunk
+                    return body
+                else:
+                    # Chunked encoding or unknown - not fully supported, fall back
+                    return body_start
+
+            except Exception:
+                # Connection failed, remove and retry
+                self._remove_socket(host)
+                if attempt == 0:
+                    continue
+                return None
+
+        return None
+
+    def close_all(self):
+        """Close all sockets in the pool."""
+        for ssock in self._sockets.values():
+            try:
+                ssock.close()
+            except Exception:
+                pass
+        self._sockets.clear()
+
+
+# Global connection pool
+_connection_pool: Optional[ConnectionPool] = None
+
+
+def get_connection_pool() -> ConnectionPool:
+    """Get or create the global connection pool."""
+    global _connection_pool
+    if _connection_pool is None:
+        _connection_pool = ConnectionPool()
+    return _connection_pool
+
+
+# Check for external download tools (much faster for some servers like Myrient)
+_download_tool: Optional[str] = None  # 'curl', 'wget', or None
+
+
+def get_download_tool() -> Optional[str]:
+    """Check which download tool is available. Prefers curl, then wget."""
+    global _download_tool
+    if _download_tool is not None:
+        return _download_tool if _download_tool != '' else None
+
+    # Check for curl first
+    try:
+        result = subprocess.run(['curl', '--version'], capture_output=True, timeout=5)
+        if result.returncode == 0:
+            _download_tool = 'curl'
+            return 'curl'
+    except Exception:
+        pass
+
+    # Check for wget
+    try:
+        result = subprocess.run(['wget', '--version'], capture_output=True, timeout=5)
+        if result.returncode == 0:
+            _download_tool = 'wget'
+            return 'wget'
+    except Exception:
+        pass
+
+    _download_tool = ''  # Mark as checked but not found
+    return None
+
+
+def download_with_external_tool(url: str, dest_path: Path) -> bool:
+    """Download a file using curl or wget. Returns True on success."""
+    tool = get_download_tool()
+    if not tool:
+        return False
+
+    try:
+        if tool == 'curl':
+            result = subprocess.run(
+                ['curl', '-sSL', '-o', str(dest_path), '--connect-timeout', '30', '--max-time', '300', url],
+                capture_output=True,
+                timeout=310
+            )
+        else:  # wget
+            result = subprocess.run(
+                ['wget', '-q', '-O', str(dest_path), '--timeout=30', url],
+                capture_output=True,
+                timeout=310
+            )
+        return result.returncode == 0 and dest_path.exists() and dest_path.stat().st_size > 0
+    except Exception:
+        return False
+
+
+def download_file_cached(url: str, cache_dir: Path, force: bool = False, use_pool: bool = True) -> Optional[Path]:
     """
     Download a file from URL to cache directory if not already cached.
     Returns the local path to the cached file.
@@ -921,17 +1135,34 @@ def download_file_cached(url: str, cache_dir: Path, force: bool = False) -> Opti
     if cached_path.exists() and not force:
         return cached_path
 
-    # Download the file
+    # Download the file - try external tools first (much faster for some servers like Myrient)
     try:
-        request = urllib.request.Request(
-            url,
-            headers={
-                'User-Agent': 'Mozilla/5.0 (compatible; Retro-Refiner/1.0)',
-                'Accept': '*/*',
-            }
-        )
-        with urllib.request.urlopen(request, timeout=120) as response:
-            content = response.read()
+        if get_download_tool():
+            if download_with_external_tool(url, cached_path):
+                return cached_path
+
+        # Fall back to Python methods
+        content = None
+
+        if use_pool and url.startswith('https://'):
+            # Use connection pool for HTTPS
+            pool = get_connection_pool()
+            content = pool.download(url)
+        else:
+            # Fall back to urllib for non-HTTPS or when pool disabled
+            request = urllib.request.Request(
+                url,
+                headers={
+                    'User-Agent': 'Mozilla/5.0 (compatible; Retro-Refiner/1.0)',
+                    'Accept': '*/*',
+                }
+            )
+            with urllib.request.urlopen(request, timeout=120) as response:
+                content = response.read()
+
+        if content is None:
+            print(f"  Warning: Failed to download {filename}")
+            return None
 
         # Write to cache
         with open(cached_path, 'wb') as f:
