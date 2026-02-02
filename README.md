@@ -218,6 +218,7 @@ python retro-refiner.py -s https://myserver.com/roms/ --cache-dir /path/to/cache
 - Parallel downloads with `--parallel N` (default: 4)
 - Auto-detects best download tool: aria2c > curl > Python urllib
 - Install aria2c for best performance: `brew install aria2` (macOS) or `apt install aria2` (Linux)
+- Interactive UI: press `i` during downloads to toggle detailed view with per-file progress, speeds, and status
 
 ## Arcade Filtering (MAME & FBNeo)
 

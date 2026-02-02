@@ -83,6 +83,7 @@ python retro-refiner.py -s https://myserver.com/roms/
 - Caches files to avoid re-downloading
 - Parallel downloads with `--parallel N` (default: 4)
 - Uses aria2c (if installed) for best performance, otherwise curl
+- Interactive download UI: press `i` to toggle detailed view with per-file progress
 
 ## Key Concepts
 
