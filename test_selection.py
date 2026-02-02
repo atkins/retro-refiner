@@ -35,7 +35,6 @@ DEFAULT_REGION_PRIORITY = _module.DEFAULT_REGION_PRIORITY
 load_config = _module.load_config
 generate_default_config = _module.generate_default_config
 apply_config_to_args = _module.apply_config_to_args
-YAML_AVAILABLE = _module.YAML_AVAILABLE
 
 # Network source functions
 is_url = _module.is_url
@@ -460,16 +459,13 @@ def test_config_handling():
             results.fail("Config file generation", "file created", "file not created")
             return
 
-        # Test config loading
-        if YAML_AVAILABLE:
-            config = load_config(config_path)
-            if isinstance(config, dict) and "region_priority" in config:
-                results.ok("Config file loading (YAML)")
-            else:
-                results.fail("Config file loading (YAML)",
-                            "dict with region_priority", f"{type(config)}")
+        # Test config loading (built-in YAML parser)
+        config = load_config(config_path)
+        if isinstance(config, dict) and "region_priority" in config:
+            results.ok("Config file loading (YAML)")
         else:
-            results.ok("Config loading skipped (PyYAML not installed)")
+            results.fail("Config file loading (YAML)",
+                        "dict with region_priority", f"{type(config)}")
 
         # Test JSON config
         json_path = Path(tmpdir) / "config.json"

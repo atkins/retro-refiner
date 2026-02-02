@@ -31,12 +31,106 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Optional, Dict, List, Tuple
 
-# Optional YAML support for config files
-try:
-    import yaml
-    YAML_AVAILABLE = True
-except ImportError:
-    YAML_AVAILABLE = False
+# Minimal YAML parser for config files (no external dependency)
+def parse_simple_yaml(content: str) -> dict:
+    """
+    Parse a simple YAML subset: key-value pairs, lists, comments.
+    Supports: strings, booleans, integers, floats, lists.
+    Does NOT support: nested objects, anchors, multi-line strings.
+    """
+    result = {}
+    current_key = None
+    current_list = None
+
+    for line in content.split('\n'):
+        # Remove inline comments (but preserve # in quoted strings)
+        if '#' in line:
+            in_quote = False
+            quote_char = None
+            for i, char in enumerate(line):
+                if char in ('"', "'") and (i == 0 or line[i-1] != '\\'):
+                    if not in_quote:
+                        in_quote = True
+                        quote_char = char
+                    elif char == quote_char:
+                        in_quote = False
+                elif char == '#' and not in_quote:
+                    line = line[:i]
+                    break
+
+        stripped = line.rstrip()
+        if not stripped:
+            continue
+
+        # List item (- value)
+        if stripped.lstrip().startswith('- '):
+            if current_key and current_list is not None:
+                item = stripped.lstrip()[2:].strip()
+                current_list.append(_parse_yaml_value(item))
+            continue
+
+        # Check indentation - if not indented, close any open list
+        if not line.startswith(' ') and not line.startswith('\t'):
+            if current_key and current_list is not None:
+                result[current_key] = current_list
+                current_list = None
+                current_key = None
+
+        # Key: value pair
+        if ':' in stripped:
+            colon_idx = stripped.index(':')
+            key = stripped[:colon_idx].strip()
+            value_part = stripped[colon_idx + 1:].strip()
+
+            if not key:
+                continue
+
+            if value_part == '':
+                # Could be start of a list
+                current_key = key
+                current_list = []
+            else:
+                result[key] = _parse_yaml_value(value_part)
+                current_key = None
+                current_list = None
+
+    # Close any remaining open list
+    if current_key and current_list is not None:
+        result[current_key] = current_list
+
+    return result
+
+
+def _parse_yaml_value(value: str):
+    """Parse a YAML value into Python type."""
+    if not value:
+        return None
+
+    # Remove quotes
+    if (value.startswith('"') and value.endswith('"')) or \
+       (value.startswith("'") and value.endswith("'")):
+        return value[1:-1]
+
+    # Booleans
+    if value.lower() in ('true', 'yes', 'on'):
+        return True
+    if value.lower() in ('false', 'no', 'off'):
+        return False
+
+    # Null
+    if value.lower() in ('null', '~', ''):
+        return None
+
+    # Numbers
+    try:
+        if '.' in value:
+            return float(value)
+        return int(value)
+    except ValueError:
+        pass
+
+    # Plain string
+    return value
 
 try:
     from tqdm import tqdm
@@ -1170,19 +1264,19 @@ def load_config(config_path: Path) -> dict:
         content = f.read()
 
     if config_path.suffix.lower() in ('.yaml', '.yml'):
-        if not YAML_AVAILABLE:
-            print(f"Note: Skipping {config_path.name} (PyYAML not installed). Use JSON config or: pip install pyyaml")
+        try:
+            return parse_simple_yaml(content) or {}
+        except Exception as e:
+            print(f"Warning: Failed to parse {config_path.name}: {e}")
             return {}
-        return yaml.safe_load(content) or {}
     elif config_path.suffix.lower() == '.json':
         return json.loads(content) or {}
     else:
         # Try YAML first, then JSON
-        if YAML_AVAILABLE:
-            try:
-                return yaml.safe_load(content) or {}
-            except:
-                pass
+        try:
+            return parse_simple_yaml(content) or {}
+        except:
+            pass
         try:
             return json.loads(content) or {}
         except:
