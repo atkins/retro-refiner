@@ -865,16 +865,7 @@ def scan_network_source_urls(base_url: str, systems: List[str] = None,
         return dict(detected), _url_sizes
 
     # Try to detect system from URL path (for Redump/Myrient style URLs)
-    url_system = None
-    url_path = urllib.request.unquote(base_url)
-    for path_part in url_path.split('/'):
-        path_lower = path_part.lower().strip()
-        if path_lower in FOLDER_ALIASES:
-            url_system = FOLDER_ALIASES[path_lower]
-            break
-        elif path_lower in KNOWN_SYSTEMS:
-            url_system = path_lower
-            break
+    url_system = detect_system_from_path(base_url)
 
     # Check for ROM files directly in this location (with sizes)
     rom_files_with_sizes = parse_html_for_files_with_sizes(html, base_url)
@@ -1673,6 +1664,82 @@ LIBRETRO_DAT_SYSTEMS = {
     'symbian': 'Mobile - Symbian',
     'zeebo': 'Mobile - Zeebo',
 }
+
+# Redump DAT names for CD/DVD-based systems
+REDUMP_DAT_SYSTEMS = {
+    # Sony
+    'psx': 'Sony - PlayStation',
+    'ps2': 'Sony - PlayStation 2',
+    'ps3': 'Sony - PlayStation 3',
+    'psp': 'Sony - PlayStation Portable',
+    'psvita': 'Sony - PlayStation Vita',
+    # Sega
+    'segacd': 'Sega - Mega-CD - Sega CD',
+    'saturn': 'Sega - Saturn',
+    'dreamcast': 'Sega - Dreamcast',
+    # NEC
+    'tgcd': 'NEC - PC Engine CD - TurboGrafx-CD',
+    'pcfx': 'NEC - PC-FX',
+    # SNK
+    'neogeocd': 'SNK - Neo Geo CD',
+    # Microsoft
+    'xbox': 'Microsoft - Xbox',
+    'xbox360': 'Microsoft - Xbox 360',
+    # Nintendo
+    'gamecube': 'Nintendo - GameCube',
+    'wii': 'Nintendo - Wii',
+    'wiiu': 'Nintendo - Wii U',
+    '3ds': 'Nintendo - Nintendo 3DS',
+    # Other
+    '3do': 'Panasonic - 3DO Interactive Multiplayer',
+    'cdi': 'Philips - CD-i',
+    'amigacd32': 'Commodore - Amiga CD32',
+    'cdtv': 'Commodore - CDTV',
+    'atarijaguarcd': 'Atari - Jaguar CD Interactive Multimedia System',
+    'fmtowns': 'Fujitsu - FM Towns series',
+    'pc88': 'NEC - PC-88 series',
+    'pc98': 'NEC - PC-98 series',
+    'x68000': 'Sharp - X68000',
+}
+
+# Reverse mapping: No-Intro/Redump DAT name -> system name (for URL detection)
+DAT_NAME_TO_SYSTEM = {v.lower(): k for k, v in LIBRETRO_DAT_SYSTEMS.items()}
+# Add Redump names
+DAT_NAME_TO_SYSTEM.update({v.lower(): k for k, v in REDUMP_DAT_SYSTEMS.items()})
+
+
+def detect_system_from_path(path: str) -> Optional[str]:
+    """
+    Detect system from a URL path or folder name.
+    Handles No-Intro style names like 'GCE - Vectrex' and simple names like 'vectrex'.
+    """
+    path_decoded = urllib.request.unquote(path)
+
+    for part in path_decoded.split('/'):
+        part_clean = part.strip()
+        if not part_clean:
+            continue
+
+        part_lower = part_clean.lower()
+
+        # Check simple folder names first
+        if part_lower in FOLDER_ALIASES:
+            return FOLDER_ALIASES[part_lower]
+        if part_lower in KNOWN_SYSTEMS:
+            return part_lower
+
+        # Check No-Intro style names (e.g., "GCE - Vectrex")
+        if part_lower in DAT_NAME_TO_SYSTEM:
+            return DAT_NAME_TO_SYSTEM[part_lower]
+
+        # Partial match: check if any DAT name is contained in the path part
+        # This handles cases like "No-Intro/GCE - Vectrex" or "Redump/Sony - PlayStation"
+        for dat_name, system in DAT_NAME_TO_SYSTEM.items():
+            if dat_name in part_lower:
+                return system
+
+    return None
+
 
 # Base URL for No-Intro DATs in libretro-database
 LIBRETRO_DB_NOINTO_URL = "https://raw.githubusercontent.com/libretro/libretro-database/master/metadat/no-intro"
