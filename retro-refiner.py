@@ -5453,14 +5453,53 @@ Pattern examples (--include / --exclude):
 
         print(f"\n{system.upper()}: Downloading {len(filtered_urls)} ROMs...")
 
-        # Use batch downloading for connection reuse and parallelism
-        with tqdm(total=len(filtered_urls), desc=f"  {system.upper()} Downloading", unit="file", leave=False) as pbar:
-            cached_files = download_files_cached_batch(
-                filtered_urls, cache_dir,
+        # Prepare download list with cache paths
+        downloads_to_ui = []
+        for url in filtered_urls:
+            url_clean = url.split('?')[0].split('#')[0]
+            filename = urllib.request.unquote(url_clean.split('/')[-1])
+            filename = re.sub(r'[<>:"/\\|?*]', '_', filename) or 'unknown_file'
+
+            url_path = url_clean.replace('://', '/').split('/', 1)[1] if '://' in url_clean else url_clean
+            path_parts = [p for p in url_path.split('/') if p]
+            subdir = path_parts[-2] if len(path_parts) >= 2 else 'misc'
+            subdir = re.sub(r'[<>:"/\\|?*]', '_', subdir)
+
+            cache_subdir = cache_dir / subdir
+            cache_subdir.mkdir(parents=True, exist_ok=True)
+            cached_path = cache_subdir / filename
+
+            # Skip already cached
+            if not cached_path.exists():
+                downloads_to_ui.append((url, cached_path))
+
+        # Run interactive download UI
+        if downloads_to_ui:
+            ui = DownloadUI(
+                system_name=system,
+                files=downloads_to_ui,
                 parallel=args.parallel,
-                connections=args.parallel,  # Also use for multi-connection per file (aria2c)
-                progress_callback=lambda: pbar.update(1)
+                connections=args.parallel
             )
+            cached_files = ui.run()
+        else:
+            cached_files = {}
+
+        # Also include already-cached files in results
+        for url in filtered_urls:
+            if url not in cached_files:
+                url_clean = url.split('?')[0].split('#')[0]
+                filename = urllib.request.unquote(url_clean.split('/')[-1])
+                filename = re.sub(r'[<>:"/\\|?*]', '_', filename) or 'unknown_file'
+
+                url_path = url_clean.replace('://', '/').split('/', 1)[1] if '://' in url_clean else url_clean
+                path_parts = [p for p in url_path.split('/') if p]
+                subdir = path_parts[-2] if len(path_parts) >= 2 else 'misc'
+                subdir = re.sub(r'[<>:"/\\|?*]', '_', subdir)
+
+                cached_path = cache_dir / subdir / filename
+                if cached_path.exists():
+                    cached_files[url] = cached_path
 
         check_shutdown()
 
