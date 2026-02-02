@@ -2766,25 +2766,27 @@ def select_best_rom(roms: list[RomInfo], region_priority: List[str] = None) -> O
     # Prefer regular releases over prototypes if available
     candidates = regular if regular else protos
 
-    # Among candidates, prefer non-translations over translations
+    # Among candidates, prefer official English releases over translations,
+    # but prefer translations over untranslated foreign-language ROMs
+    english_regions = {'USA', 'World', 'Europe', 'Australia', 'England'}
     non_trans = [r for r in candidates if not r.is_translation]
     translations = [r for r in candidates if r.is_translation]
 
-    # Among non-translations, prefer non-hacked versions
-    if non_trans:
-        non_hacked = [r for r in non_trans if not r.has_hacks]
-        if non_hacked:
-            candidates = non_hacked
-        else:
-            candidates = non_trans
+    # Check if we have official English non-translation ROMs
+    english_non_trans = [r for r in non_trans if r.region in english_regions]
+
+    if english_non_trans:
+        # Prefer official English releases over fan translations
+        non_hacked = [r for r in english_non_trans if not r.has_hacks]
+        candidates = non_hacked if non_hacked else english_non_trans
     elif translations:
-        # Among translations, prefer pure translations (no hacks)
+        # For non-English games, prefer translations over untranslated
         pure_trans = [r for r in translations if not r.has_hacks]
-        if pure_trans:
-            candidates = pure_trans
-        else:
-            # If all translations have hacks, still use them
-            candidates = translations
+        candidates = pure_trans if pure_trans else translations
+    elif non_trans:
+        # Fall back to untranslated if no translations available
+        non_hacked = [r for r in non_trans if not r.has_hacks]
+        candidates = non_hacked if non_hacked else non_trans
 
     # Sort by preference based on region priority
     # Higher revision number, Non-hacked preferred (tie-breaker)
@@ -4031,8 +4033,8 @@ def filter_roms_from_files(rom_files: list, dest_dir: str, system: str, dry_run:
                 # Override region from DAT if available
                 if dat_entry.region != 'Unknown':
                     rom_info.region = dat_entry.region
-                # Use DAT game name as base title
-                rom_info.base_title = dat_entry.name
+                # Note: Don't override base_title with dat_entry.name as it includes
+                # region/extension (e.g., "Game (USA).nes") which breaks grouping
                 dat_matched += 1
 
         all_roms.append(rom_info)
