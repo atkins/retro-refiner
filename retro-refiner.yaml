@@ -16,7 +16,7 @@
 #   - /path/to/more/roms
 #   - https://myserver.com/roms/
 
-# Destination directory (default: <source>_refined)
+# Destination directory (default: <system>_refined in script dir)
 # dest: /path/to/output
 
 # Prefer ROMs from this source when duplicates exist across multiple sources
