@@ -1059,16 +1059,25 @@ def get_connection_pool() -> ConnectionPool:
 
 
 # Check for external download tools (much faster for some servers like Myrient)
-_download_tool: Optional[str] = None  # 'curl', 'wget', or None
+_download_tool: Optional[str] = None  # 'aria2c', 'curl', 'wget', or None
 
 
 def get_download_tool() -> Optional[str]:
-    """Check which download tool is available. Prefers curl, then wget."""
+    """Check which download tool is available. Prefers aria2c, then curl, then wget."""
     global _download_tool
     if _download_tool is not None:
         return _download_tool if _download_tool != '' else None
 
-    # Check for curl first
+    # Check for aria2c first (best: parallel + multi-connection per file)
+    try:
+        result = subprocess.run(['aria2c', '--version'], capture_output=True, timeout=5)
+        if result.returncode == 0:
+            _download_tool = 'aria2c'
+            return 'aria2c'
+    except Exception:
+        pass
+
+    # Check for curl (good: parallel downloads)
     try:
         result = subprocess.run(['curl', '--version'], capture_output=True, timeout=5)
         if result.returncode == 0:
@@ -1077,7 +1086,7 @@ def get_download_tool() -> Optional[str]:
     except Exception:
         pass
 
-    # Check for wget
+    # Check for wget (basic: sequential)
     try:
         result = subprocess.run(['wget', '--version'], capture_output=True, timeout=5)
         if result.returncode == 0:
@@ -1090,14 +1099,23 @@ def get_download_tool() -> Optional[str]:
     return None
 
 
-def download_with_external_tool(url: str, dest_path: Path) -> bool:
-    """Download a file using curl or wget. Returns True on success."""
+def download_with_external_tool(url: str, dest_path: Path, connections: int = 4) -> bool:
+    """Download a file using aria2c, curl, or wget. Returns True on success."""
     tool = get_download_tool()
     if not tool:
         return False
 
     try:
-        if tool == 'curl':
+        if tool == 'aria2c':
+            # aria2c with multiple connections per file for faster large file downloads
+            result = subprocess.run(
+                ['aria2c', '-x', str(connections), '-s', str(connections), '-q',
+                 '--connect-timeout=30', '--timeout=300', '-d', str(dest_path.parent),
+                 '-o', dest_path.name, url],
+                capture_output=True,
+                timeout=310
+            )
+        elif tool == 'curl':
             result = subprocess.run(
                 ['curl', '-sSL', '-o', str(dest_path), '--connect-timeout', '30', '--max-time', '300', url],
                 capture_output=True,
@@ -1114,7 +1132,7 @@ def download_with_external_tool(url: str, dest_path: Path) -> bool:
         return False
 
 
-def download_batch_with_curl(downloads: List[Tuple[str, Path]], timeout_per_file: int = 60) -> List[Path]:
+def download_batch_with_curl(downloads: List[Tuple[str, Path]], parallel: int = 4, timeout_per_file: int = 60) -> List[Path]:
     """
     Download multiple files with a single curl call (connection reuse).
     Returns list of successfully downloaded paths.
@@ -1123,15 +1141,15 @@ def download_batch_with_curl(downloads: List[Tuple[str, Path]], timeout_per_file
         return []
 
     # Build curl command with multiple URL/output pairs
-    cmd = ['curl', '-sSL', '--connect-timeout', '30', '--parallel', '--parallel-max', '4']
+    cmd = ['curl', '-sSL', '--connect-timeout', '30', '--parallel', '--parallel-max', str(parallel)]
 
     for url, dest_path in downloads:
         dest_path.parent.mkdir(parents=True, exist_ok=True)
         cmd.extend(['-o', str(dest_path), url])
 
     try:
-        # Timeout scales with number of files
-        total_timeout = max(60, len(downloads) * timeout_per_file)
+        # Timeout scales with number of files (adjusted for parallelism)
+        total_timeout = max(60, (len(downloads) // parallel + 1) * timeout_per_file)
         subprocess.run(cmd, capture_output=True, timeout=total_timeout)
     except subprocess.TimeoutExpired:
         pass  # Check which files succeeded anyway
@@ -1147,15 +1165,75 @@ def download_batch_with_curl(downloads: List[Tuple[str, Path]], timeout_per_file
     return successful
 
 
+def download_batch_with_aria2c(downloads: List[Tuple[str, Path]], parallel: int = 4, connections: int = 4, timeout_per_file: int = 60) -> List[Path]:
+    """
+    Download multiple files with aria2c (parallel downloads + multi-connection per file).
+    Returns list of successfully downloaded paths.
+    """
+    if not downloads:
+        return []
+
+    # Create a temporary input file for aria2c
+    import tempfile
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
+        input_file = f.name
+        for url, dest_path in downloads:
+            dest_path.parent.mkdir(parents=True, exist_ok=True)
+            # aria2c input format: URL\n  dir=...\n  out=...\n
+            f.write(f"{url}\n")
+            f.write(f"  dir={dest_path.parent}\n")
+            f.write(f"  out={dest_path.name}\n")
+
+    try:
+        # -j: concurrent downloads, -x: connections per server, -s: split count
+        cmd = [
+            'aria2c', '-q', '--console-log-level=error',
+            '-j', str(parallel),      # concurrent downloads
+            '-x', str(connections),   # connections per server
+            '-s', str(connections),   # split file into N parts
+            '--connect-timeout=30',
+            '--timeout=300',
+            '--file-allocation=none',  # faster startup
+            '-i', input_file
+        ]
+        total_timeout = max(60, (len(downloads) // parallel + 1) * timeout_per_file)
+        subprocess.run(cmd, capture_output=True, timeout=total_timeout)
+    except subprocess.TimeoutExpired:
+        pass  # Check which files succeeded anyway
+    except Exception:
+        pass
+    finally:
+        # Clean up input file
+        try:
+            os.unlink(input_file)
+        except Exception:
+            pass
+
+    # Return list of successfully downloaded files
+    successful = []
+    for url, dest_path in downloads:
+        if dest_path.exists() and dest_path.stat().st_size > 0:
+            successful.append(dest_path)
+
+    return successful
+
+
 def download_files_cached_batch(
     urls: List[str],
     cache_dir: Path,
     batch_size: int = 50,
+    parallel: int = 4,
+    connections: int = 4,
     progress_callback=None
 ) -> Dict[str, Path]:
     """
-    Download multiple files with batched curl calls for connection reuse.
+    Download multiple files with batched downloads for connection reuse.
+    Uses aria2c if available (best), otherwise curl, otherwise wget.
     Returns dict of url -> cached_path for successful downloads.
+
+    Args:
+        parallel: Number of concurrent file downloads
+        connections: Number of connections per file (aria2c only, useful for large files)
     """
     results = {}
 
@@ -1183,11 +1261,16 @@ def download_files_cached_batch(
         else:
             downloads_needed.append((url, cached_path))
 
-    # Download in batches using curl if available
-    if downloads_needed and get_download_tool() == 'curl':
+    # Download in batches using best available tool
+    tool = get_download_tool()
+    if downloads_needed and tool in ('aria2c', 'curl'):
         for i in range(0, len(downloads_needed), batch_size):
             batch = downloads_needed[i:i + batch_size]
-            successful = download_batch_with_curl(batch)
+
+            if tool == 'aria2c':
+                successful = download_batch_with_aria2c(batch, parallel=parallel, connections=connections)
+            else:  # curl
+                successful = download_batch_with_curl(batch, parallel=parallel)
 
             for url, dest_path in batch:
                 if dest_path in successful:
@@ -1195,10 +1278,10 @@ def download_files_cached_batch(
                 if progress_callback:
                     progress_callback()
 
-    # Fall back to individual downloads for any that failed or if curl not available
+    # Fall back to individual downloads for any that failed or if no batch tool available
     for url, dest_path in downloads_needed:
         if url not in results:
-            if download_with_external_tool(url, dest_path):
+            if download_with_external_tool(url, dest_path, connections=connections):
                 results[url] = dest_path
             elif dest_path.exists():
                 dest_path.unlink()  # Remove partial download
@@ -4205,6 +4288,9 @@ Pattern examples (--include / --exclude):
                         help='Directory for all DAT files (default: <source>/dat_files/)')
     parser.add_argument('--cache-dir', default=None,
                         help='Directory for caching network downloads (default: <source>/cache/)')
+    parser.add_argument('--parallel', '-p', type=int, default=4,
+                        help='Number of parallel downloads for network sources (default: 4). '
+                             'With aria2c, also sets connections per file for large downloads.')
 
     args = parser.parse_args()
 
@@ -4654,6 +4740,17 @@ Pattern examples (--include / --exclude):
             else:
                 print(f"\nTotal: {total_network_files} files")
             print(f"Cache directory: {cache_dir}")
+
+            # Show download tool info
+            tool = get_download_tool()
+            if tool == 'aria2c':
+                print(f"Download tool: aria2c ({args.parallel} parallel, {args.parallel} connections/file)")
+            elif tool == 'curl':
+                print(f"Download tool: curl ({args.parallel} parallel)")
+            elif tool == 'wget':
+                print(f"Download tool: wget (sequential)")
+            else:
+                print("Download tool: Python urllib (sequential)")
             print("=" * 60)
 
     # Step 3: Download the filtered files
@@ -4664,10 +4761,12 @@ Pattern examples (--include / --exclude):
 
             print(f"\n{system.upper()}: Downloading {len(filtered_urls)} ROMs...")
 
-            # Use batch downloading for connection reuse (~30% faster)
+            # Use batch downloading for connection reuse and parallelism
             with tqdm(total=len(filtered_urls), desc=f"  {system.upper()} Downloading", unit="file", leave=False) as pbar:
                 cached_files = download_files_cached_batch(
                     filtered_urls, cache_dir,
+                    parallel=args.parallel,
+                    connections=args.parallel,  # Also use for multi-connection per file (aria2c)
                     progress_callback=lambda: pbar.update(1)
                 )
 
