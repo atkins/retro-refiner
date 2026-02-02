@@ -4065,19 +4065,14 @@ Pattern examples (--include / --exclude):
     else:
         transfer_mode = 'copy'
 
-    # Print ASCII art banner with colors
-    # ANSI codes: \033[96m=bright cyan, \033[97m=bright white, \033[90m=grey, \033[0m=reset
-    cyan = "\033[96m"
-    white = "\033[97m"
-    grey = "\033[90m"
-    reset = "\033[0m"
-    print(f"""
-{cyan}    ___  ___ _____  ___  ___        ___  ___ ___ ___ _  _ ___ ___
-   | _ \\| __|_   _|| _ \\/ _ \\  {grey}___{cyan} | _ \\| __| __|_ _| \\| | __| _ \\
-   |   /| _|  | |  |   / (_) |{grey}|___|{cyan}|   /| _|| _| | || .` | _||   /
-   |_|_\\|___| |_|  |_|_\\\\___/{grey}      {cyan}|_|_\\|___|_| |___|_|\\_|___|_|_\\
-{grey}   ─────────────────────────────────────────────────────────────────
-{white}              R E F I N E   Y O U R   C O L L E C T I O N{reset}
+    # Print ASCII art banner
+    print(r"""
+    ___  ___ _____  ___  ___        ___  ___ ___ ___ _  _ ___ ___
+   | _ \| __|_   _|| _ \/ _ \  ___ | _ \| __| __|_ _| \| | __| _ \
+   |   /| _|  | |  |   / (_) ||___||   /| _|| _| | || .` | _||   /
+   |_|_\|___| |_|  |_|_\\___/      |_|_\|___|_| |___|_|\_|___|_|_\
+   ─────────────────────────────────────────────────────────────────
+              R E F I N E   Y O U R   C O L L E C T I O N
 """)
     if len(source_paths) > 1:
         print(f"Sources: {', '.join(str(p) for p in source_paths)}")
