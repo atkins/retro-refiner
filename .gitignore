@@ -46,6 +46,9 @@ cache/
 *.z64
 *.v64
 *.md
+!README.md
+!CLAUDE.md
+!docs/**/*.md
 *.gen
 *.sms
 *.gg
