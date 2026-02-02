@@ -5417,7 +5417,9 @@ Pattern examples (--include / --exclude):
     # DAT files provide official game names for better title matching
     if use_dat and all_network_urls:
         dat_dir = Path(args.dat_dir) if args.dat_dir else primary_source / 'dat_files'
-        systems_needing_dat = [s for s in all_network_urls.keys() if s not in MAME_SYSTEMS]
+        # Skip MAME/arcade systems - they use catver.ini instead of libretro DATs
+        arcade_systems = ('mame', 'fbneo', 'fba', 'arcade')
+        systems_needing_dat = [s for s in all_network_urls.keys() if s not in arcade_systems]
         if systems_needing_dat:
             print(f"\nDownloading DAT files for {len(systems_needing_dat)} system(s)...")
             for system in systems_needing_dat:
