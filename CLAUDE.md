@@ -270,5 +270,6 @@ CHD files are stored in `mame/gamename/game.chd` and copied alongside ROMs.
 - Destination folders are cleared before each run (no stale files)
 - Each system gets `_selection_log.txt` with selection details
 - Hacked ROMs are deprioritized but included if only option
-- Default destination is `<source>_refined` in parent directory
+- Default destination is `refined/` folder in the script directory
+- No external dependencies (YAML parsing and progress bars are built-in)
 - No hardcoded paths - works on any machine
