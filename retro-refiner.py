@@ -1474,6 +1474,7 @@ class DownloadUI:
         list_height = height - list_start - 2  # Leave room for footer
 
         # Sort files: downloading first, then queued, then done, then failed
+        # Use filename as secondary key for stable sorting within each group
         def sort_key(f):
             status_order = {
                 self.STATUS_DOWNLOADING: 0,
@@ -1481,7 +1482,7 @@ class DownloadUI:
                 self.STATUS_DONE: 2,
                 self.STATUS_FAILED: 3
             }
-            return status_order.get(f['status'], 4)
+            return (status_order.get(f['status'], 4), f['path'].name)
 
         sorted_files = sorted(self.files, key=sort_key)
 
@@ -1544,6 +1545,8 @@ class DownloadUI:
     def _update_from_rpc(self) -> None:
         """Poll aria2c RPC for download status updates."""
         if not self.rpc or not self.rpc_available:
+            # Fall back to checking files on disk
+            self._update_status_from_files_incremental()
             return
 
         try:
@@ -1552,15 +1555,18 @@ class DownloadUI:
             if stats:
                 self.total_speed = int(stats.get('downloadSpeed', 0))
 
+            # Track which files are currently active (by filename)
+            active_filenames = set()
+
             # Get active downloads
             active = self.rpc.get_active()
-
             for dl in active:
                 try:
                     files = dl.get('files', [])
                     if not files:
                         continue
                     path = Path(files[0].get('path', ''))
+                    active_filenames.add(path.name)
 
                     for f in self.files:
                         if f['path'].name == path.name:
@@ -1594,6 +1600,17 @@ class DownloadUI:
                 except (KeyError, ValueError):
                     continue
 
+            # Check files that were DOWNLOADING but are no longer active
+            # They might have completed but fallen off the stopped list
+            for f in self.files:
+                if f['status'] == self.STATUS_DOWNLOADING and f['path'].name not in active_filenames:
+                    # Check if file exists on disk (completed)
+                    if f['path'].exists() and f['path'].stat().st_size > 0:
+                        f['status'] = self.STATUS_DONE
+                        f['completed'] = f['path'].stat().st_size
+                        f['size'] = f['completed']
+                        f['speed'] = 0
+
             # Update counts
             with self.lock:
                 self.completed_count = sum(1 for f in self.files if f['status'] == self.STATUS_DONE)
@@ -1601,6 +1618,19 @@ class DownloadUI:
 
         except Exception:
             self.rpc_available = False
+
+    def _update_status_from_files_incremental(self) -> None:
+        """Update status by checking files on disk (only for non-final states)."""
+        for f in self.files:
+            if f['status'] in (self.STATUS_QUEUED, self.STATUS_DOWNLOADING):
+                if f['path'].exists() and f['path'].stat().st_size > 0:
+                    f['status'] = self.STATUS_DONE
+                    f['completed'] = f['path'].stat().st_size
+                    f['size'] = f['completed']
+                    f['speed'] = 0
+
+        self.completed_count = sum(1 for f in self.files if f['status'] == self.STATUS_DONE)
+        self.failed_count = sum(1 for f in self.files if f['status'] == self.STATUS_FAILED)
 
     def _download_worker(self) -> None:
         """Background thread that runs the actual downloads."""
