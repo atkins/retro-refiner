@@ -1171,7 +1171,7 @@ def load_config(config_path: Path) -> dict:
 
     if config_path.suffix.lower() in ('.yaml', '.yml'):
         if not YAML_AVAILABLE:
-            print("Warning: PyYAML not installed. Install with: pip install pyyaml")
+            print(f"Note: Skipping {config_path.name} (PyYAML not installed). Use JSON config or: pip install pyyaml")
             return {}
         return yaml.safe_load(content) or {}
     elif config_path.suffix.lower() == '.json':
