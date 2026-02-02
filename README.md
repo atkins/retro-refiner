@@ -295,7 +295,7 @@ Each system folder contains `_selection_log.txt` with:
 |--------|-------------|
 | `--include` | Include only matching patterns (glob-style) |
 | `--exclude` | Exclude matching patterns (glob-style) |
-| `--include-protos` | Include prototype ROMs |
+| `--exclude-protos` | Exclude prototype ROMs (included by default) |
 | `--include-betas` | Include beta ROMs |
 | `--include-unlicensed` | Include unlicensed ROMs |
 | `--year-from` | Filter by year (minimum) |
@@ -359,7 +359,7 @@ include:
   - "*Zelda*"
 exclude:
   - "*Demo*"
-include_protos: true
+exclude_protos: false  # protos included by default
 include_betas: false
 year_from: 1990
 year_to: 1999

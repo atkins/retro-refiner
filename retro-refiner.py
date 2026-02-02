@@ -567,7 +567,7 @@ def get_filename_from_url(url: str) -> str:
 def filter_network_roms(rom_urls: List[str], system: str,
                         include_patterns: List[str] = None,
                         exclude_patterns: List[str] = None,
-                        include_protos: bool = False,
+                        exclude_protos: bool = False,
                         include_betas: bool = False,
                         include_unlicensed: bool = False,
                         region_priority: List[str] = None,
@@ -606,7 +606,7 @@ def filter_network_roms(rom_urls: List[str], system: str,
         rom_info = parse_rom_filename(filename)
 
         # Filter by proto/beta/unlicensed unless explicitly included
-        if rom_info.is_proto and not include_protos:
+        if rom_info.is_proto and exclude_protos:
             if verbose:
                 print(f"  [SKIP] {filename}: prototype")
             continue
@@ -761,8 +761,8 @@ flat: false
 #   - "*Demo*"
 #   - "*Sample*"
 
-# Include prototype ROMs (normally excluded)
-include_protos: false
+# Exclude prototype ROMs (included by default)
+exclude_protos: false
 
 # Include beta ROMs (normally excluded)
 include_betas: false
@@ -859,11 +859,9 @@ gamelist: false
 # --- Japanese games collector ---
 # region_priority: "Japan,USA,World"
 # keep_regions: "Japan,USA"
-# include_protos: true
 
 # --- Retro gaming (pre-2000) ---
 # year_to: 1999
-# include_protos: true
 # playlists: true
 
 # --- Space-saving setup ---
@@ -933,7 +931,7 @@ def apply_config_to_args(args, config: dict):
         'keep_regions': 'keep_regions',
         'include': 'include',
         'exclude': 'exclude',
-        'include_protos': 'include_protos',
+        'exclude_protos': 'exclude_protos',
         'include_betas': 'include_betas',
         'include_unlicensed': 'include_unlicensed',
         'genres': 'genres',
@@ -3273,7 +3271,7 @@ def filter_roms_from_files(rom_files: list, dest_dir: str, system: str, dry_run:
                            dat_entries: Dict[str, DatRomEntry] = None,
                            include_patterns: List[str] = None,
                            exclude_patterns: List[str] = None,
-                           include_protos: bool = False,
+                           exclude_protos: bool = False,
                            include_betas: bool = False,
                            include_unlicensed: bool = False,
                            region_priority: List[str] = None,
@@ -3325,9 +3323,9 @@ def filter_roms_from_files(rom_files: list, dest_dir: str, system: str, dry_run:
         rom_info = parse_rom_filename(filename)
 
         # Filter by proto/beta/unlicensed unless explicitly included
-        if rom_info.is_proto and not include_protos:
+        if rom_info.is_proto and exclude_protos:
             if verbose:
-                print(f"  [SKIP] {filename}: prototype (use --include-protos to include)")
+                print(f"  [SKIP] {filename}: prototype (excluded via --exclude-protos)")
             continue
         if rom_info.is_beta and not include_betas:
             if verbose:
@@ -3554,8 +3552,8 @@ Pattern examples (--include / --exclude):
                         help='Include only ROMs matching pattern (glob-style, can specify multiple)')
     parser.add_argument('--exclude', action='append', default=None,
                         help='Exclude ROMs matching pattern (glob-style, can specify multiple)')
-    parser.add_argument('--include-protos', action='store_true',
-                        help='Include prototype ROMs (excluded by default)')
+    parser.add_argument('--exclude-protos', action='store_true',
+                        help='Exclude prototype ROMs (included by default)')
     parser.add_argument('--include-betas', action='store_true',
                         help='Include beta ROMs (excluded by default)')
     parser.add_argument('--include-unlicensed', action='store_true',
@@ -3784,8 +3782,8 @@ Pattern examples (--include / --exclude):
         options.append(f"include: {args.include}")
     if args.exclude:
         options.append(f"exclude: {args.exclude}")
-    if args.include_protos:
-        options.append("include protos")
+    if args.exclude_protos:
+        options.append("exclude protos")
     if args.include_betas:
         options.append("include betas")
     if args.include_unlicensed:
@@ -3873,7 +3871,7 @@ Pattern examples (--include / --exclude):
                 urls, system,
                 include_patterns=args.include,
                 exclude_patterns=args.exclude,
-                include_protos=args.include_protos,
+                exclude_protos=args.exclude_protos,
                 include_betas=args.include_betas,
                 include_unlicensed=args.include_unlicensed,
                 region_priority=region_priority,
@@ -4130,7 +4128,7 @@ Pattern examples (--include / --exclude):
                 dat_entries=dat_entries if use_dat else None,
                 include_patterns=args.include,
                 exclude_patterns=args.exclude,
-                include_protos=args.include_protos,
+                exclude_protos=args.exclude_protos,
                 include_betas=args.include_betas,
                 include_unlicensed=args.include_unlicensed,
                 region_priority=region_priority,

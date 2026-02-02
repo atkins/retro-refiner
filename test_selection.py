@@ -755,7 +755,7 @@ def test_network_rom_filtering():
     ]
     filtered = filter_network_roms(
         proto_urls, "nes",
-        include_protos=True,
+        exclude_protos=False,
         region_priority=DEFAULT_REGION_PRIORITY
     )
     if len(filtered) == 1:

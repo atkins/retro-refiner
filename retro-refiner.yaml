@@ -79,8 +79,8 @@ flat: false
 #   - "*Demo*"
 #   - "*Sample*"
 
-# Include prototype ROMs (normally excluded)
-include_protos: false
+# Exclude prototype ROMs (included by default)
+exclude_protos: false
 
 # Include beta ROMs (normally excluded)
 include_betas: false
@@ -177,11 +177,9 @@ gamelist: false
 # --- Japanese games collector ---
 # region_priority: "Japan,USA,World"
 # keep_regions: "Japan,USA"
-# include_protos: true
 
 # --- Retro gaming (pre-2000) ---
 # year_to: 1999
-# include_protos: true
 # playlists: true
 
 # --- Space-saving setup ---
