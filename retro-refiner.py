@@ -1267,28 +1267,13 @@ class Aria2cRPC:
 
 
 class DownloadUI:
-    """Inline download UI with progress bar and file status panel."""
+    """Simple download UI with single-line progress bar."""
 
     # Status constants
     STATUS_QUEUED = 'queued'
     STATUS_DOWNLOADING = 'downloading'
     STATUS_DONE = 'done'
     STATUS_FAILED = 'failed'
-
-    # ANSI escape codes
-    CLEAR_LINE = '\033[2K'
-    MOVE_UP = '\033[A'
-    HIDE_CURSOR = '\033[?25l'
-    SHOW_CURSOR = '\033[?25h'
-    GREEN = '\033[32m'
-    CYAN = '\033[36m'
-    RED = '\033[31m'
-    DIM = '\033[2m'
-    RESET = '\033[0m'
-
-    # Display settings
-    MAX_ACTIVE_SHOWN = 4
-    MAX_RECENT_SHOWN = 4
 
     def __init__(self, system_name: str, files: List[Tuple[str, Path]],
                  parallel: int = 4, connections: int = 4):
@@ -1318,8 +1303,6 @@ class DownloadUI:
         self.total_speed = 0
         self.completed_count = 0
         self.failed_count = 0
-        self.recent_completed = []  # Track recently completed for display
-        self.lines_printed = 0  # Track how many lines we've printed for clearing
 
     def _is_tty(self) -> bool:
         """Check if running in a terminal."""
@@ -1348,18 +1331,10 @@ class DownloadUI:
         else:
             return f"{bytes_val / (1024 * 1024 * 1024):.1f} GB"
 
-    def _truncate(self, text: str, max_len: int) -> str:
-        """Truncate text with ellipsis if too long."""
-        if len(text) <= max_len:
-            return text
-        return text[:max_len - 3] + '...'
-
     def _render(self) -> None:
-        """Render the inline progress display."""
+        """Render single-line progress bar (updates in place)."""
         if not self._is_tty():
             return
-
-        lines = []
 
         total = len(self.files)
         done = self.completed_count
@@ -1367,7 +1342,7 @@ class DownloadUI:
         elapsed = _time.time() - self.start_time if self.start_time else 0
 
         # Progress bar
-        bar_width = 25
+        bar_width = 20
         if total > 0:
             pct = done / total
             filled = int(bar_width * pct)
@@ -1381,62 +1356,24 @@ class DownloadUI:
             remaining = (total - done) / rate if rate > 0 else 0
             eta_str = self._format_time(remaining)
             elapsed_str = self._format_time(elapsed)
+            rate_str = f"{rate:.1f}" if rate < 100 else f"{rate:.0f}"
         else:
             eta_str = '--:--'
             elapsed_str = self._format_time(elapsed)
+            rate_str = '0'
 
         speed_str = self._format_size(self.total_speed) + '/s' if self.total_speed else ''
 
-        # Build progress line
-        progress = f"  {self.system_name.upper()}: |{bar}| {done}/{total}"
-        if failed:
-            progress += f" {self.RED}({failed} failed){self.RESET}"
+        # Build single line
+        line = f"  {self.system_name.upper()} Downloading: |{bar}| {done}/{total}"
         if speed_str:
-            progress += f"  {speed_str}"
-        progress += f"  [{elapsed_str}<{eta_str}]"
-        lines.append(progress)
+            line += f"  {speed_str}"
+        line += f"  [{elapsed_str}<{eta_str}, {rate_str}file/s]"
+        if failed:
+            line += f" ({failed} failed)"
 
-        # Get active downloads
-        active = [f for f in self.files if f['status'] == self.STATUS_DOWNLOADING][:self.MAX_ACTIVE_SHOWN]
-
-        # Show active downloads
-        for f in active:
-            filename = self._truncate(f['path'].name, 50)
-            if f['size'] > 0 and f['completed'] > 0:
-                pct = int(100 * f['completed'] / f['size'])
-                speed = self._format_size(f['speed']) + '/s' if f['speed'] else ''
-                line = f"  {self.CYAN}↓{self.RESET} {filename:<50} {pct:>3}%  {speed}"
-            else:
-                line = f"  {self.CYAN}↓{self.RESET} {filename:<50} ..."
-            lines.append(line)
-
-        # Show recent completions
-        for f in self.recent_completed[-self.MAX_RECENT_SHOWN:]:
-            filename = self._truncate(f['path'].name, 50)
-            if f['status'] == self.STATUS_DONE:
-                line = f"  {self.GREEN}✓{self.RESET} {filename:<50} {self.DIM}done{self.RESET}"
-            else:
-                line = f"  {self.RED}✗{self.RESET} {filename:<50} {self.RED}failed{self.RESET}"
-            lines.append(line)
-
-        # Clear previous output and print new
-        output = ''
-        if self.lines_printed > 0:
-            # Move up and clear each previous line
-            output += (self.MOVE_UP + self.CLEAR_LINE) * self.lines_printed
-            output += '\r'
-
-        output += '\n'.join(lines)
-        print(output, end='', flush=True)
-        self.lines_printed = len(lines)
-
-    def _clear_display(self) -> None:
-        """Clear the display area and show cursor."""
-        if self._is_tty() and self.lines_printed > 0:
-            # Move to start of display area and clear
-            output = (self.MOVE_UP + self.CLEAR_LINE) * self.lines_printed + '\r'
-            print(output + self.SHOW_CURSOR, end='', flush=True)
-            self.lines_printed = 0
+        # Print with carriage return to update in place
+        print(f"\r{line:<100}", end='', flush=True)
 
     def _update_from_rpc(self) -> None:
         """Poll aria2c RPC for download status updates."""
@@ -1481,17 +1418,12 @@ class DownloadUI:
 
                     for f in self.files:
                         if f['path'].name == path.name:
-                            old_status = f['status']
                             if status == 'complete':
                                 f['status'] = self.STATUS_DONE
                                 f['size'] = int(dl.get('totalLength', 0))
                                 f['completed'] = f['size']
                             elif status == 'error':
                                 f['status'] = self.STATUS_FAILED
-                            # Track recently completed
-                            if old_status != f['status'] and f['status'] in (self.STATUS_DONE, self.STATUS_FAILED):
-                                if f not in self.recent_completed:
-                                    self.recent_completed.append(f)
                             break
                 except (KeyError, ValueError):
                     continue
@@ -1582,13 +1514,10 @@ class DownloadUI:
             for f in self.files:
                 if f['path'] in successful:
                     f['status'] = self.STATUS_DONE
-                    self.recent_completed.append(f)
                 elif f['path'].exists() and f['path'].stat().st_size > 0:
                     f['status'] = self.STATUS_DONE
-                    self.recent_completed.append(f)
                 else:
                     f['status'] = self.STATUS_FAILED
-                    self.recent_completed.append(f)
 
             self.completed_count = sum(1 for f in self.files if f['status'] == self.STATUS_DONE)
             self.failed_count = sum(1 for f in self.files if f['status'] == self.STATUS_FAILED)
@@ -1616,7 +1545,6 @@ class DownloadUI:
                 for f in self.files:
                     if f['url'] == url:
                         f['status'] = self.STATUS_DONE if success else self.STATUS_FAILED
-                        self.recent_completed.append(f)
                         break
                 self.completed_count = sum(1 for f in self.files if f['status'] == self.STATUS_DONE)
                 self.failed_count = sum(1 for f in self.files if f['status'] == self.STATUS_FAILED)
@@ -1628,12 +1556,8 @@ class DownloadUI:
                 if f['status'] in (self.STATUS_QUEUED, self.STATUS_DOWNLOADING):
                     if f['path'].exists() and f['path'].stat().st_size > 0:
                         f['status'] = self.STATUS_DONE
-                        if f not in self.recent_completed:
-                            self.recent_completed.append(f)
                     else:
                         f['status'] = self.STATUS_FAILED
-                        if f not in self.recent_completed:
-                            self.recent_completed.append(f)
 
             self.completed_count = sum(1 for f in self.files if f['status'] == self.STATUS_DONE)
             self.failed_count = sum(1 for f in self.files if f['status'] == self.STATUS_FAILED)
@@ -1648,34 +1572,29 @@ class DownloadUI:
 
         self.start_time = _time.time()
 
-        # Hide cursor during display
-        print(self.HIDE_CURSOR, end='', flush=True)
+        # Start download thread
+        self.download_thread = threading.Thread(target=self._download_worker, daemon=True)
+        self.download_thread.start()
 
-        try:
-            # Start download thread
-            self.download_thread = threading.Thread(target=self._download_worker, daemon=True)
-            self.download_thread.start()
-
-            # Main loop
-            while self.download_thread.is_alive():
-                self._update_from_rpc()
-                self._render()
-                _time.sleep(0.2)
-
-            # Final update and render
-            self._update_status_from_files()
+        # Main loop
+        while self.download_thread.is_alive():
+            self._update_from_rpc()
             self._render()
-            _time.sleep(0.3)
+            _time.sleep(0.2)
 
-        finally:
-            # Clear display and show cursor
-            self._clear_display()
-            print(self.SHOW_CURSOR, end='', flush=True)
+        # Final update and render
+        self._update_status_from_files()
+        self._render()
+
+        # Move to new line after progress bar
+        print()
 
         # Print final summary
-        print(f"  {self.GREEN}✓{self.RESET} Downloaded {self.completed_count}/{len(self.files)} files", end='')
-        if self.failed_count:
-            print(f" {self.RED}({self.failed_count} failed){self.RESET}")
+        done = self.completed_count
+        failed = self.failed_count
+        print(f"  \033[32m✓\033[0m Downloaded {done}/{len(self.files)} files", end='')
+        if failed:
+            print(f" \033[31m({failed} failed)\033[0m")
         else:
             print()
 
