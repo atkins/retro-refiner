@@ -2242,6 +2242,16 @@ def detect_system_from_path(path: str) -> Optional[str]:
             if dat_name in part_lower:
                 return system
 
+        # Partial match against folder aliases (handles "Nintendo - Super Famicom [T-En]" etc.)
+        # Normalize by removing non-alphanumeric chars for matching
+        # Sort by length (longest first) to match "superfamicom" before "famicom"
+        part_normalized = re.sub(r'[^a-z0-9]', '', part_lower)
+        sorted_aliases = sorted(FOLDER_ALIASES.items(), key=lambda x: len(x[0]), reverse=True)
+        for alias, system in sorted_aliases:
+            alias_normalized = re.sub(r'[^a-z0-9]', '', alias)
+            if len(alias_normalized) >= 4 and alias_normalized in part_normalized:
+                return system
+
     return None
 
 
