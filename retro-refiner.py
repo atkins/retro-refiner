@@ -1776,35 +1776,36 @@ class DownloadUI:
         def curses_main(stdscr):
             curses.curs_set(0)  # Hide cursor
             stdscr.nodelay(True)  # Non-blocking input
+            stdscr.timeout(100)  # 100ms timeout for getch
 
-            while self.detailed_mode and self.download_thread and self.download_thread.is_alive():
+            # Keep running while in detailed mode (even after downloads finish)
+            while self.detailed_mode:
                 # Check for keypress
-                try:
-                    key = stdscr.getch()
-                    if key == ord('i'):
-                        self.detailed_mode = False
-                        break
-                    elif key == ord('q'):
-                        self.shutdown_requested = True
-                        self.detailed_mode = False
-                        break
-                except Exception:
-                    pass
+                key = stdscr.getch()
+                if key == ord('i'):
+                    self.detailed_mode = False
+                    break
+                elif key == ord('q'):
+                    self.shutdown_requested = True
+                    self.detailed_mode = False
+                    break
 
-                self._update_from_rpc()
-                self._render_detailed(stdscr)
-                _time.sleep(0.1)
+                # Update status
+                if self.download_thread and self.download_thread.is_alive():
+                    self._update_from_rpc()
+                else:
+                    # Downloads finished - update from files
+                    self._update_status_from_files()
 
-            # Final render if still in detailed mode
-            if self.detailed_mode:
-                self._update_status_from_files()
                 self._render_detailed(stdscr)
-                stdscr.getch()  # Wait for any key
 
         try:
             curses.wrapper(curses_main)
-        except Exception:
-            # If curses fails, just exit detailed mode
+        except curses.error as e:
+            # Curses error (e.g., terminal too small)
+            self.detailed_mode = False
+        except Exception as e:
+            # Other errors - exit detailed mode
             self.detailed_mode = False
 
     def run(self) -> Dict[str, Path]:
