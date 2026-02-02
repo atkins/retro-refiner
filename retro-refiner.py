@@ -2249,15 +2249,25 @@ def filter_network_roms(rom_urls: List[str], system: str,
                         year_from: int = None,
                         year_to: int = None,
                         verbose: bool = False,
-                        url_sizes: Dict[str, int] = None) -> Tuple[List[str], Dict[str, int]]:
+                        url_sizes: Dict[str, int] = None,
+                        dat_entries: Dict[str, 'DatRomEntry'] = None) -> Tuple[List[str], Dict[str, int]]:
     """
-    Filter network ROM URLs based on filename parsing (no downloading required).
+    Filter network ROM URLs based on filename parsing and optional DAT metadata.
+    When dat_entries is provided, uses DAT game names for better title normalization.
     Returns tuple of (list of URLs to download, dict with size info).
     """
     if region_priority is None:
         region_priority = DEFAULT_REGION_PRIORITY
     if url_sizes is None:
         url_sizes = {}
+
+    # Build filename -> DAT name lookup for better title matching
+    dat_name_lookup = {}
+    if dat_entries:
+        for crc, entry in dat_entries.items():
+            # Map ROM filename (without extension) to DAT game name
+            rom_base = Path(entry.rom_name).stem.lower()
+            dat_name_lookup[rom_base] = entry.name
 
     # Parse all ROMs from URLs
     all_roms = []
@@ -2321,13 +2331,27 @@ def filter_network_roms(rom_urls: List[str], system: str,
     if filtered_by_pattern:
         print(f"{system.upper()}: {filtered_by_pattern} filtered by include/exclude patterns")
 
-    # Group by normalized title
+    # Group by normalized title (using DAT names when available for better matching)
     grouped = defaultdict(list)
+    dat_matches = 0
     for rom in all_roms:
-        normalized = normalize_title(rom.base_title)
+        # Try to get better title from DAT if available
+        rom_base = Path(rom.filename).stem.lower()
+        if rom_base in dat_name_lookup:
+            # Use DAT game name for grouping (more accurate than filename parsing)
+            dat_name = dat_name_lookup[rom_base]
+            # Parse DAT name to get base title without region/tags
+            dat_rom_info = parse_rom_filename(dat_name + '.zip')
+            normalized = normalize_title(dat_rom_info.base_title)
+            dat_matches += 1
+        else:
+            normalized = normalize_title(rom.base_title)
         grouped[normalized].append(rom)
 
-    print(f"{system.upper()}: {len(grouped)} unique game titles")
+    if dat_entries and dat_matches > 0:
+        print(f"{system.upper()}: {len(grouped)} unique game titles ({dat_matches} matched via DAT)")
+    else:
+        print(f"{system.upper()}: {len(grouped)} unique game titles")
 
     # Select best ROM from each group
     selected_urls = []
@@ -5280,6 +5304,9 @@ Pattern examples (--include / --exclude):
     verify = not args.no_verify
     use_dat = not args.no_dat
 
+    # DAT entries cache - populated during network processing, reused for local files
+    network_dat_entries = {}  # {system: dat_entries}
+
     # If using network sources, default to no verification (can't verify without downloading first)
     has_network_sources = len(network_sources) > 0
     if has_network_sources and not args.no_verify:
@@ -5386,6 +5413,21 @@ Pattern examples (--include / --exclude):
                 url_to_source[url] = network_url
             all_url_sizes.update(url_sizes)
 
+    # Step 1.5: Download DAT files for detected network systems (improves filtering accuracy)
+    # DAT files provide official game names for better title matching
+    if use_dat and all_network_urls:
+        dat_dir = Path(args.dat_dir) if args.dat_dir else primary_source / 'dat_files'
+        systems_needing_dat = [s for s in all_network_urls.keys() if s not in MAME_SYSTEMS]
+        if systems_needing_dat:
+            print(f"\nDownloading DAT files for {len(systems_needing_dat)} system(s)...")
+            for system in systems_needing_dat:
+                check_shutdown()
+                dat_path = download_libretro_dat(system, dat_dir)
+                if dat_path:
+                    dat_entries = parse_clrmamepro_dat(dat_path)
+                    network_dat_entries[system] = dat_entries
+                    print(f"  {system.upper()}: {len(dat_entries)} DAT entries loaded")
+
     # Step 2: Filter combined URL pool per system (select best ROM across ALL sources)
     network_downloads = {}  # {system: [selected_urls]}
     total_network_files = 0
@@ -5399,8 +5441,12 @@ Pattern examples (--include / --exclude):
 
         print(f"\n{system.upper()}: Filtering {len(urls)} remote ROMs from {len(network_sources)} source(s)...")
 
+        # Get DAT entries for this system if available
+        system_dat_entries = network_dat_entries.get(system)
+
         # Filter URLs using filter_network_roms (handles patterns, flags, and best ROM selection)
         # This now selects the BEST ROM across ALL sources for each game
+        # DAT entries improve title matching when available
         filtered_urls, size_info = filter_network_roms(
             urls, system,
             include_patterns=args.include,
@@ -5413,7 +5459,8 @@ Pattern examples (--include / --exclude):
             year_from=args.year_from,
             year_to=args.year_to,
             verbose=args.verbose,
-            url_sizes=all_url_sizes
+            url_sizes=all_url_sizes,
+            dat_entries=system_dat_entries
         )
 
         if filtered_urls:
@@ -5719,12 +5766,17 @@ Pattern examples (--include / --exclude):
             # DAT verification/matching for non-MAME systems
             dat_entries = None
             if verify or use_dat:
-                dat_dir = Path(args.dat_dir) if args.dat_dir else primary_source / 'dat_files'
-                dat_path = download_libretro_dat(system, dat_dir)
-                if dat_path:
-                    print(f"{system.upper()}: Loading DAT file...")
-                    dat_entries = parse_clrmamepro_dat(dat_path)
-                    print(f"{system.upper()}: Loaded {len(dat_entries)} DAT entries")
+                # Reuse DAT entries from network processing if available
+                if system in network_dat_entries:
+                    dat_entries = network_dat_entries[system]
+                    print(f"{system.upper()}: Using cached DAT ({len(dat_entries)} entries)")
+                else:
+                    dat_dir = Path(args.dat_dir) if args.dat_dir else primary_source / 'dat_files'
+                    dat_path = download_libretro_dat(system, dat_dir)
+                    if dat_path:
+                        print(f"{system.upper()}: Loading DAT file...")
+                        dat_entries = parse_clrmamepro_dat(dat_path)
+                        print(f"{system.upper()}: Loaded {len(dat_entries)} DAT entries")
 
             if verify and dat_entries:
                 verified, unverified, bad = verify_roms_against_dat(rom_files, dat_entries, system)
