@@ -27,7 +27,6 @@ import json
 import urllib.request
 import urllib.error
 import socket
-import http.client
 import ssl
 import subprocess
 import threading
@@ -2796,9 +2795,7 @@ class RomInfo:
     is_rerelease: bool
     is_compilation: bool
     is_lock_on: bool
-    translation_version: str = ""
     has_hacks: bool = False
-    languages: list = field(default_factory=list)
     year: int = 0  # Release year if available
 
 
@@ -3233,6 +3230,39 @@ def verify_roms_against_dat(rom_files: List[Path], dat_entries: Dict[str, DatRom
     return verified, unverified, bad
 
 
+# Patterns for detecting re-releases (Virtual Console, mini consoles, collections, etc.)
+RERELEASE_PATTERNS = [
+    r'Virtual Console', r'GameCube\)', r'\(LodgeNet\)',
+    r'\(Arcade\)', r'Sega Channel', r'Switch Online',
+    r'Classic Mini', r'Retro-Bit', r'Evercade',
+    r'Wii Virtual Console', r'Mega Drive Mini',
+    r'Collection\)', r'\(NP\)',  # Nintendo Power
+    r'\(e-Reader\)', r'\(FamicomBox\)', r'Animal Crossing',
+    r'Sonic Classic Collection', r'Sonic Mega Collection',
+    r'Disney Classic Games', r'Castlevania Anniversary',
+    r'Castlevania Advance Collection', r'Sega Smash Pack',
+    r'Game no Kanzume', r'Sega Game Toshokan',
+    r'SegaNet', r'Sega 3D Classics',
+    r'Capcom Town', r'iam8bit',  # Modern re-releases
+    r'GameCube Edition',  # Special editions
+    r'Genesis Mini', r'Mega Drive Mini',  # Sega mini consoles
+    r'Contra Anniversary Collection', r'Konami Collector',  # Konami collections
+    r'Arcade Legends',  # Arcade re-releases
+]
+
+# Patterns for detecting compilations/multi-game carts
+COMPILATION_PATTERNS = [
+    r'\d+.in.1\b', r'\d+ Super Jogos', r'^\d+-Pak',  # X-in-1, X in 1
+    r'Compilation',
+    r'\+ .+ \+',  # Multiple games combined like "SMB + Duck Hunt + Track Meet"
+    r'Super Mario All-Stars',  # Specifically filter Mario compilation
+    r'Double Pack', r'^2 Games in 1', r'^2 Games in One',
+    r'^2.in.1 Game Pack', r'^Combo Pack', r'^2 Game Pack',
+    r'Classics\)', r'Competition Cartridge',  # DK Classics, Competition carts
+    r'Twin Pack',
+]
+
+
 def parse_rom_filename(filename: str) -> RomInfo:
     """Parse a ROM filename and extract metadata."""
 
@@ -3260,41 +3290,11 @@ def parse_rom_filename(filename: str) -> RomInfo:
     is_sample = '(Sample)' in name
     is_proto = '(Proto)' in name or bool(re.search(r'\(Proto[^)]*\)', name))
 
-    # Check for re-releases
-    # Note: Some patterns don't require surrounding parens because they may be
-    # combined with other tags like "(Virtual Console, Classic Mini, Switch Online)"
-    rerelease_patterns = [
-        r'Virtual Console', r'GameCube\)', r'\(LodgeNet\)',
-        r'\(Arcade\)', r'Sega Channel', r'Switch Online',
-        r'Classic Mini', r'Retro-Bit', r'Evercade',
-        r'Wii Virtual Console', r'Mega Drive Mini',
-        r'Collection\)', r'\(NP\)',  # Nintendo Power
-        r'\(e-Reader\)', r'\(FamicomBox\)', r'Animal Crossing',
-        r'Sonic Classic Collection', r'Sonic Mega Collection',
-        r'Disney Classic Games', r'Castlevania Anniversary',
-        r'Castlevania Advance Collection', r'Sega Smash Pack',
-        r'Game no Kanzume', r'Sega Game Toshokan',
-        r'SegaNet', r'Sega 3D Classics',
-        r'Capcom Town', r'iam8bit',  # Modern re-releases
-        r'GameCube Edition',  # Special editions
-        r'Genesis Mini', r'Mega Drive Mini',  # Sega mini consoles
-        r'Contra Anniversary Collection', r'Konami Collector',  # Konami collections
-        r'Arcade Legends',  # Arcade re-releases
-    ]
-    is_rerelease = any(re.search(p, name) for p in rerelease_patterns)
+    # Check for re-releases (Virtual Console, mini consoles, collections, etc.)
+    is_rerelease = any(re.search(p, name) for p in RERELEASE_PATTERNS)
 
     # Check for compilations/collections (multi-game carts)
-    compilation_patterns = [
-        r'\d+.in.1\b', r'\d+ Super Jogos', r'^\d+-Pak',  # X-in-1, X in 1
-        r'Compilation',
-        r'\+ .+ \+',  # Multiple games combined like "SMB + Duck Hunt + Track Meet"
-        r'Super Mario All-Stars',  # Specifically filter Mario compilation
-        r'Double Pack', r'^2 Games in 1', r'^2 Games in One',
-        r'^2.in.1 Game Pack', r'^Combo Pack', r'^2 Game Pack',
-        r'Classics\)', r'Competition Cartridge',  # DK Classics, Competition carts
-        r'Twin Pack',
-    ]
-    is_compilation = any(re.search(p, name) for p in compilation_patterns)
+    is_compilation = any(re.search(p, name) for p in COMPILATION_PATTERNS)
 
     # Special handling for multi-game carts that should be excluded
     if re.search(r'\+ .+ \(', name) and not 'All-Stars' in name:
@@ -3312,12 +3312,6 @@ def parse_rom_filename(filename: str) -> RomInfo:
     # Check for translations
     translation_match = re.search(r'\[T-En[^\]]*\]', name)
     is_translation = bool(translation_match)
-    translation_version = ""
-    if translation_match:
-        # Extract version from translation tag
-        ver_match = re.search(r'v(\d+\.?\d*[a-z]?)', translation_match.group())
-        if ver_match:
-            translation_version = ver_match.group(1)
 
     # Check for hacks (but not translation-related patches)
     # These are modifications beyond just translation
@@ -3349,28 +3343,13 @@ def parse_rom_filename(filename: str) -> RomInfo:
 
     # Check for English language support
     is_english = False
-    languages = []
 
     # Check for explicit language tags like "(En)" or "(En,Fr,De)" or "(Japan) (En)"
     # Look for standalone (En) or language list containing En
     if re.search(r'\(En\)', name) or re.search(r'\([^)]*\bEn\b[^)]*\)', name):
         is_english = True
-        languages.append('En')
 
-    # Extract other language tags
-    lang_match = re.search(r'\((?:En,?)?(?:Fr|De|Es|It|Ja|Nl|Sv|Pt)(?:,[A-Za-z]+)*\)', name)
-    if lang_match:
-        lang_str = lang_match.group()
-        if 'Fr' in lang_str:
-            languages.append('Fr')
-        if 'De' in lang_str:
-            languages.append('De')
-        if 'Es' in lang_str:
-            languages.append('Es')
-        if 'Ja' in lang_str:
-            languages.append('Ja')
-
-    # Region-based English detection (only if no explicit language tag says otherwise)
+    # Region-based English detection
     if region in ['USA', 'World', 'Europe', 'Australia']:
         is_english = True
 
@@ -3436,9 +3415,7 @@ def parse_rom_filename(filename: str) -> RomInfo:
         is_rerelease=is_rerelease,
         is_compilation=is_compilation,
         is_lock_on=is_lock_on,
-        translation_version=translation_version,
         has_hacks=has_hacks,
-        languages=languages,
         year=year,
     )
 
