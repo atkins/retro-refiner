@@ -2330,8 +2330,10 @@ def scan_network_source_urls(base_url: str, systems: List[str] = None,
                     print(f"{_indent}    Error scanning {folder_name}: {e}")
                     continue
             else:
-                # Recursively scan non-system folders
-                if max_depth > 1:
+                # Recursively scan non-system folders (but skip if we already found ROMs at this level)
+                # This avoids scanning hundreds of game subfolders on sites like archive.org
+                if max_depth > 1 and not rom_files_with_sizes:
+                    print(f"{_indent}  Scanning subfolder: {folder_name}...")
                     sub_detected, _ = scan_network_source_urls(
                         subdir_url, systems,
                         recursive=True, max_depth=max_depth - 1,
