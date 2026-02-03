@@ -224,6 +224,31 @@ Use `--parallel N` to control concurrent downloads (default: 4):
 python retro-refiner.py -s https://example.com/roms/ --parallel 8 --commit
 ```
 
+### Internet Archive Authentication
+Archive.org requires authentication to download files. Use S3-style credentials:
+
+**Via command line:**
+```bash
+python retro-refiner.py \
+  -s "https://archive.org/download/sega_saturn/" \
+  --ia-access-key YOUR_ACCESS_KEY \
+  --ia-secret-key YOUR_SECRET_KEY \
+  --commit
+```
+
+**Via environment variables (safer, no keys in shell history):**
+```bash
+export IA_ACCESS_KEY=your_access_key
+export IA_SECRET_KEY=your_secret_key
+python retro-refiner.py -s "https://archive.org/download/sega_saturn/" --commit
+```
+
+Get credentials at: https://archive.org/account/s3.php
+
+**Key Functions:**
+- `is_archive_org_url(url)` - Check if URL is from archive.org
+- `get_ia_auth_header(access_key, secret_key)` - Build `LOW accesskey:secretkey` auth header
+
 ## Supported Systems (144)
 Run `python retro-refiner.py --list-systems` for full details.
 

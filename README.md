@@ -157,10 +157,21 @@ python retro-refiner.py \
 ```
 
 ### Download from Archive.org
+Archive.org requires authentication. Get your credentials at https://archive.org/account/s3.php
+
 ```bash
 # Sega Saturn: Redump set, filtered to best English version of each game
+# Set credentials via environment (safer, no keys in shell history)
+export IA_ACCESS_KEY=your_access_key
+export IA_SECRET_KEY=your_secret_key
 python retro-refiner.py \
   -s "https://archive.org/download/sega_saturn/" \
+  --parallel 4 --commit
+
+# Or pass credentials directly
+python retro-refiner.py \
+  -s "https://archive.org/download/sega_saturn/" \
+  --ia-access-key YOUR_KEY --ia-secret-key YOUR_SECRET \
   --parallel 4 --commit
 ```
 

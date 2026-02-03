@@ -1150,7 +1150,23 @@ def get_download_tool() -> Optional[str]:
     return None
 
 
-def download_with_external_tool(url: str, dest_path: Path, connections: int = 4) -> bool:
+def is_archive_org_url(url: str) -> bool:
+    """Check if URL is from Internet Archive (archive.org)."""
+    return 'archive.org/' in url.lower()
+
+
+def get_ia_auth_header(access_key: Optional[str], secret_key: Optional[str]) -> Optional[str]:
+    """Build Internet Archive S3-style authorization header.
+
+    Returns header value like 'LOW accesskey:secretkey' or None if credentials not set.
+    See: https://archive.org/developers/tutorial-get-ia-credentials.html
+    """
+    if access_key and secret_key:
+        return f'LOW {access_key}:{secret_key}'
+    return None
+
+
+def download_with_external_tool(url: str, dest_path: Path, connections: int = 4, auth_header: Optional[str] = None) -> bool:
     """Download a file using aria2c or curl. Returns True on success."""
     tool = get_download_tool()
     if not tool:
@@ -1159,27 +1175,25 @@ def download_with_external_tool(url: str, dest_path: Path, connections: int = 4)
     try:
         if tool == 'aria2c':
             # aria2c with multiple connections per file for faster large file downloads
-            result = subprocess.run(
-                ['aria2c', '-x', str(connections), '-s', str(connections), '-q',
-                 '--connect-timeout=30', '--timeout=300', '-d', str(dest_path.parent),
-                 '-o', dest_path.name, url],
-                capture_output=True,
-                timeout=310,
-                check=False
-            )
+            cmd = ['aria2c', '-x', str(connections), '-s', str(connections), '-q',
+                   '--connect-timeout=30', '--timeout=300', '-d', str(dest_path.parent),
+                   '-o', dest_path.name]
+            if auth_header:
+                cmd.extend([f'--header=Authorization: {auth_header}'])
+            cmd.append(url)
+            result = subprocess.run(cmd, capture_output=True, timeout=310, check=False)
         else:  # curl
-            result = subprocess.run(
-                ['curl', '-sSL', '-o', str(dest_path), '--connect-timeout', '30', '--max-time', '300', url],
-                capture_output=True,
-                timeout=310,
-                check=False
-            )
+            cmd = ['curl', '-sSL', '-o', str(dest_path), '--connect-timeout', '30', '--max-time', '300']
+            if auth_header:
+                cmd.extend(['-H', f'Authorization: {auth_header}'])
+            cmd.append(url)
+            result = subprocess.run(cmd, capture_output=True, timeout=310, check=False)
         return result.returncode == 0 and dest_path.exists() and dest_path.stat().st_size > 0
     except Exception:
         return False
 
 
-def download_batch_with_curl(downloads: List[Tuple[str, Path]], parallel: int = 4, timeout_per_file: int = 60) -> List[Path]:
+def download_batch_with_curl(downloads: List[Tuple[str, Path]], parallel: int = 4, timeout_per_file: int = 60, auth_header: Optional[str] = None) -> List[Path]:
     """
     Download multiple files with a single curl call (connection reuse).
     Returns list of successfully downloaded paths.
@@ -1189,6 +1203,8 @@ def download_batch_with_curl(downloads: List[Tuple[str, Path]], parallel: int = 
 
     # Build curl command with multiple URL/output pairs
     cmd = ['curl', '-sSL', '--connect-timeout', '30', '--parallel', '--parallel-max', str(parallel)]
+    if auth_header:
+        cmd.extend(['-H', f'Authorization: {auth_header}'])
 
     for url, dest_path in downloads:
         dest_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1212,7 +1228,7 @@ def download_batch_with_curl(downloads: List[Tuple[str, Path]], parallel: int = 
     return successful
 
 
-def download_batch_with_aria2c(downloads: List[Tuple[str, Path]], parallel: int = 4, connections: int = 4, timeout_per_file: int = 60) -> List[Path]:
+def download_batch_with_aria2c(downloads: List[Tuple[str, Path]], parallel: int = 4, connections: int = 4, timeout_per_file: int = 60, auth_header: Optional[str] = None) -> List[Path]:
     """
     Download multiple files with aria2c (parallel downloads + multi-connection per file).
     Returns list of successfully downloaded paths.
@@ -1241,8 +1257,10 @@ def download_batch_with_aria2c(downloads: List[Tuple[str, Path]], parallel: int 
             '--connect-timeout=30',
             '--timeout=300',
             '--file-allocation=none',  # faster startup
-            '-i', input_file
         ]
+        if auth_header:
+            cmd.append(f'--header=Authorization: {auth_header}')
+        cmd.extend(['-i', input_file])
         total_timeout = max(60, (len(downloads) // parallel + 1) * timeout_per_file)
         subprocess.run(cmd, capture_output=True, timeout=total_timeout, check=False)
     except subprocess.TimeoutExpired:
@@ -1338,10 +1356,11 @@ class DownloadUI:
     RESET = '\033[0m'
 
     def __init__(self, system_name: str, files: List[Tuple[str, Path]],
-                 parallel: int = 4, connections: int = 4):
+                 parallel: int = 4, connections: int = 4, auth_header: Optional[str] = None):
         self.system_name = system_name
         self.parallel = parallel
         self.connections = connections
+        self.auth_header = auth_header
         self.rpc: Optional[Aria2cRPC] = None
         self.rpc_available = False
         self.download_thread: Optional[threading.Thread] = None
@@ -1726,8 +1745,10 @@ class DownloadUI:
             '--connect-timeout=30',
             '--timeout=300',
             '--file-allocation=none',
-            '-i', input_file
         ]
+        if self.auth_header:
+            cmd.append(f'--header=Authorization: {self.auth_header}')
+        cmd.extend(['-i', input_file])
 
         try:
             # pylint: disable=consider-using-with
@@ -1758,7 +1779,7 @@ class DownloadUI:
 
     def _run_curl_batch(self, downloads: List[Tuple[str, Path]]) -> None:
         """Run curl batch download (no per-file progress)."""
-        successful = download_batch_with_curl(downloads, parallel=self.parallel)
+        successful = download_batch_with_curl(downloads, parallel=self.parallel, auth_header=self.auth_header)
 
         with self.lock:
             for f in self.files:
@@ -1783,7 +1804,10 @@ class DownloadUI:
             success = False
             try:
                 dest_path.parent.mkdir(parents=True, exist_ok=True)
-                req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+                headers = {'User-Agent': 'Mozilla/5.0'}
+                if self.auth_header:
+                    headers['Authorization'] = self.auth_header
+                req = urllib.request.Request(url, headers=headers)
                 with urllib.request.urlopen(req, timeout=60) as resp:
                     with open(dest_path, 'wb') as out:
                         shutil.copyfileobj(resp, out)
@@ -5115,7 +5139,17 @@ Pattern examples (--include / --exclude):
                         help='Number of parallel downloads for network sources (default: 4). '
                              'With aria2c, also sets connections per file for large downloads.')
 
+    # Internet Archive authentication
+    parser.add_argument('--ia-access-key', default=None,
+                        help='Internet Archive S3 access key (or set IA_ACCESS_KEY env var)')
+    parser.add_argument('--ia-secret-key', default=None,
+                        help='Internet Archive S3 secret key (or set IA_SECRET_KEY env var)')
+
     args = parser.parse_args()
+
+    # Resolve IA credentials from args or environment
+    args.ia_access_key = args.ia_access_key or os.environ.get('IA_ACCESS_KEY')
+    args.ia_secret_key = args.ia_secret_key or os.environ.get('IA_SECRET_KEY')
 
     # List systems mode
     if args.list_systems:
@@ -5642,11 +5676,18 @@ Pattern examples (--include / --exclude):
     cached_files = {}  # url -> path
     if all_downloads:
         downloads_to_ui = [(url, path) for url, path, _ in all_downloads]
+
+        # Check if any URLs are from archive.org and need authentication
+        auth_header = None
+        if any(is_archive_org_url(url) for url, _, _ in all_downloads):
+            auth_header = get_ia_auth_header(args.ia_access_key, args.ia_secret_key)
+
         ui = DownloadUI(
             system_name=system_name,
             files=downloads_to_ui,
             parallel=args.parallel,
-            connections=args.parallel
+            connections=args.parallel,
+            auth_header=auth_header
         )
         cached_files = ui.run()
 
