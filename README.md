@@ -156,6 +156,14 @@ python retro-refiner.py \
   --parallel 8 --commit
 ```
 
+### Download from Archive.org
+```bash
+# Sega Saturn: Redump set, filtered to best English version of each game
+python retro-refiner.py \
+  -s "https://archive.org/download/sega_saturn/" \
+  --parallel 4 --commit
+```
+
 ### Space-Saving with Symlinks
 ```bash
 # Keep your full archive, create a curated symlink set (~1MB vs copying GBs)
