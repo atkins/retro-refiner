@@ -11,6 +11,7 @@ Inspired by the 1G1R (One Game, One ROM) philosophy, Retro-Refiner simplifies th
 - `update_mappings.py` - Tool to scan archives and suggest new mappings
 - `retro-refiner.yaml` - Example configuration file
 - `test_selection.py` - Testing helper for verifying game series selection
+- `test-bandwidth.py` - Bandwidth benchmark tool for tuning download settings
 
 ## Usage
 
@@ -299,6 +300,40 @@ Install aria2c for best performance with large files:
 Use `--parallel N` to control concurrent downloads (default: 4):
 ```bash
 python retro-refiner.py -s https://example.com/roms/ --parallel 8 --commit
+```
+
+### Auto-Tuning (Default)
+Download settings are automatically optimized based on file sizes:
+
+| File Size | Parallel | Connections | Rationale |
+|-----------|----------|-------------|-----------|
+| < 10 MB   | 2        | 2           | Reduces overhead for small files |
+| 10-100 MB | 4        | 4           | Balanced default |
+| > 100 MB  | 8        | 4           | Maximizes bandwidth for large files |
+
+Auto-tune uses the median file size of the download queue to select settings.
+
+**Disable auto-tuning:**
+```bash
+python retro-refiner.py -s https://example.com/roms/ --no-auto-tune --parallel 8 --connections 16 --commit
+```
+
+**Key Functions:**
+- `calculate_autotune_settings(file_sizes)` - Returns optimal (parallel, connections) tuple
+- `AUTOTUNE_SMALL_THRESHOLD` - 10 MB threshold
+- `AUTOTUNE_LARGE_THRESHOLD` - 100 MB threshold
+
+### Bandwidth Testing
+Use `test-bandwidth.py` to benchmark download performance:
+```bash
+# Quick test of Myrient
+python test-bandwidth.py --site myrient --quick
+
+# Full test of both sites (requires IA credentials for Archive.org)
+python test-bandwidth.py --site both --duration 60
+
+# Test only large files
+python test-bandwidth.py --size large
 ```
 
 ### Internet Archive Authentication
