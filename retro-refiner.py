@@ -822,25 +822,12 @@ def parse_html_for_directories(html: str, base_url: str) -> List[str]:
     dirs = []
     seen = set()
 
-    # URLs to skip (login/account pages, navigation, etc.)
-    skip_patterns = (
-        '/account/', '/login/', '/signup/', '/register/',
-        '/auth/', '/user/', '/settings/', '/profile/',
-        '/help/', '/about/', '/contact/', '/search/',
-        '/details/', '/web/', '/services/',
-    )
-
     # Extract all links
     links = extract_links_from_html(html)
 
     for href in links:
         # Check if it looks like a directory
         if not is_directory_link(href):
-            continue
-
-        # Skip navigation/account URLs
-        href_lower = href.lower()
-        if any(pattern in href_lower for pattern in skip_patterns):
             continue
 
         # Normalize the URL
@@ -856,13 +843,10 @@ def parse_html_for_directories(html: str, base_url: str) -> List[str]:
         if url in seen or url == base_url or url == base_url.rstrip('/') + '/':
             continue
 
-        # Skip parent directories
-        if url.count('/') < base_url.rstrip('/').count('/'):
-            continue
-
-        # Skip navigation/account URLs (check normalized URL too)
-        url_lower = url.lower()
-        if any(pattern in url_lower for pattern in skip_patterns):
+        # Only include URLs that are actually under the base URL
+        # This filters out navigation links to other parts of the site
+        base_normalized = base_url.rstrip('/') + '/'
+        if not url.startswith(base_normalized):
             continue
 
         seen.add(url)
