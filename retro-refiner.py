@@ -36,6 +36,56 @@ from collections import defaultdict
 from dataclasses import dataclass
 from typing import Optional, Dict, List, Tuple
 
+# Platform detection
+WINDOWS = sys.platform == 'win32'
+MACOS = sys.platform == 'darwin'
+LINUX = sys.platform.startswith('linux')
+
+# Platform-specific imports for terminal handling
+if WINDOWS:
+    try:
+        import msvcrt
+        HAS_MSVCRT = True
+    except ImportError:
+        HAS_MSVCRT = False
+    HAS_TERMIOS = False
+else:
+    HAS_MSVCRT = False
+    try:
+        import termios
+        import tty
+        HAS_TERMIOS = True
+    except ImportError:
+        HAS_TERMIOS = False
+
+# Enable ANSI escape codes on Windows 10+
+if WINDOWS:
+    try:
+        import ctypes
+        kernel32 = ctypes.windll.kernel32
+        # Enable ENABLE_VIRTUAL_TERMINAL_PROCESSING
+        kernel32.SetConsoleMode(kernel32.GetStdHandle(-11), 7)
+    except Exception:
+        pass  # Older Windows or no console
+
+# Unicode symbols with ASCII fallbacks for Windows console compatibility
+if WINDOWS:
+    SYM_CHECK = '[OK]'
+    SYM_CROSS = '[X]'
+    SYM_ARROW = 'v'
+    SYM_CIRCLE = 'o'
+    SYM_BLOCK_FULL = '#'
+    SYM_BLOCK_LIGHT = '-'
+    SYM_HLINE = '-'
+else:
+    SYM_CHECK = '✓'
+    SYM_CROSS = '✗'
+    SYM_ARROW = '↓'
+    SYM_CIRCLE = '○'
+    SYM_BLOCK_FULL = '█'
+    SYM_BLOCK_LIGHT = '░'
+    SYM_HLINE = '─'
+
 # Title mappings cache (loaded from title_mappings.json)
 _title_mappings_cache: Optional[Dict[str, str]] = None
 
@@ -230,7 +280,7 @@ class ProgressBar:
         if self.total and self.total > 0:
             pct = self.current / self.total
             filled = int(self.bar_width * pct)
-            bar = '█' * filled + '░' * (self.bar_width - filled)
+            bar = SYM_BLOCK_FULL * filled + SYM_BLOCK_LIGHT * (self.bar_width - filled)
 
             # Calculate throughput and ETA
             if self.current > 0 and elapsed > 0:
@@ -1373,9 +1423,9 @@ class DownloadUI:
         if total > 0:
             pct = done / total
             filled = int(bar_width * pct)
-            bar = '█' * filled + '░' * (bar_width - filled)
+            bar = SYM_BLOCK_FULL * filled + SYM_BLOCK_LIGHT * (bar_width - filled)
         else:
-            bar = '░' * bar_width
+            bar = SYM_BLOCK_LIGHT * bar_width
 
         # Time stats
         if done > 0 and elapsed > 0:
@@ -1390,13 +1440,13 @@ class DownloadUI:
         speed_str = self._format_size(self.total_speed) + '/s' if self.total_speed else '-- B/s'
 
         # Build line with all stats
-        # Format: SYSTEM |████░░░░| 24/150  aria2c 4∥ 16× ↓3 ○47  1.2MB/s  [1:15<2:34]  [i]
+        # Format: SYSTEM |████░░░░| 24/150  aria2c 4p 16x v3 o47  1.2MB/s  [1:15<2:34]  [i]
         line = f"  {self.system_name.upper()} |{bar}| {done}/{total}"
         line += f"  {self.download_tool}"
-        line += f" {self.parallel}∥ {self.connections}×"  # parallel, connections
-        line += f" ↓{active} ○{queued}"  # active, queued
+        line += f" {self.parallel}p {self.connections}x"  # parallel, connections
+        line += f" {SYM_ARROW}{active} {SYM_CIRCLE}{queued}"  # active, queued
         if failed:
-            line += f" {self.RED}✗{failed}{self.RESET}"
+            line += f" {self.RED}{SYM_CROSS}{failed}{self.RESET}"
         line += f"  {speed_str}"
         line += f"  [{elapsed_str}<{eta_str}]"
         line += f"  {self.DIM}[i]{self.RESET}"
@@ -1438,16 +1488,16 @@ class DownloadUI:
             stdscr.addstr(0, width - len(toggle_hint) - 1, toggle_hint, curses.A_DIM)
 
         # Separator
-        stdscr.addstr(1, 0, '─' * (width - 1))
+        stdscr.addstr(1, 0, SYM_HLINE * (width - 1))
 
         # Progress bar line
         bar_width = min(30, width - 60)
         if total > 0:
             pct = done / total
             filled = int(bar_width * pct)
-            bar = '█' * filled + '░' * (bar_width - filled)
+            bar = SYM_BLOCK_FULL * filled + SYM_BLOCK_LIGHT * (bar_width - filled)
         else:
-            bar = '░' * bar_width
+            bar = SYM_BLOCK_LIGHT * bar_width
 
         speed_str = self._format_size(self.total_speed) + '/s' if self.total_speed else '-- B/s'
         if done > 0 and elapsed > 0:
@@ -1469,7 +1519,7 @@ class DownloadUI:
         stdscr.addstr(3, 0, stats_line[:width-1])
 
         # Separator
-        stdscr.addstr(4, 0, '─' * (width - 1))
+        stdscr.addstr(4, 0, SYM_HLINE * (width - 1))
 
         # File list area
         list_start = 5
@@ -1498,11 +1548,11 @@ class DownloadUI:
             filename = self._truncate(f['path'].name, width - 30)
 
             if status == self.STATUS_DONE:
-                icon = '✓'
+                icon = SYM_CHECK
                 color = curses.color_pair(1)
                 suffix = 'done'
             elif status == self.STATUS_DOWNLOADING:
-                icon = '↓'
+                icon = SYM_ARROW
                 color = curses.color_pair(2)
                 if f['size'] > 0:
                     pct = int(100 * f['completed'] / f['size'])
@@ -1511,11 +1561,11 @@ class DownloadUI:
                 else:
                     suffix = '...'
             elif status == self.STATUS_FAILED:
-                icon = '✗'
+                icon = SYM_CROSS
                 color = curses.color_pair(3)
                 suffix = 'failed'
             else:  # queued
-                icon = '○'
+                icon = SYM_CIRCLE
                 color = curses.A_DIM
                 suffix = 'queued'
 
@@ -1537,7 +1587,7 @@ class DownloadUI:
         # Footer
         footer = " [i] simple view    [q] cancel downloads "
         try:
-            stdscr.addstr(height - 1, 0, '─' * (width - 1))
+            stdscr.addstr(height - 1, 0, SYM_HLINE * (width - 1))
             stdscr.addstr(height - 1, (width - len(footer)) // 2, footer, curses.A_DIM)
         except curses.error:
             pass
@@ -1764,23 +1814,25 @@ class DownloadUI:
 
     def _setup_keyboard(self) -> None:
         """Set up non-blocking keyboard input."""
-        import termios
-        import tty
-
         if not self._is_tty():
             return
 
-        try:
-            self._old_term_settings = termios.tcgetattr(sys.stdin.fileno())
-            tty.setcbreak(sys.stdin.fileno())  # cbreak mode: read keys immediately, but allow Ctrl-C
-        except Exception:
-            self._old_term_settings = None
+        if WINDOWS:
+            # msvcrt doesn't require setup - it's always non-blocking
+            pass
+        elif HAS_TERMIOS:
+            try:
+                self._old_term_settings = termios.tcgetattr(sys.stdin.fileno())
+                tty.setcbreak(sys.stdin.fileno())  # cbreak mode: read keys immediately
+            except Exception:
+                self._old_term_settings = None
 
     def _restore_keyboard(self) -> None:
         """Restore normal keyboard input."""
-        import termios
-
-        if hasattr(self, '_old_term_settings') and self._old_term_settings:
+        if WINDOWS:
+            # msvcrt doesn't require restoration
+            pass
+        elif HAS_TERMIOS and hasattr(self, '_old_term_settings') and self._old_term_settings:
             try:
                 termios.tcsetattr(sys.stdin.fileno(), termios.TCSADRAIN, self._old_term_settings)
             except Exception:
@@ -1788,23 +1840,38 @@ class DownloadUI:
 
     def _check_keypress(self) -> Optional[str]:
         """Non-blocking check for keypress. Returns key or None."""
-        import select
-
         if not self._is_tty():
             return None
 
         try:
-            # Check if input is available (non-blocking)
-            if select.select([sys.stdin], [], [], 0)[0]:
-                key = sys.stdin.read(1)
-                return key
+            if WINDOWS and HAS_MSVCRT:
+                # Windows: use msvcrt for non-blocking keyboard input
+                if msvcrt.kbhit():
+                    key = msvcrt.getch()
+                    # Decode bytes to string
+                    try:
+                        return key.decode('utf-8', errors='ignore')
+                    except Exception:
+                        return None
+            elif HAS_TERMIOS:
+                # Unix: use select for non-blocking check
+                import select
+                if select.select([sys.stdin], [], [], 0)[0]:
+                    return sys.stdin.read(1)
         except Exception:
             pass
         return None
 
     def _run_curses_detailed(self) -> None:
         """Run the detailed curses view until 'i' or 'q' is pressed."""
-        import curses
+        # Check if curses is available (not on Windows by default)
+        try:
+            import curses
+        except ImportError:
+            # Curses not available - stay in simple mode
+            print("\n  [Detailed view not available on this platform]")
+            self.detailed_mode = False
+            return
 
         def curses_main(stdscr):
             curses.curs_set(0)  # Hide cursor
@@ -1904,7 +1971,7 @@ class DownloadUI:
         # Print final summary
         done = self.completed_count
         failed = self.failed_count
-        print(f"  {self.GREEN}✓{self.RESET} Downloaded {done}/{len(self.files)} files", end='')
+        print(f"  {self.GREEN}{SYM_CHECK}{self.RESET} Downloaded {done}/{len(self.files)} files", end='')
         if failed:
             print(f" {self.RED}({failed} failed){self.RESET}")
         else:
@@ -2689,18 +2756,30 @@ def matches_patterns(name: str, patterns: List[str]) -> bool:
 
 
 def transfer_file(src: Path, dst: Path, mode: str = 'copy'):
-    """Transfer a file using the specified mode (copy, link, hardlink, move)."""
+    """Transfer a file using the specified mode (copy, link, hardlink, move).
+
+    On Windows, symlinks require admin privileges or developer mode.
+    Falls back to copy if symlink/hardlink creation fails.
+    """
     dst.parent.mkdir(parents=True, exist_ok=True)
     if mode == 'link':
-        # Create symbolic link
+        # Create symbolic link (may require admin on Windows)
         if dst.exists() or dst.is_symlink():
             dst.unlink()
-        dst.symlink_to(src.resolve())
+        try:
+            dst.symlink_to(src.resolve())
+        except OSError:
+            # Symlink failed (likely Windows without admin) - fall back to copy
+            shutil.copy2(src, dst)
     elif mode == 'hardlink':
-        # Create hard link
+        # Create hard link (may fail across drives on Windows)
         if dst.exists():
             dst.unlink()
-        os.link(src, dst)
+        try:
+            os.link(src, dst)
+        except OSError:
+            # Hardlink failed - fall back to copy
+            shutil.copy2(src, dst)
     elif mode == 'move':
         # Move file
         shutil.move(src, dst)
@@ -5214,7 +5293,7 @@ Pattern examples (--include / --exclude):
         print("ERROR: One or more sources could not be accessed")
         print("=" * 60)
         for source, error in source_errors:
-            print(f"  ✗ {source}")
+            print(f"  {SYM_CROSS} {source}")
             print(f"    {error}")
         print("\nPlease check your source paths/URLs and try again.")
         sys.exit(1)
@@ -5463,7 +5542,7 @@ Pattern examples (--include / --exclude):
             print("ERROR: Network source(s) returned no ROM files")
             print("=" * 60)
             for src in empty_network_sources:
-                print(f"  ✗ {src}")
+                print(f"  {SYM_CROSS} {src}")
             print("\nPossible causes:")
             print("  • URL points to an empty directory")
             print("  • URL points to a page without ROM download links")
