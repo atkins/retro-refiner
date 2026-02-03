@@ -925,7 +925,7 @@ def validate_all_sources(local_sources: List[Path], network_sources: List[str]) 
     return errors
 
 
-def fetch_url(url: str, timeout: int = 30, max_redirects: int = 5) -> Tuple[bytes, str]:
+def fetch_url(url: str, timeout: int = 30, max_redirects: int = 5, auth_header: Optional[str] = None) -> Tuple[bytes, str]:
     """
     Fetch content from a URL, following redirects.
     Returns (content, final_url) tuple.
@@ -935,14 +935,14 @@ def fetch_url(url: str, timeout: int = 30, max_redirects: int = 5) -> Tuple[byte
 
     while redirects < max_redirects:
         try:
-            request = urllib.request.Request(
-                current_url,
-                headers={
-                    'User-Agent': 'Mozilla/5.0 (compatible; Retro-Refiner/1.0)',
-                    'Accept': 'text/html,application/xhtml+xml,*/*',
-                    'Accept-Language': 'en-US,en;q=0.9',
-                }
-            )
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (compatible; Retro-Refiner/1.0)',
+                'Accept': 'text/html,application/xhtml+xml,*/*',
+                'Accept-Language': 'en-US,en;q=0.9',
+            }
+            if auth_header:
+                headers['Authorization'] = auth_header
+            request = urllib.request.Request(current_url, headers=headers)
             with urllib.request.urlopen(request, timeout=timeout) as response:
                 # Check for redirect
                 if response.geturl() != current_url:
@@ -2198,7 +2198,8 @@ def download_file_cached(url: str, cache_dir: Path, force: bool = False, use_poo
 
 def scan_network_source_urls(base_url: str, systems: List[str] = None,
                               recursive: bool = True, max_depth: int = 3,
-                              _indent: str = "", _url_sizes: Dict[str, int] = None) -> Tuple[Dict[str, List[str]], Dict[str, int]]:
+                              _indent: str = "", _url_sizes: Dict[str, int] = None,
+                              auth_header: Optional[str] = None) -> Tuple[Dict[str, List[str]], Dict[str, int]]:
     """
     Scan a network source and collect ROM URLs (without downloading).
     Returns tuple of (dict of system -> list of URLs, dict of URL -> size in bytes).
@@ -2213,7 +2214,7 @@ def scan_network_source_urls(base_url: str, systems: List[str] = None,
         print(f"Scanning network source: {format_url(base_url)}")
 
     try:
-        content, final_url = fetch_url(base_url)
+        content, final_url = fetch_url(base_url, auth_header=auth_header)
         html = content.decode('utf-8', errors='replace')
         base_url = final_url
     except Exception as e:
@@ -2268,7 +2269,7 @@ def scan_network_source_urls(base_url: str, systems: List[str] = None,
                 print(f"{_indent}  Scanning {folder_name} ({system})...")
 
                 try:
-                    content, final_url = fetch_url(subdir_url)
+                    content, final_url = fetch_url(subdir_url, auth_header=auth_header)
                     subdir_html = content.decode('utf-8', errors='replace')
                     sub_files_with_sizes = parse_html_for_files_with_sizes(subdir_html, final_url)
 
@@ -2290,7 +2291,7 @@ def scan_network_source_urls(base_url: str, systems: List[str] = None,
                         for nested_url in nested_subdirs:
                             check_shutdown()
                             try:
-                                nested_content, nested_final = fetch_url(nested_url)
+                                nested_content, nested_final = fetch_url(nested_url, auth_header=auth_header)
                                 nested_html = nested_content.decode('utf-8', errors='replace')
                                 nested_files = parse_html_for_files_with_sizes(nested_html, nested_final)
                                 if nested_files:
@@ -2317,7 +2318,8 @@ def scan_network_source_urls(base_url: str, systems: List[str] = None,
                     sub_detected, _ = scan_network_source_urls(
                         subdir_url, systems,
                         recursive=True, max_depth=max_depth - 1,
-                        _indent=_indent + "  ", _url_sizes=_url_sizes
+                        _indent=_indent + "  ", _url_sizes=_url_sizes,
+                        auth_header=auth_header
                     )
                     for sys, urls in sub_detected.items():
                         detected[sys].extend(urls)
@@ -5488,8 +5490,13 @@ Pattern examples (--include / --exclude):
         check_shutdown()
         print()  # Blank line before network source
 
+        # Build auth header for archive.org URLs
+        scan_auth_header = None
+        if is_archive_org_url(network_url):
+            scan_auth_header = get_ia_auth_header(args.ia_access_key, args.ia_secret_key)
+
         # Scan for URLs only (no downloading yet)
-        url_dict, url_sizes = scan_network_source_urls(network_url, args.systems)
+        url_dict, url_sizes = scan_network_source_urls(network_url, args.systems, auth_header=scan_auth_header)
 
         # Check if this source returned any ROMs at all
         total_urls_from_source = sum(len(urls) for urls in url_dict.values())
