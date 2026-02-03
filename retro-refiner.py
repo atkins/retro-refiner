@@ -1183,6 +1183,53 @@ def get_ia_auth_header(access_key: Optional[str], secret_key: Optional[str]) -> 
     return None
 
 
+# Auto-tuning thresholds based on benchmark testing
+# Small files benefit from lower parallelism to reduce overhead
+# Large files benefit from more connections to saturate bandwidth
+AUTOTUNE_SMALL_THRESHOLD = 10 * 1024 * 1024   # 10 MB
+AUTOTUNE_LARGE_THRESHOLD = 100 * 1024 * 1024  # 100 MB
+
+# Optimal settings from benchmarks:
+# - Small files (<10MB): parallel=2, connections=2
+# - Large files (>100MB): parallel=8, connections=4
+# - Medium files: parallel=4, connections=4 (default)
+AUTOTUNE_SMALL = (2, 2)   # (parallel, connections)
+AUTOTUNE_MEDIUM = (4, 4)
+AUTOTUNE_LARGE = (8, 4)
+
+
+def calculate_autotune_settings(file_sizes: List[int]) -> Tuple[int, int]:
+    """
+    Calculate optimal parallel/connections settings based on file sizes.
+
+    Uses median file size to determine settings:
+    - Small files (<10MB): parallel=2, connections=2 (reduce overhead)
+    - Medium files (10-100MB): parallel=4, connections=4 (balanced)
+    - Large files (>100MB): parallel=8, connections=4 (maximize bandwidth)
+
+    Returns (parallel, connections) tuple.
+    """
+    if not file_sizes:
+        return AUTOTUNE_MEDIUM
+
+    # Filter out zero/unknown sizes
+    valid_sizes = [s for s in file_sizes if s > 0]
+    if not valid_sizes:
+        return AUTOTUNE_MEDIUM
+
+    # Use median to avoid outliers skewing the result
+    valid_sizes.sort()
+    median_idx = len(valid_sizes) // 2
+    median_size = valid_sizes[median_idx]
+
+    if median_size < AUTOTUNE_SMALL_THRESHOLD:
+        return AUTOTUNE_SMALL
+    elif median_size > AUTOTUNE_LARGE_THRESHOLD:
+        return AUTOTUNE_LARGE
+    else:
+        return AUTOTUNE_MEDIUM
+
+
 def download_with_external_tool(url: str, dest_path: Path, connections: int = 4, auth_header: Optional[str] = None) -> bool:
     """Download a file using aria2c or curl. Returns True on success."""
     tool = get_download_tool()
@@ -5157,8 +5204,14 @@ Pattern examples (--include / --exclude):
     parser.add_argument('--cache-dir', default=None,
                         help='Directory for caching network downloads (default: <source>/cache/)')
     parser.add_argument('--parallel', '-p', type=int, default=4,
-                        help='Number of parallel downloads for network sources (default: 4). '
-                             'With aria2c, also sets connections per file for large downloads.')
+                        help='Number of parallel downloads for network sources (default: 4).')
+    parser.add_argument('--connections', '-x', type=int, default=None,
+                        help='Connections per file for aria2c (default: same as --parallel). '
+                             'Higher values can speed up large file downloads.')
+    parser.add_argument('--auto-tune', action='store_true', default=True,
+                        help='Auto-tune parallel/connections based on file sizes (default: enabled)')
+    parser.add_argument('--no-auto-tune', action='store_false', dest='auto_tune',
+                        help='Disable auto-tuning, use fixed --parallel and --connections values')
 
     # Internet Archive authentication
     parser.add_argument('--ia-access-key', default=None,
@@ -5171,6 +5224,10 @@ Pattern examples (--include / --exclude):
     # Resolve IA credentials from args or environment
     args.ia_access_key = args.ia_access_key or os.environ.get('IA_ACCESS_KEY')
     args.ia_secret_key = args.ia_secret_key or os.environ.get('IA_SECRET_KEY')
+
+    # Default connections to parallel if not specified
+    if args.connections is None:
+        args.connections = args.parallel
 
     # List systems mode
     if args.list_systems:
@@ -5670,12 +5727,13 @@ Pattern examples (--include / --exclude):
 
             # Show download tool info
             tool = get_download_tool()
+            autotune_note = " (auto-tune enabled)" if args.auto_tune else ""
             if tool == 'aria2c':
-                print(f"Download tool: aria2c ({args.parallel} parallel, {args.parallel} connections/file)")
+                print(f"Download tool: aria2c{autotune_note}")
             elif tool == 'curl':
-                print(f"Download tool: curl ({args.parallel} parallel)")
+                print(f"Download tool: curl{autotune_note}")
             else:
-                print("Download tool: Python urllib (sequential)")
+                print(f"Download tool: Python urllib (sequential)")
             print("=" * 60)
 
     # Step 3: Collect all files to download across all systems
@@ -5723,11 +5781,35 @@ Pattern examples (--include / --exclude):
         if any(is_archive_org_url(url) for url, _, _ in all_downloads):
             auth_header = get_ia_auth_header(args.ia_access_key, args.ia_secret_key)
 
+        # Determine parallel/connections settings
+        parallel = args.parallel
+        connections = args.connections
+
+        if args.auto_tune:
+            # Get file sizes for downloads
+            download_sizes = [all_url_sizes.get(url, 0) for url, _, _ in all_downloads]
+            auto_parallel, auto_connections = calculate_autotune_settings(download_sizes)
+
+            # Only override if user didn't explicitly set values
+            if args.parallel == 4:  # Default value
+                parallel = auto_parallel
+            if args.connections == args.parallel:  # Default (connections follows parallel)
+                connections = auto_connections
+
+            # Show auto-tune info
+            valid_sizes = [s for s in download_sizes if s > 0]
+            if valid_sizes:
+                valid_sizes.sort()
+                median_size = valid_sizes[len(valid_sizes) // 2]
+                size_category = "small" if median_size < AUTOTUNE_SMALL_THRESHOLD else \
+                               "large" if median_size > AUTOTUNE_LARGE_THRESHOLD else "medium"
+                print(f"Auto-tune: {size_category} files (median {format_size(median_size)}) → parallel={parallel}, connections={connections}")
+
         ui = DownloadUI(
             system_name=system_name,
             files=downloads_to_ui,
-            parallel=args.parallel,
-            connections=args.parallel,
+            parallel=parallel,
+            connections=connections,
             auth_header=auth_header
         )
         cached_files = ui.run()
