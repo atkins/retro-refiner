@@ -944,16 +944,31 @@ def fetch_url(url: str, timeout: int = 30, max_redirects: int = 5, auth_header: 
                 headers['Authorization'] = auth_header
             request = urllib.request.Request(current_url, headers=headers)
             with urllib.request.urlopen(request, timeout=timeout) as response:
-                # Check for redirect
-                if response.geturl() != current_url:
-                    current_url = response.geturl()
+                final_url = response.geturl()
 
-                return response.read(), current_url
+                # Detect archive.org login/signup redirects
+                if 'archive.org/account/' in final_url:
+                    raise Exception(
+                        "Archive.org requires authentication.\n"
+                        "Get credentials at: https://archive.org/account/s3.php\n"
+                        "Then set: export IA_ACCESS_KEY=your_key\n"
+                        "         export IA_SECRET_KEY=your_secret"
+                    )
+
+                return response.read(), final_url
         except urllib.error.HTTPError as e:
             if e.code in (301, 302, 303, 307, 308):
                 # Follow redirect
                 new_url = e.headers.get('Location')
                 if new_url:
+                    # Detect archive.org login/signup redirects
+                    if 'archive.org/account/' in new_url:
+                        raise Exception(
+                            "Archive.org requires authentication.\n"
+                            "Get credentials at: https://archive.org/account/s3.php\n"
+                            "Then set: export IA_ACCESS_KEY=your_key\n"
+                            "         export IA_SECRET_KEY=your_secret"
+                        )
                     current_url = normalize_url(new_url, current_url) or new_url
                     redirects += 1
                     continue
@@ -5494,6 +5509,21 @@ Pattern examples (--include / --exclude):
         scan_auth_header = None
         if is_archive_org_url(network_url):
             scan_auth_header = get_ia_auth_header(args.ia_access_key, args.ia_secret_key)
+            if not scan_auth_header:
+                print("=" * 60)
+                print("ERROR: Archive.org requires authentication")
+                print("=" * 60)
+                print()
+                print("Get your credentials at: https://archive.org/account/s3.php")
+                print()
+                print("Then either set environment variables:")
+                print("  export IA_ACCESS_KEY=your_access_key")
+                print("  export IA_SECRET_KEY=your_secret_key")
+                print()
+                print("Or use command line arguments:")
+                print("  --ia-access-key YOUR_KEY --ia-secret-key YOUR_SECRET")
+                print("=" * 60)
+                sys.exit(1)
 
         # Scan for URLs only (no downloading yet)
         url_dict, url_sizes = scan_network_source_urls(network_url, args.systems, auth_header=scan_auth_header)
