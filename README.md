@@ -138,33 +138,48 @@ Quick links: [Installation](https://github.com/atkins/retro-refiner/wiki/Install
 
 ## Quick Start
 
+### Basic Usage
 ```bash
-# Dry run: analyze and show what would be selected (no files transferred)
-python retro-refiner.py
+# Preview what would be selected (dry run - no files touched)
+python retro-refiner.py -s /path/to/roms
 
-# Commit mode: actually copy/move/link/download files
-python retro-refiner.py --commit
-
-# Filter ROMs from a specific directory
+# Actually copy the refined set
 python retro-refiner.py -s /path/to/roms --commit
+```
 
-# Specify both source and destination
-python retro-refiner.py -s /path/to/roms -d /path/to/output --commit
+### Download from Myrient
+```bash
+# GBA: No-Intro + fan translations, best English version of each game
+python retro-refiner.py \
+  -s "https://myrient.erista.me/files/No-Intro/Nintendo%20-%20Game%20Boy%20Advance/" \
+  -s "https://myrient.erista.me/files/T-En%20Collection/Nintendo%20-%20Game%20Boy%20Advance%20%5BT-En%5D%20Collection/" \
+  --parallel 8 --commit
+```
 
-# Process only specific systems
-python retro-refiner.py --systems nes snes genesis gba
+### Space-Saving with Symlinks
+```bash
+# Keep your full archive, create a curated symlink set (~1MB vs copying GBs)
+python retro-refiner.py -s /Games/archive -d /Games/refined --link --commit
+```
 
-# Skip DAT verification for faster processing
-python retro-refiner.py --no-verify --no-dat
+### Build a Curated Collection
+```bash
+# Only Mario, Zelda, and Metroid games
+python retro-refiner.py -s /path/to/roms \
+  --include "*Mario*" --include "*Zelda*" --include "*Metroid*" --commit
 
-# Use a network source (HTTPS server with directory listing)
-python retro-refiner.py -s https://myserver.com/roms/
+# Retro-only (pre-2000) with playlists
+python retro-refiner.py -s /path/to/roms --year-to 1999 --playlists --commit
 
-# Mix local and network sources
-python retro-refiner.py -s /local/roms -s https://myserver.com/roms/
+# Japanese versions first (for collectors/language learners)
+python retro-refiner.py -s /path/to/roms --region-priority "Japan,USA,Europe" --commit
+```
 
-# List all supported systems and extensions
-python retro-refiner.py --list-systems
+### More Options
+```bash
+python retro-refiner.py --systems nes snes genesis gba  # Specific systems only
+python retro-refiner.py --no-verify --no-dat            # Fast mode (skip verification)
+python retro-refiner.py --list-systems                  # Show all 144 supported systems
 ```
 
 Press `Ctrl+C` to gracefully stop at any time (press twice to force exit).
