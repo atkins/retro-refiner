@@ -25,7 +25,7 @@ That's it. The script combines both sources, picks the best English version of e
 ```bash
 python retro-refiner.py \
   -s "https://myrient.erista.me/files/No-Intro/Nintendo%20-%20Nintendo%20Entertainment%20System%20(Headered)/" \
-  -s "https://myrient.erista.me/files/T-En%20Collection/Nintendo%20-%20Nintendo%20Entertainment%20System%20%5BT-En%5D%20Collection/" \
+  -s "https://myrient.erista.me/files/T-En%20Collection/Nintendo%20-%20Famicom%20%5BT-En%5D%20Collection/" \
   --commit
 ```
 
@@ -33,7 +33,7 @@ python retro-refiner.py \
 ```bash
 python retro-refiner.py \
   -s "https://myrient.erista.me/files/No-Intro/Nintendo%20-%20Super%20Nintendo%20Entertainment%20System/" \
-  -s "https://myrient.erista.me/files/T-En%20Collection/Nintendo%20-%20Super%20Nintendo%20Entertainment%20System%20%5BT-En%5D%20Collection/" \
+  -s "https://myrient.erista.me/files/T-En%20Collection/Nintendo%20-%20Super%20Famicom%20%5BT-En%5D%20Collection/" \
   --commit
 ```
 
@@ -65,7 +65,7 @@ python retro-refiner.py \
 ```bash
 python retro-refiner.py \
   -s "https://myrient.erista.me/files/No-Intro/Sega%20-%20Mega%20Drive%20-%20Genesis/" \
-  -s "https://myrient.erista.me/files/T-En%20Collection/Sega%20-%20Mega%20Drive%20-%20Genesis%20%5BT-En%5D%20Collection/" \
+  -s "https://myrient.erista.me/files/T-En%20Collection/Sega%20-%20Mega%20Drive%20%5BT-En%5D%20Collection/" \
   --commit
 ```
 
@@ -85,7 +85,7 @@ python retro-refiner.py \
 
 ## Why Retro-Refiner?
 
-Inspired by the [1G1R (One Game, One ROM)](https://wiki.recalbox.com/en/tutorials/utilities/rom-management/1g1r) philosophy, Retro-Refiner automatically selects the single best version of each game—no duplicates, no clutter, just the ROMs you actually want to play.
+Inspired by the [1G1R (One Game, One ROM)](https://unexpectedpanda.github.io/retool/retool-1g1r/) philosophy, Retro-Refiner automatically selects the single best version of each game—no duplicates, no clutter, just the ROMs you actually want to play.
 
 There are many great ROM archive sites available, but they often contain every regional variant, beta, demo, and re-release ever dumped. Retro-Refiner makes it easy to grab optimized, customized sets from these archives:
 
