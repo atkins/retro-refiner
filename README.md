@@ -125,6 +125,12 @@ Whether you're building a curated collection for a Raspberry Pi, populating a Mi
 - **Progress bars**: Visual feedback with ETA, throughput, and per-file status
 - **Graceful shutdown**: Ctrl+C stops cleanly between operations
 
+## Documentation
+
+📖 **[Full Documentation Wiki](https://github.com/atkins/retro-refiner/wiki)** — Detailed guides, examples, and reference
+
+Quick links: [Installation](https://github.com/atkins/retro-refiner/wiki/Installation) · [Examples](https://github.com/atkins/retro-refiner/wiki/Examples) · [Network Sources](https://github.com/atkins/retro-refiner/wiki/Network-Sources) · [Troubleshooting](https://github.com/atkins/retro-refiner/wiki/Troubleshooting)
+
 ## Requirements
 
 - Python 3.10+
