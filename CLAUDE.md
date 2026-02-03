@@ -6,7 +6,10 @@
 Inspired by the 1G1R (One Game, One ROM) philosophy, Retro-Refiner simplifies the generation of RetroArch-friendly ROM sets. Point it at large ROM archives—local or network—and it automatically selects the best English version of each game. Ideal for grabbing optimized, customized sets from archive sites. Supports 144 systems with 200+ folder aliases.
 
 ## Files
-- `retro-refiner.py` - Main filtering script with 315+ title mappings
+- `retro-refiner.py` - Main filtering script
+- `title_mappings.json` - External title mappings (315+ Japan→English mappings)
+- `update_mappings.py` - Tool to scan archives and suggest new mappings
+- `retro-refiner.yaml` - Example configuration file
 - `test_selection.py` - Testing helper for verifying game series selection
 
 ## Usage
@@ -122,9 +125,50 @@ When combining multiple sources (e.g., No-Intro + T-En Collection):
 - Fan translations [T-En by...]
 - Japan-only games when no English version exists
 
-## Title Mapping Categories
+## Configuration File
 
-The script has 315+ mappings organized by series:
+The script supports YAML configuration files (`retro-refiner.yaml`):
+
+```bash
+# Use config from specific path
+python retro-refiner.py --config /path/to/config.yaml
+
+# Auto-loads retro-refiner.yaml from source directory if present
+python retro-refiner.py -s /roms  # Loads /roms/retro-refiner.yaml if it exists
+```
+
+### Key Config Options
+```yaml
+# Sources (local or network)
+source:
+  - /path/to/roms
+  - https://server.com/roms/
+
+# Destination
+dest: /path/to/output
+
+# Language priority
+region_priority: "USA,World,Europe,Japan"
+
+# Systems to process
+systems:
+  - nes
+  - snes
+  - gba
+
+# Filtering
+include:
+  - "*Mario*"
+  - "*Zelda*"
+exclude:
+  - "*Beta*"
+```
+
+CLI arguments override config file settings.
+
+## Title Mappings
+
+Title mappings are stored in `title_mappings.json` - an external JSON file with 315+ Japan→English mappings organized by series:
 
 ### Major Series Covered
 - **Pokemon**: Pocket Monsters (Aka/Ao/Midori/Kin/Gin) → Pokemon, all language variants
@@ -152,11 +196,23 @@ print(normalize_title(rom.base_title))  # → 'pokemon red version'
 ```
 
 ### Add new title mapping
-In `normalize_title()`, add to `title_mappings` dict:
-```python
-'normalized japanese title': 'normalized english title',
+Add to `title_mappings.json` under the appropriate category:
+```json
+{
+  "category_name": {
+    "normalized japanese title": "normalized english title"
+  }
+}
 ```
-Note: Titles are already lowercased, punctuation removed, roman numerals converted.
+Note: Titles should be lowercase, punctuation removed, roman numerals converted to arabic.
+
+### Suggest new mappings automatically
+Use `update_mappings.py` to scan archives and suggest mappings:
+```bash
+python update_mappings.py --scan-myrient gba    # Scan Myrient for GBA
+python update_mappings.py --suggest              # Show suggested mappings
+python update_mappings.py --merge                # Merge suggestions into mappings
+```
 
 ### Add new re-release pattern
 In `parse_rom_filename()`, add to `rerelease_patterns`:
@@ -180,6 +236,27 @@ In `EXTENSION_TO_SYSTEM` dict at module level:
 In `FOLDER_ALIASES` dict at module level:
 ```python
 'folder-name': 'standard-system-name',
+```
+
+## Title Mapping Functions
+
+### Key Functions
+- `load_title_mappings()` - Load mappings from `title_mappings.json`
+- `normalize_title(title)` - Normalize and map titles (lowercase, remove punctuation, apply mappings)
+
+### Mapping File Format
+`title_mappings.json` structure:
+```json
+{
+  "pokemon": {
+    "pocket monsters aka": "pokemon red version",
+    "pocket monsters ao": "pokemon blue version"
+  },
+  "megaman": {
+    "rockman": "mega man",
+    "rockman 2": "mega man 2"
+  }
+}
 ```
 
 ## Network Source Support
