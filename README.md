@@ -99,19 +99,31 @@ Whether you're building a curated collection for a Raspberry Pi, populating a Mi
 
 ## Features
 
-- **Safe by default**: Dry run mode shows what would be selected without copying, moving, linking, or downloading any files
-- **Progress bars**: Built-in visual feedback with ETA and throughput metrics
+### ROM Selection
+- **One ROM per game**: Groups regional variants and selects the single best version of each game
+- **Smart filtering**: Automatically excludes betas, demos, re-releases, compilations, BIOS, and pirate dumps
+- **Language priority**: Prefers English releases (USA > World > Europe > Australia) - fully customizable
+- **Translation support**: Includes fan translations `[T-En]` for Japan-only games
+- **Japan-only inclusion**: Keeps untranslated Japan exclusives when no English version exists
+- **315+ title mappings**: Correctly groups regional variants (Rockman→Mega Man, Pocket Monsters→Pokemon, etc.)
+
+### Network Downloads
+- **Direct archive access**: Fetch ROMs directly from HTTP/HTTPS servers—no manual downloading
+- **Filter before download**: Only selected ROMs are downloaded, saving bandwidth and time
+- **Multi-source merging**: Combine official sets with translation collections in one command
+- **Parallel downloads**: Configurable concurrent downloads with aria2c/curl support
+
+### Verification & Accuracy
+- **DAT verification**: Validates ROMs against No-Intro/Redump checksums (CRC32)
+- **DAT-based selection**: Uses checksums to identify ROMs, not just filenames
+- **Selection logs**: Detailed logs showing exactly what was selected and why
+
+### Usability
+- **Safe by default**: Dry run mode previews selections without transferring any files
+- **Cross-platform**: Works on Windows, macOS, and Linux with no dependencies
+- **Auto-detection**: Detects systems from folder names (200+ aliases) or file extensions (90+)
+- **Progress bars**: Visual feedback with ETA, throughput, and per-file status
 - **Graceful shutdown**: Ctrl+C stops cleanly between operations
-- **DAT verification**: Validates ROMs against No-Intro checksums
-- **Portable**: No hardcoded paths - works on Windows, macOS, and Linux
-- **Auto-detection**: Detects systems from folder names or file extensions
-- **One ROM per game**: Groups regional variants and selects the best version
-- **Language priority**: Prefers English releases (USA > World > Europe > Australia) - customizable
-- **Translation support**: Includes fan translations for Japan-only games
-- **Japan-only inclusion**: Keeps Japan exclusives when no English version exists
-- **Smart filtering**: Excludes betas, demos, re-releases, compilations, BIOS, pirate dumps
-- **315+ title mappings**: Handles regional naming differences (Rockman→Mega Man, etc.)
-- **Comprehensive logging**: Generates selection logs for each system
 
 ## Requirements
 
