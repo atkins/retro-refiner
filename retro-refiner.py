@@ -33,7 +33,7 @@ import threading
 from urllib.parse import urlparse
 from pathlib import Path
 from collections import defaultdict
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Optional, Dict, List, Tuple
 
 # Title mappings cache (loaded from title_mappings.json)
@@ -278,7 +278,7 @@ def tqdm(iterable=None, **kwargs):
 # Global flag for graceful shutdown
 _shutdown_requested = False
 
-def _signal_handler(signum, frame):
+def _signal_handler(_signum, _frame):
     """Handle Ctrl+C for graceful shutdown."""
     global _shutdown_requested
     if _shutdown_requested:
@@ -311,7 +311,7 @@ def format_url(url: str, max_length: int = 0) -> str:
     """Format a URL for display: decode percent-encoding for readability."""
     decoded = urllib.request.unquote(url)
 
-    if max_length > 0 and len(decoded) > max_length:
+    if 0 < max_length < len(decoded):
         return decoded[:max_length - 3] + "..."
 
     return decoded
@@ -403,7 +403,7 @@ def normalize_url(href: str, base_url: str) -> Optional[str]:
 
     elif href.startswith('http://') or href.startswith('https://'):
         # Full URL - check if same host
-        href_scheme, href_host, href_path = parse_url(href)
+        _, href_host, _ = parse_url(href)
         if href_host.lower() != base_host.lower():
             return None  # Different domain
         return href
@@ -1080,7 +1080,7 @@ def get_download_tool() -> Optional[str]:
 
     # Check for aria2c first (best: parallel + multi-connection per file)
     try:
-        result = subprocess.run(['aria2c', '--version'], capture_output=True, timeout=5)
+        result = subprocess.run(['aria2c', '--version'], capture_output=True, timeout=5, check=False)
         if result.returncode == 0:
             _download_tool = 'aria2c'
             return 'aria2c'
@@ -1089,7 +1089,7 @@ def get_download_tool() -> Optional[str]:
 
     # Check for curl (good: parallel downloads)
     try:
-        result = subprocess.run(['curl', '--version'], capture_output=True, timeout=5)
+        result = subprocess.run(['curl', '--version'], capture_output=True, timeout=5, check=False)
         if result.returncode == 0:
             _download_tool = 'curl'
             return 'curl'
@@ -1114,13 +1114,15 @@ def download_with_external_tool(url: str, dest_path: Path, connections: int = 4)
                  '--connect-timeout=30', '--timeout=300', '-d', str(dest_path.parent),
                  '-o', dest_path.name, url],
                 capture_output=True,
-                timeout=310
+                timeout=310,
+                check=False
             )
         else:  # curl
             result = subprocess.run(
                 ['curl', '-sSL', '-o', str(dest_path), '--connect-timeout', '30', '--max-time', '300', url],
                 capture_output=True,
-                timeout=310
+                timeout=310,
+                check=False
             )
         return result.returncode == 0 and dest_path.exists() and dest_path.stat().st_size > 0
     except Exception:
@@ -1145,7 +1147,7 @@ def download_batch_with_curl(downloads: List[Tuple[str, Path]], parallel: int = 
     try:
         # Timeout scales with number of files (adjusted for parallelism)
         total_timeout = max(60, (len(downloads) // parallel + 1) * timeout_per_file)
-        subprocess.run(cmd, capture_output=True, timeout=total_timeout)
+        subprocess.run(cmd, capture_output=True, timeout=total_timeout, check=False)
     except subprocess.TimeoutExpired:
         pass  # Check which files succeeded anyway
     except Exception:
@@ -1192,7 +1194,7 @@ def download_batch_with_aria2c(downloads: List[Tuple[str, Path]], parallel: int 
             '-i', input_file
         ]
         total_timeout = max(60, (len(downloads) // parallel + 1) * timeout_per_file)
-        subprocess.run(cmd, capture_output=True, timeout=total_timeout)
+        subprocess.run(cmd, capture_output=True, timeout=total_timeout, check=False)
     except subprocess.TimeoutExpired:
         pass  # Check which files succeeded anyway
     except Exception:
@@ -1298,6 +1300,7 @@ class DownloadUI:
         self.download_tool = 'unknown'
         self.detailed_mode = False
         self.shutdown_requested = False
+        self._old_term_settings = None  # For keyboard input handling
 
         # File tracking
         self.files = []
@@ -1677,6 +1680,7 @@ class DownloadUI:
         ]
 
         try:
+            # pylint: disable=consider-using-with
             self.subprocess = subprocess.Popen(
                 cmd,
                 stdout=subprocess.DEVNULL,
@@ -1814,7 +1818,7 @@ class DownloadUI:
                 if key == ord('i'):
                     self.detailed_mode = False
                     break
-                elif key == ord('q'):
+                if key == ord('q'):
                     self.shutdown_requested = True
                     self.detailed_mode = False
                     break
@@ -1830,10 +1834,10 @@ class DownloadUI:
 
         try:
             curses.wrapper(curses_main)
-        except curses.error as e:
+        except curses.error:
             # Curses error (e.g., terminal too small)
             self.detailed_mode = False
-        except Exception as e:
+        except Exception:  # pylint: disable=broad-except
             # Other errors - exit detailed mode
             self.detailed_mode = False
 
@@ -2263,7 +2267,7 @@ def filter_network_roms(rom_urls: List[str], system: str,
     # Build filename -> DAT name lookup for better title matching
     dat_name_lookup = {}
     if dat_entries:
-        for crc, entry in dat_entries.items():
+        for _, entry in dat_entries.items():
             # Map ROM filename (without extension) to DAT game name
             rom_base = Path(entry.rom_name).stem.lower()
             dat_name_lookup[rom_base] = entry.name
@@ -2749,7 +2753,7 @@ def generate_retroarch_playlist(system: str, rom_files: List[Path],
     return playlist_path
 
 
-def generate_gamelist_xml(system: str, rom_files: List[Path], dest_path: Path):
+def generate_gamelist_xml(_system: str, rom_files: List[Path], dest_path: Path):
     """Generate EmulationStation gamelist.xml."""
     gamelist_path = dest_path / "gamelist.xml"
 
@@ -3091,11 +3095,7 @@ def parse_clrmamepro_dat(dat_path: Path) -> Dict[str, DatRomEntry]:
     with open(dat_path, 'r', encoding='utf-8', errors='ignore') as f:
         content = f.read()
 
-    # Parse game entries
-    game_pattern = r'game\s*\(\s*name\s+"([^"]+)"[^)]*\)'
-    rom_pattern = r'rom\s*\(\s*name\s+"([^"]+)"\s+size\s+(\d+)\s+crc\s+([a-fA-F0-9]+)(?:\s+md5\s+([a-fA-F0-9]+))?(?:\s+sha1\s+([a-fA-F0-9]+))?\s*\)'
-
-    # More robust parsing using state machine
+    # Parse game entries using state machine
     in_game = False
     current_game = None
     brace_count = 0
@@ -3191,6 +3191,7 @@ def calculate_crc32_from_zip(zip_path: Path) -> str:
                 if not name.endswith('/'):
                     with zf.open(name) as f:
                         crc = 0
+                        # pylint: disable=cell-var-from-loop
                         for chunk in iter(lambda: f.read(65536), b''):
                             crc = binascii.crc32(chunk, crc)
                         return format(crc & 0xFFFFFFFF, '08x')
@@ -3453,7 +3454,7 @@ def normalize_title(title: str) -> str:
 
     return normalized
 
-def select_best_rom(roms: list[RomInfo], region_priority: List[str] = None) -> Optional[RomInfo]:
+def select_best_rom(roms: List[RomInfo], region_priority: List[str] = None) -> Optional[RomInfo]:
     """Select the best ROM from a group of ROMs for the same game.
 
     Priority order:
@@ -3652,7 +3653,6 @@ def download_mame_data(mame_data_dir: Path, version: str = None, force: bool = F
 
     # Format version for URLs
     version_clean = version.replace(".", "")  # "0274"
-    version_dot = version  # "0.274"
 
     mame_data_dir.mkdir(parents=True, exist_ok=True)
 
@@ -4201,7 +4201,7 @@ def filter_mame_roms(source_dir: str, dest_dir: str, catver_path: str, dat_path:
     if not dry_run:
         log_path.parent.mkdir(parents=True, exist_ok=True)
 
-    with open(log_path, 'w', encoding='utf-8') if not dry_run else open(os.devnull, 'w') as f:
+    with open(log_path, 'w', encoding='utf-8') if not dry_run else open(os.devnull, 'w', encoding='utf-8') as f:
         if not dry_run:
             f.write(f"{label} Selection Log\n")
             f.write("=" * 60 + "\n\n")
