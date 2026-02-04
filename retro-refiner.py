@@ -3618,43 +3618,59 @@ def download_ten_dat(system: str, dest_dir: Path, force: bool = False,
     if not zip_filename:
         return None
 
-    try:
-        # Download the ZIP file
-        # Use safe='[]()-' to preserve brackets and parens that Archive.org expects
-        zip_url = TEN_DAT_BASE_URL + urllib.request.quote(zip_filename, safe='[]()-')
-        print(f"  Downloading T-En DAT for {system}...")
+    # Download the ZIP file with retry logic
+    # Use safe='[]()-' to preserve brackets and parens that Archive.org expects
+    zip_url = TEN_DAT_BASE_URL + urllib.request.quote(zip_filename, safe='[]()-')
+    print(f"  Downloading T-En DAT for {system}...")
 
-        headers = {'User-Agent': 'Retro-Refiner/1.0'}
-        if auth_header:
-            headers['Authorization'] = auth_header
-        req = urllib.request.Request(zip_url, headers=headers)
-        with urllib.request.urlopen(req, timeout=60) as response:
-            zip_data = response.read()
+    headers = {'User-Agent': 'Retro-Refiner/1.0'}
+    if auth_header:
+        headers['Authorization'] = auth_header
 
-        # Extract the DAT file from the ZIP
-        import io
-        with zipfile.ZipFile(io.BytesIO(zip_data)) as zf:
-            # Find the .dat file inside
-            dat_files = [n for n in zf.namelist() if n.lower().endswith('.dat')]
-            if not dat_files:
-                print(f"  No DAT file found in T-En ZIP for {system}")
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            req = urllib.request.Request(zip_url, headers=headers)
+            with urllib.request.urlopen(req, timeout=60) as response:
+                zip_data = response.read()
+
+            # Extract the DAT file from the ZIP
+            import io
+            with zipfile.ZipFile(io.BytesIO(zip_data)) as zf:
+                # Find the .dat file inside
+                dat_files = [n for n in zf.namelist() if n.lower().endswith('.dat')]
+                if not dat_files:
+                    print(f"  No DAT file found in T-En ZIP for {system}")
+                    return None
+
+                # Extract the first DAT file
+                with zf.open(dat_files[0]) as src:
+                    with open(dat_path, 'wb') as dst:
+                        shutil.copyfileobj(src, dst)
+
+            print(f"  Downloaded: {dat_path.name}")
+            return dat_path
+
+        except urllib.error.HTTPError as e:
+            if e.code == 404:
+                return None  # File doesn't exist, no point retrying
+            if attempt < max_retries - 1:
+                wait_time = (attempt + 1) * 2  # 2s, 4s backoff
+                print(f"  Retry {attempt + 1}/{max_retries} for {system} (waiting {wait_time}s)...")
+                _time.sleep(wait_time)
+            else:
+                print(f"  T-En DAT download error for {system}: {e}")
+                return None
+        except Exception as e:
+            if attempt < max_retries - 1:
+                wait_time = (attempt + 1) * 2
+                print(f"  Retry {attempt + 1}/{max_retries} for {system} (waiting {wait_time}s)...")
+                _time.sleep(wait_time)
+            else:
+                print(f"  T-En DAT download error for {system}: {e}")
                 return None
 
-            # Extract the first DAT file
-            with zf.open(dat_files[0]) as src:
-                with open(dat_path, 'wb') as dst:
-                    shutil.copyfileobj(src, dst)
-
-        print(f"  Downloaded: {dat_path.name}")
-        return dat_path
-
-    except urllib.error.HTTPError as e:
-        if e.code != 404:
-            print(f"  T-En DAT download error for {system}: {e}")
-        return None
-    except Exception as e:
-        print(f"  T-En DAT download error for {system}: {e}")
-        return None
+    return None
 
 
 def detect_system_from_path(path: str) -> Optional[str]:
