@@ -2,7 +2,7 @@
   "_meta": {
     "description": "Title mappings for regional game name normalization",
     "format": "normalized_japanese_or_regional_title -> normalized_english_title",
-    "updated": "2025-02-02",
+    "updated": "2026-02-03",
     "note": "All titles are lowercased, punctuation removed, roman numerals converted to arabic"
   },
   "mario": {
@@ -364,5 +364,78 @@
   },
   "misc": {
     "super metroid": "super metroid"
+  },
+  "goemon": {
+    "ganbare goemon karakuri douchuu": "ganbare goemon",
+    "ganbare goemon gaiden kieta ougon kiseru": "ganbare goemon gaiden the missing golden pipe",
+    "ganbare goemon gaiden 2 tenka no zaihou": "ganbare goemon gaiden 2 treasures of the world",
+    "ganbare goemon 2": "go for it goemon 2",
+    "go for it goemon": "ganbare goemon",
+    "go for it goemon 2": "ganbare goemon 2"
+  },
+  "dragon_ball": {
+    "dragon ball daimaou fukkatsu": "dragon ball revival of the dark lord",
+    "dragon ball z kyoushuu saiya jin": "dragon ball z assault of the saiyans",
+    "dragon ball z 2 gekishin freeza": "dragon ball z 2 tyrant freeza",
+    "dragon ball z gaiden saiya jin zetsumetsu keikaku": "dragon ball z gaiden plan to eliminate the saiyans",
+    "dragon ball z 3 ressen jinzou ningen": "dragon ball z 3 killer androids"
+  },
+  "sd_gundam": {
+    "sd gundam gachapon senshi 2 capsule senki": "sd gundam gachapon soldier 2 capsule war",
+    "sd gundam gachapon senshi 3 eiyuu senki": "sd gundam gachapon senshi 3 hero warrior",
+    "sd gundam gachapon senshi 4 newtype story": "sd gundam gachapon soldier 4 newtype story",
+    "sd gundam gaiden knight gundam monogatari": "sd gundam story knight gundam legend",
+    "sd gundam gaiden knight gundam monogatari 2 hikari no knight": "sd gundam story 2 knight gundam legend",
+    "sd keiji blader": "sd detective blader"
+  },
+  "kunio_kun": {
+    "downtown special kuniokun no jidaigeki da yo zenin shuugou": "technos samurai downtown special",
+    "nekketsu koukou dodgeballbu soccer hen": "kuniokuns nekketsu soccer league",
+    "kuniokun no nekketsu soccer league": "kuniokuns nekketsu soccer league",
+    "nekketsu street basket ganbare dunk heroes": "nekketsu street basket go for it dunk heroes"
+  },
+  "translations_nes": {
+    "esper dream 2 aratanaru tatakai": "esper dream 2",
+    "double moon densetsu": "legend of double moon the",
+    "mahou no princess minky momo remember dream": "magical princess minky momo remember dream",
+    "urusei yatsura lum no wedding bell": "urusei yatsura lums wedding bell",
+    "ganso saiyuuki super monkey daibouken": "ganso saiyuuki super monkey adventure",
+    "sugoro quest dice no senshitachi": "sugoro quest the quest of dice heroes",
+    "dragon scroll yomigaerishi maryuu": "dragon scroll resurrection of the demon dragon",
+    "magical kids doropie": "magical doropie",
+    "future wars mirai senshi lios": "future soldier lios",
+    "honoo no toukyuuji dodge danpei": "fiery baller dodge danpei",
+    "honoo no toukyuuji dodge danpei 2": "fiery baller dodge danpei 2",
+    "shin 4 nin uchi mahjong yakuman tengoku": "4 player strike mahjong",
+    "4 nin uchi mahjong": "4 player strike mahjong",
+    "deep dungeon 4 kuro no youjutsushi": "deep dungeon 4 the black sorcerer",
+    "deep dungeon 3 yuushi e no tabi": "deep dungeon 3 the journey to become a hero",
+    "ultraman club kaijuu daikessen": "ultraman club great kaiju battle",
+    "kamen no ninja hanamaru": "masked ninja hanamaru",
+    "kamen no ninja akakage": "masked ninja the akakage",
+    "shinsenden": "shinsenden the legend of immortals",
+    "dai 2 ji super robot taisen": "super robot wars 2",
+    "juuryoku soukou metal storm": "gravity armor metal storm",
+    "attack animal gakuen": "attack animal academy",
+    "wanpaku kokkun no gourmet world": "chef cookie in gourmet world",
+    "otaku no seiza an adventure in the otaku galaxy": "constellation nerdulus the an adventure in the otaku galaxy",
+    "daiva imperial of nirsartia": "daiva story 6 imperial of nirsartia",
+    "mashin eiyuuden wataru gaiden": "mashin hero wataru gaiden",
+    "kamen rider sd granshocker no yabou": "kamen rider sd the ambitions of grand shocker",
+    "mickey mouse 3 yume fuusen": "mickey mouse 3 dream balloon",
+    "lost word of jenny ushinawareta message": "lost word of jenny",
+    "batsu terry makyou no tetsujin race": "batsu terry",
+    "wily right no rockboard thats paradise": "wily rights rockboard thats paradise",
+    "venus senki back the city": "venus wars the back to the city io",
+    "famicom jump eiyuu retsuden": "famicom jump heroes history",
+    "famicom jump 2 saikyou no 7 nin": "famicom jump 2 the strongest 7",
+    "tsuri kichi sanpei blue marlin hen": "fishing maniac sanpei blue marlin chapter",
+    "ninja jajamaru ginga daisakusen": "ninja jajamaru galactic battle",
+    "gekitou pro wrestling toukon densetsu": "superstar pro wrestling",
+    "kaiketsu yanchamaru 2 karakuri land": "radical ninja yanchamaru 2 in karakuri land",
+    "jumpin kid jack to mame no ki monogatari": "jumpin kid jack and the beanstalk",
+    "kyouryuu sentai zyuranger": "kyoryu sentai zyuranger",
+    "gorilla man the": "burning wild man the",
+    "taito grand prix eikou e no license": "taito grand prix"
   }
 }
