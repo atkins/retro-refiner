@@ -307,9 +307,9 @@ Download settings are automatically optimized based on file sizes:
 
 | File Size | Parallel | Connections | Rationale |
 |-----------|----------|-------------|-----------|
-| < 10 MB   | 2        | 2           | Reduces overhead for small files |
-| 10-100 MB | 4        | 4           | Balanced default |
-| > 100 MB  | 8        | 4           | Maximizes bandwidth for large files |
+| < 10 MB   | 8        | 1           | Many small files, minimal per-file overhead |
+| 10-100 MB | 8        | 2           | Balanced |
+| > 100 MB  | 8        | 4           | Fewer large files, max bandwidth per file |
 
 Auto-tune uses the median file size of the download queue to select settings.
 

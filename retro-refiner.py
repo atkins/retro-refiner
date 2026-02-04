@@ -1226,17 +1226,17 @@ def get_ia_auth_header(access_key: Optional[str], secret_key: Optional[str]) -> 
 
 
 # Auto-tuning thresholds based on benchmark testing
-# Small files benefit from lower parallelism to reduce overhead
-# Large files benefit from more connections to saturate bandwidth
+# Small files benefit from high parallelism but few connections per file
+# Large files benefit from more connections per file to saturate bandwidth
 AUTOTUNE_SMALL_THRESHOLD = 10 * 1024 * 1024   # 10 MB
 AUTOTUNE_LARGE_THRESHOLD = 100 * 1024 * 1024  # 100 MB
 
 # Optimal settings from benchmarks:
-# - Small files (<10MB): parallel=2, connections=2
-# - Large files (>100MB): parallel=8, connections=4
-# - Medium files: parallel=4, connections=4 (default)
-AUTOTUNE_SMALL = (2, 2)   # (parallel, connections)
-AUTOTUNE_MEDIUM = (4, 4)
+# - Small files (<10MB): parallel=8, connections=1 (many files, minimal overhead)
+# - Large files (>100MB): parallel=8, connections=4 (fewer files, max bandwidth)
+# - Medium files: parallel=8, connections=2 (balanced)
+AUTOTUNE_SMALL = (8, 1)   # (parallel, connections)
+AUTOTUNE_MEDIUM = (8, 2)
 AUTOTUNE_LARGE = (8, 4)
 
 
