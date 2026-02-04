@@ -3247,7 +3247,9 @@ def detect_system_from_path(path: str) -> Optional[str]:
 
         # Partial match: check if any DAT name is contained in the path part
         # This handles cases like "No-Intro/GCE - Vectrex" or "Redump/Sony - PlayStation"
-        for dat_name, system in DAT_NAME_TO_SYSTEM.items():
+        # Sort by length (longest first) so "Game Boy Advance" matches before "Game Boy"
+        sorted_dat_names = sorted(DAT_NAME_TO_SYSTEM.items(), key=lambda x: len(x[0]), reverse=True)
+        for dat_name, system in sorted_dat_names:
             if dat_name in part_lower:
                 return system
 
