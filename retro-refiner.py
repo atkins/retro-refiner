@@ -3551,11 +3551,51 @@ def get_ten_dat_url(system: str) -> Optional[str]:
     return f"{TEN_DAT_BASE_URL}?prefix={encoded_prefix}"
 
 
-def download_ten_dat(system: str, dest_dir: Path, force: bool = False, auth_header: Optional[str] = None) -> Optional[Path]:
+def fetch_ten_dat_listing() -> Dict[str, str]:
+    """
+    Fetch the T-En DAT directory listing from Archive.org once.
+    Returns a dict mapping system prefix to ZIP filename.
+    """
+    try:
+        req = urllib.request.Request(TEN_DAT_BASE_URL, headers={'User-Agent': 'Retro-Refiner/1.0'})
+        with urllib.request.urlopen(req, timeout=30) as response:
+            html = response.read().decode('utf-8', errors='ignore')
+
+        # Parse all ZIP filenames from the listing
+        zip_files = {}
+
+        # Try parsing links from HTML (standard directory listing)
+        for match in re.finditer(r'href="([^"]+\.zip)"', html):
+            href = urllib.request.unquote(match.group(1))
+            if '[T-En] Collection' in href:
+                # Extract the prefix (everything before " [T-En] Collection")
+                prefix = href.split(' [T-En] Collection')[0]
+                zip_files[prefix] = href
+
+        # Also try Archive.org table format (<td>filename.zip</td>)
+        for match in re.finditer(r'<td>([^<]+\.zip)</td>', html):
+            filename = match.group(1)
+            if '[T-En] Collection' in filename:
+                prefix = filename.split(' [T-En] Collection')[0]
+                if prefix not in zip_files:
+                    zip_files[prefix] = filename
+
+        return zip_files
+    except Exception as e:
+        print(f"  Error fetching T-En DAT listing: {e}")
+        return {}
+
+
+def download_ten_dat(system: str, dest_dir: Path, force: bool = False,
+                     auth_header: Optional[str] = None,
+                     listing_cache: Optional[Dict[str, str]] = None) -> Optional[Path]:
     """
     Download T-En DAT file for a system from Archive.org.
     T-En DATs are ZIP files containing a DAT file inside.
     Requires Archive.org authentication (auth_header).
+
+    Args:
+        listing_cache: Optional pre-fetched listing from fetch_ten_dat_listing()
     """
     dat_prefix = TEN_DAT_SYSTEMS.get(system)
     if not dat_prefix:
@@ -3567,36 +3607,18 @@ def download_ten_dat(system: str, dest_dir: Path, force: bool = False, auth_head
     if dat_path.exists() and not force:
         return dat_path
 
-    # Fetch the directory listing to find the actual filename (includes date)
+    # Use cached listing or fetch fresh
+    if listing_cache is not None:
+        zip_filename = listing_cache.get(dat_prefix)
+    else:
+        # Fallback: fetch listing for this single system (less efficient)
+        listing = fetch_ten_dat_listing()
+        zip_filename = listing.get(dat_prefix)
+
+    if not zip_filename:
+        return None
+
     try:
-        list_url = TEN_DAT_BASE_URL
-        req = urllib.request.Request(list_url, headers={'User-Agent': 'Retro-Refiner/1.0'})
-        with urllib.request.urlopen(req, timeout=30) as response:
-            html = response.read().decode('utf-8', errors='ignore')
-
-        # Find the ZIP file matching our system
-        # Pattern: "Nintendo - Game Boy Advance [T-En] Collection (DD-MM-YYYY).zip"
-        search_pattern = f"{dat_prefix} [T-En] Collection"
-        zip_filename = None
-
-        # Try parsing links from HTML (standard directory listing)
-        for match in re.finditer(r'href="([^"]+\.zip)"', html):
-            href = urllib.request.unquote(match.group(1))
-            if search_pattern in href:
-                zip_filename = href
-                break
-
-        # If not found in href, try Archive.org table format (<td>filename.zip</td>)
-        if not zip_filename:
-            for match in re.finditer(r'<td>([^<]+\.zip)</td>', html):
-                filename = match.group(1)
-                if search_pattern in filename:
-                    zip_filename = filename
-                    break
-
-        if not zip_filename:
-            return None
-
         # Download the ZIP file
         # Use safe='[]()-' to preserve brackets and parens that Archive.org expects
         zip_url = TEN_DAT_BASE_URL + urllib.request.quote(zip_filename, safe='[]()-')
@@ -5847,14 +5869,26 @@ Pattern examples (--include / --exclude):
             ten_downloaded = 0
             ten_failed = 0
         else:
-            ten_downloaded = 0
-            ten_failed = 0
-            for system in sorted(TEN_DAT_SYSTEMS.keys()):
-                result = download_ten_dat(system, dat_dir, force=True, auth_header=ia_auth)
-                if result:
-                    ten_downloaded += 1
-                else:
-                    ten_failed += 1
+            # Fetch directory listing once (avoids 44 redundant requests)
+            print("  Fetching T-En DAT listing...")
+            ten_listing = fetch_ten_dat_listing()
+            if not ten_listing:
+                print("  Failed to fetch T-En DAT listing")
+                ten_downloaded = 0
+                ten_failed = len(TEN_DAT_SYSTEMS)
+            else:
+                print(f"  Found {len(ten_listing)} T-En DAT files available")
+                ten_downloaded = 0
+                ten_failed = 0
+                for system in sorted(TEN_DAT_SYSTEMS.keys()):
+                    result = download_ten_dat(system, dat_dir, force=True,
+                                              auth_header=ia_auth, listing_cache=ten_listing)
+                    if result:
+                        ten_downloaded += 1
+                    else:
+                        ten_failed += 1
+                    # Small delay to avoid rate limiting
+                    _time.sleep(0.5)
             print(f"\nT-En DATs: {ten_downloaded} downloaded, {ten_failed} failed")
 
         # Summary
@@ -6193,9 +6227,10 @@ Pattern examples (--include / --exclude):
         if systems_with_ten_sources:
             ia_auth = get_ia_auth_header(args.ia_access_key, args.ia_secret_key)
             print(f"\nLoading T-En DAT files for {len(systems_with_ten_sources)} system(s)...")
+
+            # Check which systems need downloading vs using cache
+            systems_to_download = []
             for system in systems_with_ten_sources:
-                check_shutdown()
-                # Check for cached DAT file first (no auth needed)
                 cached_dat_path = dat_dir / f"{system}_t-en.dat"
                 if cached_dat_path.exists():
                     ten_dat_entries = parse_dat_file(cached_dat_path)
@@ -6205,8 +6240,17 @@ Pattern examples (--include / --exclude):
                         network_dat_entries[system] = ten_dat_entries
                     print(f"  {system.upper()}: {len(ten_dat_entries)} T-En DAT entries loaded (cached)")
                 elif ia_auth:
-                    # Download fresh DAT file if auth is available
-                    ten_dat_path = download_ten_dat(system, dat_dir, auth_header=ia_auth)
+                    systems_to_download.append(system)
+                else:
+                    print(f"  {system.upper()}: No cached T-En DAT (set IA_ACCESS_KEY/IA_SECRET_KEY to download)")
+
+            # Download any non-cached T-En DATs
+            if systems_to_download:
+                ten_listing = fetch_ten_dat_listing()
+                for system in systems_to_download:
+                    check_shutdown()
+                    ten_dat_path = download_ten_dat(system, dat_dir, auth_header=ia_auth,
+                                                    listing_cache=ten_listing)
                     if ten_dat_path:
                         ten_dat_entries = parse_dat_file(ten_dat_path)
                         if system in network_dat_entries:
@@ -6214,8 +6258,6 @@ Pattern examples (--include / --exclude):
                         else:
                             network_dat_entries[system] = ten_dat_entries
                         print(f"  {system.upper()}: {len(ten_dat_entries)} T-En DAT entries loaded")
-                else:
-                    print(f"  {system.upper()}: No cached T-En DAT (set IA_ACCESS_KEY/IA_SECRET_KEY to download)")
 
     # Step 2: Filter combined URL pool per system (select best ROM across ALL sources)
     network_downloads = {}  # {system: [selected_urls]}
