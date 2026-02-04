@@ -77,6 +77,13 @@ python retro-refiner.py \
   --commit
 ```
 
+**TeknoParrot (Modern Arcade)**
+```bash
+python retro-refiner.py \
+  -s "https://myrient.erista.me/files/TeknoParrot/" \
+  --systems teknoparrot --commit
+```
+
 </details>
 
 **Dry run first?** Remove `--commit` to preview what will be selected without downloading anything.
@@ -330,6 +337,57 @@ All DAT files are stored in `dat_files/` directory:
 For games with multiple versions (clones), the best regional version is selected:
 USA > World > Europe > Asia > Japan
 
+## TeknoParrot Arcade Filtering
+
+TeknoParrot ROMs (modern arcade games) use a different filtering approach with version deduplication and hardware platform filtering.
+
+### ROM Format
+TeknoParrot ROMs follow this naming convention:
+```
+Game Title (Version) (Date) [Hardware Platform] [TP].zip
+```
+Examples:
+- `BlazBlue Central Fiction (1.30.01) (2016-12-09) [Taito NESiCAxLive] [TP].zip`
+- `Initial D Arcade Stage Zero Ver.2 (2.30.00) (2017) [Sega Nu] [TP].zip`
+
+### Usage
+```bash
+# Download all TeknoParrot games (latest version of each)
+python retro-refiner.py \
+  -s "https://myrient.erista.me/files/TeknoParrot/" \
+  --systems teknoparrot --commit
+
+# Filter by hardware platform
+python retro-refiner.py \
+  -s "https://myrient.erista.me/files/TeknoParrot/" \
+  --systems teknoparrot \
+  --tp-include-platforms "Sega Nu,Sega RingEdge,Taito Type X2" --commit
+
+# Keep all versions (don't deduplicate Ver.1/Ver.2)
+python retro-refiner.py \
+  -s "https://myrient.erista.me/files/TeknoParrot/" \
+  --systems teknoparrot --tp-all-versions --commit
+```
+
+### TeknoParrot Options
+| Option | Description |
+|--------|-------------|
+| `--tp-include-platforms` | Only include games from these platforms (comma-separated) |
+| `--tp-exclude-platforms` | Exclude games from these platforms (comma-separated) |
+| `--tp-all-versions` | Keep all versions instead of selecting latest only |
+
+### Hardware Platforms
+Default supported platforms include:
+- **Sega**: Lindbergh, RingEdge, RingEdge 2, RingWide, Nu, Nu 1.1, Nu 2, ALLS, ALLS UX
+- **Taito**: Type X, Type X2, Type X3, Type X4, NESiCAxLive, NESiCAxLive 2
+- **Namco**: System 246, System 256, System 357, System ES1, System ES3
+- **Other**: Examu eX-BOARD, Raw Thrills PC, IGS PGM2, Konami PC, Windows PC
+
+### Version Deduplication
+By default, Retro-Refiner selects the **latest version** of each game:
+- `Initial D Zero Ver.2 (2.30.00)` is selected over `Initial D Zero (1.00.00)`
+- Use `--tp-all-versions` to keep all versions
+
 ## Selection Criteria
 
 ### Included
@@ -488,6 +546,13 @@ Each system folder contains `_selection_log.txt` with:
 | `--no-chd` | Skip CHD files for MAME |
 | `--clean` | Delete cache, DAT files, and generated data |
 
+### TeknoParrot Options
+| Option | Description |
+|--------|-------------|
+| `--tp-include-platforms` | Only include games from these platforms (comma-separated) |
+| `--tp-exclude-platforms` | Exclude games from these platforms (comma-separated) |
+| `--tp-all-versions` | Keep all versions instead of selecting latest only |
+
 ### Default Behaviors
 | Feature | Default | Override |
 |---------|---------|----------|
@@ -600,14 +665,14 @@ Check `_selection_log.txt` for details. Common issues:
 
 | Metric | Value |
 |--------|-------|
-| Systems supported | 144 |
+| Systems supported | 145 |
 | DAT files available | 102 |
 | Folder aliases | 200+ |
 | Title mappings | 1,194 |
 | Mapping categories | 50 |
 | File extensions | 90+ |
 
-## Supported Systems (144)
+## Supported Systems (145)
 
 Run `python retro-refiner.py --list-systems` for full details.
 
@@ -714,6 +779,7 @@ Run `python retro-refiner.py --list-systems` for full details.
 | CPS1/CPS2/CPS3 | cps1, cps2, cps3 |
 | Naomi | naomi |
 | FinalBurn Neo | fbneo, fba |
+| TeknoParrot | teknoparrot, tp |
 
 ## Disclaimer
 

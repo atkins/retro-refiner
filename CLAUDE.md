@@ -434,7 +434,7 @@ Run `python retro-refiner.py --list-systems` for full details.
 **NEC:** tg16, tgcd, pcfx, supergrafx, pc88, pc98
 **SNK:** neogeo, neogeocd, ngp, ngpc
 **Computers:** c64, plus4, vic20, amiga, amigacd32, cdtv, zxspectrum, zx81, amstradcpc, msx, msx2, x68000, sharp-x1, enterprise, tvcomputer, apple2, fmtowns, trs80
-**Arcade:** mame, cps1, cps2, cps3, naomi, naomi2, fbneo
+**Arcade:** mame, cps1, cps2, cps3, naomi, naomi2, fbneo, teknoparrot
 **Other:** colecovision, intellivision, vectrex, odyssey2, videopac, channelf, 3do, cdi, wonderswan, wonderswan-color, supervision, loopy, pv1000, advision, superacan, studio2, gamecom, scv
 **Handhelds:** gp32, gamemaster, pocketchallenge
 **Educational:** picno, leappad, leapster, creativision, vsmile
@@ -505,6 +505,74 @@ Edit `MAME_INCLUDE_CATEGORIES` and `MAME_EXCLUDE_CATEGORIES` sets in retro-refin
 
 ### CHD Handling
 CHD files are stored in `mame/gamename/game.chd` and copied alongside ROMs.
+
+## TeknoParrot Arcade Support
+
+TeknoParrot ROMs use a different naming convention and filtering logic from MAME/FBNeo.
+
+### ROM Naming Format
+```
+Game Title (Version) (Date) [Hardware Platform] [TP].zip
+```
+Examples:
+- `BlazBlue Central Fiction (1.30.01) (2016-12-09) [Taito NESiCAxLive] [TP].zip`
+- `Initial D Arcade Stage Zero Ver.2 (2.30.00) (Rev.6 +B) (2017) [Sega Nu] [TP].zip`
+
+### Key Features
+- **Version deduplication**: Keeps only the latest version of each game (e.g., Ver.2 over Ver.1)
+- **Platform filtering**: Filter by hardware platform (Sega Nu, Taito Type X, etc.)
+- **Region priority**: Prefers Export/USA versions over Japan
+- **DAT support**: Auto-downloads DAT from GitHub for improved metadata
+
+### CLI Options
+```bash
+# Process TeknoParrot ROMs
+python retro-refiner.py -s /path/to/roms --systems teknoparrot --commit
+
+# Filter by specific platforms
+python retro-refiner.py -s /path/to/roms --systems teknoparrot \
+  --tp-include-platforms "Sega Nu,Sega RingEdge,Taito Type X2" --commit
+
+# Exclude certain platforms
+python retro-refiner.py -s /path/to/roms --systems teknoparrot \
+  --tp-exclude-platforms "Windows PC" --commit
+
+# Keep all versions (don't deduplicate)
+python retro-refiner.py -s /path/to/roms --systems teknoparrot --tp-all-versions --commit
+```
+
+### Config File Options
+```yaml
+systems:
+  - teknoparrot
+
+# Filter by platform
+tp_include_platforms: "Sega Nu,Taito Type X2"
+tp_exclude_platforms: "Windows PC"
+
+# Keep all versions instead of latest only
+tp_all_versions: true
+```
+
+### Hardware Platforms
+Default included platforms:
+- **Sega**: Lindbergh, RingEdge, RingEdge 2, RingWide, Nu, Nu 1.1, Nu 2, ALLS, ALLS UX
+- **Taito**: Type X, Type X2, Type X3, Type X4, NESiCAxLive, NESiCAxLive 2
+- **Namco**: System 246, System 256, System 357, System ES1, System ES3
+- **Other**: Examu eX-BOARD, Raw Thrills PC, IGS PGM2, Konami PC, Windows PC
+
+### Key Functions
+- `parse_teknoparrot_filename()` - Parse ROM filenames into structured info
+- `download_teknoparrot_dat()` - Download DAT from GitHub
+- `parse_teknoparrot_dat()` - Parse RomVault XML format DAT
+- `filter_teknoparrot_roms()` - Main filtering function
+- `select_best_teknoparrot_version()` - Select best version from group
+
+### DAT File
+DAT file is auto-downloaded from:
+https://github.com/Eggmansworld/Datfiles/releases/tag/teknoparrot
+
+Stored in `dat_files/teknoparrot.dat`.
 
 ## Important Notes
 - Destination folders are cleared before each run (no stale files)

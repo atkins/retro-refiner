@@ -3319,6 +3319,10 @@ def apply_config_to_args(args, config: dict):
         'dat_dir': 'dat_dir',
         'cache_dir': 'cache_dir',
         'yes': 'yes',
+        # TeknoParrot options
+        'tp_include_platforms': 'tp_include_platforms',
+        'tp_exclude_platforms': 'tp_exclude_platforms',
+        'tp_all_versions': 'tp_all_versions',
     }
 
     for config_key, arg_name in config_map.items():
@@ -4684,6 +4688,30 @@ class MameGameInfo:
     region: str  # Detected region (USA, Japan, Europe, World, etc.)
 
 
+@dataclass
+class TeknoParrotGameInfo:
+    """Information about a TeknoParrot ROM parsed from filename or DAT.
+
+    TeknoParrot ROM naming format:
+    Game Title (Version) (Date) [Hardware Platform] [TP].zip
+    Example: BlazBlue Central Fiction (1.30.01) (2016-12-09) [Taito NESiCAxLive] [TP].zip
+    """
+    filename: str           # Original filename
+    name: str               # ROM name (without extension)
+    base_title: str         # Game title without version/platform
+    description: str        # Full description
+    version: str            # Version string (e.g., "1.30.01")
+    version_tuple: tuple    # Parsed version for comparison (e.g., (1, 30, 1))
+    date: str               # Release date (YYYY-MM-DD or YYYY)
+    year: int               # Year from date
+    region: str             # Export, Japan, USA, World, etc.
+    platform: str           # Hardware platform (e.g., "Sega RingEdge")
+    is_parent: bool         # True if this is a parent ROM
+    parent_name: str        # Parent ROM name if clone
+    has_chd: bool           # True if game has CHD files
+    chd_names: list         # List of CHD filenames
+
+
 # Categories to INCLUDE (playable with keyboard/mouse/gamepad/lightgun)
 MAME_INCLUDE_CATEGORIES = {
     # Action/Arcade
@@ -4763,6 +4791,42 @@ MAME_EXCLUDE_SUBCATEGORIES = {
     'Tabletop / Hanafuda',
     'Tabletop / Hanafuda * Mature *',
 }
+
+# TeknoParrot hardware platforms to include
+TEKNOPARROT_INCLUDE_PLATFORMS = {
+    # Sega
+    'Sega Lindbergh',
+    'Sega RingEdge',
+    'Sega RingEdge 2',
+    'Sega RingWide',
+    'Sega Nu',
+    'Sega Nu 1.1',
+    'Sega Nu 2',
+    'Sega ALLS',
+    'Sega ALLS UX',
+    # Taito
+    'Taito Type X',
+    'Taito Type X2',
+    'Taito Type X3',
+    'Taito Type X4',
+    'Taito NESiCAxLive',
+    'Taito NESiCAxLive 2',
+    # Namco Bandai
+    'Namco System 246',
+    'Namco System 256',
+    'Namco System 357',
+    'Namco System ES1',
+    'Namco System ES3',
+    # Other major platforms
+    'Examu eX-BOARD',
+    'Raw Thrills PC',
+    'IGS PGM2',
+    'Konami PC',
+    'Windows PC',
+}
+
+# TeknoParrot hardware platforms to exclude (user-configurable)
+TEKNOPARROT_EXCLUDE_PLATFORMS = set()
 
 
 def parse_catver_ini(catver_path: str) -> dict:
@@ -5175,6 +5239,721 @@ def filter_mame_roms(source_dir: str, dest_dir: str, catver_path: str, dat_path:
     return selected_roms, {'source_size': total_source_size, 'selected_size': selected_size}
 
 
+# =============================================================================
+# TeknoParrot ROM filtering
+# =============================================================================
+
+def parse_teknoparrot_version(version_str: str) -> tuple:
+    """Parse a version string into a comparable tuple.
+
+    Handles formats like: "1.30.01", "Ver.2", "2.30.00", "Rev.6"
+    """
+    if not version_str:
+        return (0,)
+
+    # Remove common prefixes
+    version_str = re.sub(r'^(Ver\.?|Version|Rev\.?|v)\s*', '', version_str, flags=re.IGNORECASE)
+
+    # Extract numbers from version string
+    parts = re.findall(r'\d+', version_str)
+    if parts:
+        return tuple(int(p) for p in parts)
+    return (0,)
+
+
+def parse_teknoparrot_filename(filename: str) -> Optional[TeknoParrotGameInfo]:
+    """Parse a TeknoParrot ROM filename into structured info.
+
+    Expected format: Game Title (Version) (Date) [Hardware Platform] [TP].zip
+    Example: BlazBlue Central Fiction (1.30.01) (2016-12-09) [Taito NESiCAxLive] [TP].zip
+    Example: Initial D Arcade Stage Zero Ver.2 (2.30.00) (Rev.6 +B) (2017) [Sega Nu] [TP].zip
+    """
+    # Check for [TP] tag (validates it's a TeknoParrot ROM)
+    if '[TP]' not in filename and '[tp]' not in filename.lower():
+        return None
+
+    # Remove extension
+    name = filename
+    for ext in ('.zip', '.7z', '.rar'):
+        if name.lower().endswith(ext):
+            name = name[:-len(ext)]
+            break
+
+    # Extract hardware platform from brackets - look for [Platform] that's NOT [TP]
+    platform_match = re.search(r'\[([^\]]+)\](?=.*\[TP\])', name, re.IGNORECASE)
+    platform = platform_match.group(1) if platform_match else 'Unknown'
+
+    # Remove [TP] tag and platform from name for further parsing
+    clean_name = re.sub(r'\s*\[TP\]\s*', '', name, flags=re.IGNORECASE)
+    clean_name = re.sub(r'\s*\[[^\]]+\]\s*$', '', clean_name)  # Remove trailing platform
+
+    # Extract version from parentheses - look for version-like patterns
+    version = ''
+    version_tuple = (0,)
+    version_patterns = [
+        r'\((\d+\.\d+(?:\.\d+)?)\)',  # (1.30.01) or (2.30)
+        r'Ver\.?\s*(\d+(?:\.\d+)*)',   # Ver.2 or Ver 2.0
+        r'\((Rev\.?\s*\d+[^\)]*)\)',   # (Rev.6 +B)
+    ]
+    for pattern in version_patterns:
+        match = re.search(pattern, clean_name, re.IGNORECASE)
+        if match:
+            version = match.group(1)
+            version_tuple = parse_teknoparrot_version(version)
+            break
+
+    # Extract date (YYYY-MM-DD or YYYY)
+    date = ''
+    year = 0
+    date_match = re.search(r'\((\d{4}(?:-\d{2}-\d{2})?)\)', clean_name)
+    if date_match:
+        date = date_match.group(1)
+        year = int(date[:4])
+
+    # Extract region from name
+    region = 'World'  # Default
+    region_patterns = [
+        (r'\(Export\)', 'Export'),
+        (r'\(USA\)', 'USA'),
+        (r'\(Japan\)', 'Japan'),
+        (r'\(Asia\)', 'Asia'),
+        (r'\(Europe\)', 'Europe'),
+        (r'\(Korea\)', 'Korea'),
+        (r'\(World\)', 'World'),
+        (r'[\[\(]En[\]\)]', 'Export'),  # [En] or (En) typically means English/Export
+    ]
+    for pattern, reg in region_patterns:
+        if re.search(pattern, clean_name, re.IGNORECASE):
+            region = reg
+            break
+
+    # Extract base title by removing version, date, platform, region markers
+    base_title = clean_name
+    # Remove parenthesized content (version, date, region)
+    base_title = re.sub(r'\s*\([^)]*\)\s*', ' ', base_title)
+    # Remove Ver.X from title
+    base_title = re.sub(r'\s*Ver\.?\s*\d+(?:\.\d+)*\s*', ' ', base_title, flags=re.IGNORECASE)
+    # Clean up whitespace
+    base_title = ' '.join(base_title.split()).strip()
+
+    return TeknoParrotGameInfo(
+        filename=filename,
+        name=name,
+        base_title=base_title,
+        description=name,
+        version=version,
+        version_tuple=version_tuple,
+        date=date,
+        year=year,
+        region=region,
+        platform=platform,
+        is_parent=True,  # Will be updated during grouping
+        parent_name='',
+        has_chd=False,
+        chd_names=[]
+    )
+
+
+def normalize_teknoparrot_title(title: str) -> str:
+    """Normalize a TeknoParrot game title for grouping.
+
+    Removes version suffixes, normalizes punctuation, etc.
+    """
+    normalized = title.lower()
+    # Remove Ver.X suffixes
+    normalized = re.sub(r'\s*ver\.?\s*\d+(?:\.\d+)*\s*$', '', normalized, flags=re.IGNORECASE)
+    # Remove common suffixes
+    normalized = re.sub(r'\s*(arcade stage|arcade|stage)\s*$', '', normalized, flags=re.IGNORECASE)
+    # Remove punctuation and extra whitespace
+    normalized = re.sub(r'[^\w\s]', '', normalized)
+    normalized = ' '.join(normalized.split())
+    return normalized
+
+
+def download_teknoparrot_dat(dat_dir: Path, force: bool = False) -> Optional[Path]:
+    """Download TeknoParrot DAT file from GitHub releases.
+
+    Source: https://github.com/Eggmansworld/Datfiles/releases/tag/teknoparrot
+    """
+    dat_path = dat_dir / 'teknoparrot.dat'
+
+    if dat_path.exists() and not force:
+        return dat_path
+
+    print("TeknoParrot: Downloading DAT file from GitHub...")
+    dat_dir.mkdir(parents=True, exist_ok=True)
+
+    try:
+        # Get release info from GitHub API
+        api_url = 'https://api.github.com/repos/Eggmansworld/Datfiles/releases/tags/teknoparrot'
+        req = urllib.request.Request(api_url)
+        req.add_header('User-Agent', 'retro-refiner/1.0')
+        req.add_header('Accept', 'application/vnd.github.v3+json')
+
+        with urllib.request.urlopen(req, timeout=30) as response:
+            release_data = json.loads(response.read().decode('utf-8'))
+
+        # Find the DAT ZIP asset
+        zip_url = None
+        for asset in release_data.get('assets', []):
+            name = asset.get('name', '').lower()
+            if 'teknoparrot' in name and name.endswith('.zip'):
+                zip_url = asset.get('browser_download_url')
+                break
+
+        if not zip_url:
+            print("TeknoParrot: Could not find DAT ZIP in release assets")
+            return None
+
+        # Download the ZIP
+        zip_path = dat_dir / 'teknoparrot_dat.zip'
+        print(f"TeknoParrot: Downloading from {zip_url}")
+
+        req = urllib.request.Request(zip_url)
+        req.add_header('User-Agent', 'retro-refiner/1.0')
+
+        with urllib.request.urlopen(req, timeout=60) as response:
+            with open(zip_path, 'wb') as f:
+                f.write(response.read())
+
+        # Extract DAT file from ZIP
+        with zipfile.ZipFile(zip_path, 'r') as zf:
+            # Find .dat file in ZIP
+            dat_files = [n for n in zf.namelist() if n.lower().endswith('.dat')]
+            if not dat_files:
+                print("TeknoParrot: No .dat file found in ZIP")
+                zip_path.unlink()
+                return None
+
+            # Extract first DAT file
+            with zf.open(dat_files[0]) as src:
+                with open(dat_path, 'wb') as dst:
+                    dst.write(src.read())
+
+        zip_path.unlink()
+        print(f"TeknoParrot: DAT file saved to {dat_path}")
+        return dat_path
+
+    except urllib.error.URLError as e:
+        print(f"TeknoParrot: Failed to download DAT: {e}")
+        return None
+    except Exception as e:
+        print(f"TeknoParrot: Error downloading DAT: {e}")
+        return None
+
+
+def parse_teknoparrot_dat(dat_path: str) -> dict:
+    """Parse TeknoParrot DAT file and return game info dict.
+
+    Returns dict mapping ROM name to TeknoParrotGameInfo.
+    """
+    import xml.etree.ElementTree as ET
+
+    games = {}
+
+    try:
+        tree = ET.parse(dat_path)
+        root = tree.getroot()
+
+        # Handle RomVault format (game elements) or standard datafile format
+        game_elements = root.findall('.//game') or root.findall('.//machine')
+
+        for game in game_elements:
+            name = game.get('name', '')
+            if not name:
+                continue
+
+            # Get description
+            desc_elem = game.find('description')
+            description = desc_elem.text if desc_elem is not None else name
+
+            # Parse filename to get structured info
+            # Use description if it looks like a filename, otherwise use name
+            filename_to_parse = description if '[TP]' in description else f"{name} [TP].zip"
+            info = parse_teknoparrot_filename(filename_to_parse)
+
+            if info:
+                # Update with DAT-specific info
+                info.name = name
+                info.description = description
+
+                # Check for CHDs (disk elements)
+                chd_names = []
+                for disk in game.findall('.//disk'):
+                    disk_name = disk.get('name', '')
+                    if disk_name:
+                        chd_names.append(disk_name + '.chd')
+
+                if chd_names:
+                    info.has_chd = True
+                    info.chd_names = chd_names
+
+                games[name] = info
+            else:
+                # Create basic info for ROMs that don't match expected format
+                games[name] = TeknoParrotGameInfo(
+                    filename=f"{name}.zip",
+                    name=name,
+                    base_title=name,
+                    description=description,
+                    version='',
+                    version_tuple=(0,),
+                    date='',
+                    year=0,
+                    region='World',
+                    platform='Unknown',
+                    is_parent=True,
+                    parent_name='',
+                    has_chd=False,
+                    chd_names=[]
+                )
+
+    except ET.ParseError as e:
+        print(f"TeknoParrot: Error parsing DAT file: {e}")
+    except Exception as e:
+        print(f"TeknoParrot: Error reading DAT file: {e}")
+
+    return games
+
+
+def get_teknoparrot_region_priority(region: str, region_priority: List[str] = None) -> int:
+    """Get priority for TeknoParrot regions (lower is better)."""
+    if region_priority:
+        # Use custom priority if provided
+        region_upper = region.upper()
+        for i, r in enumerate(region_priority):
+            if r.upper() == region_upper:
+                return i
+        return len(region_priority) + 1
+
+    # Default priorities
+    priorities = {
+        'Export': 0,
+        'USA': 1,
+        'World': 2,
+        'Europe': 3,
+        'Asia': 4,
+        'Japan': 5,
+        'Korea': 6,
+        'Unknown': 10,
+    }
+    return priorities.get(region, 10)
+
+
+def select_best_teknoparrot_version(games: List[TeknoParrotGameInfo],
+                                    region_priority: List[str] = None) -> TeknoParrotGameInfo:
+    """Select the best version from a group of TeknoParrot ROMs.
+
+    Prioritizes by: version_tuple (descending), year (descending), region priority
+    """
+    if not games:
+        return None
+    if len(games) == 1:
+        return games[0]
+
+    def sort_key(game):
+        # Higher version is better (negate for descending sort)
+        version_score = tuple(-v for v in game.version_tuple) if game.version_tuple else (0,)
+        # Higher year is better (negate for descending sort)
+        year_score = -(game.year or 0)
+        # Lower region priority is better
+        region_score = get_teknoparrot_region_priority(game.region, region_priority)
+        return (version_score, year_score, region_score)
+
+    sorted_games = sorted(games, key=sort_key)
+    return sorted_games[0]
+
+
+def should_include_teknoparrot_game(game: TeknoParrotGameInfo,
+                                     include_platforms: set = None,
+                                     exclude_platforms: set = None) -> Tuple[bool, str]:
+    """Determine if a TeknoParrot game should be included based on platform filtering.
+
+    Returns (should_include, reason).
+    """
+    platform = game.platform
+
+    # Check exclude list first (takes precedence)
+    if exclude_platforms:
+        for excluded in exclude_platforms:
+            if excluded.lower() in platform.lower():
+                return False, f"Excluded platform: {platform}"
+
+    # If no include list, include everything not excluded
+    if not include_platforms:
+        return True, f"Platform: {platform}"
+
+    # Check include list
+    for included in include_platforms:
+        if included.lower() in platform.lower():
+            return True, f"Included platform: {platform}"
+
+    return False, f"Platform not in include list: {platform}"
+
+
+def filter_teknoparrot_roms(source_dir: str, dest_dir: str, dat_path: str = None,
+                             copy_chds: bool = True, dry_run: bool = False,
+                             include_platforms: set = None, exclude_platforms: set = None,
+                             region_priority: List[str] = None,
+                             keep_all_versions: bool = False,
+                             include_patterns: List[str] = None,
+                             exclude_patterns: List[str] = None):
+    """Filter TeknoParrot ROMs based on platform, version, and region preferences.
+
+    Args:
+        source_dir: Path to TeknoParrot ROM directory
+        dest_dir: Base destination directory
+        dat_path: Path to TeknoParrot DAT file (optional)
+        copy_chds: Whether to copy CHD files
+        dry_run: If True, don't actually copy files
+        include_platforms: Set of platforms to include (None = all)
+        exclude_platforms: Set of platforms to exclude
+        region_priority: List of regions in priority order
+        keep_all_versions: If True, keep all versions instead of selecting best
+        include_patterns: Glob patterns for games to include
+        exclude_patterns: Glob patterns for games to exclude
+    """
+    label = 'TeknoParrot'
+
+    # Load DAT if provided
+    dat_games = {}
+    if dat_path:
+        print(f"{label}: Loading DAT from {dat_path}...")
+        dat_games = parse_teknoparrot_dat(dat_path)
+        print(f"{label}: Loaded {len(dat_games)} games from DAT")
+
+    # Scan source directory for available ROMs
+    source_path = Path(source_dir)
+    available_roms = {}  # name -> TeknoParrotGameInfo
+    available_chds = {}  # rom_name -> [chd_paths]
+    rom_sizes = {}  # rom_name -> file size
+    chd_sizes = {}  # rom_name -> total CHD size
+    total_source_size = 0
+
+    if source_path.exists():
+        for f in source_path.iterdir():
+            if f.suffix.lower() in ('.zip', '.7z'):
+                # Parse filename to get game info
+                info = parse_teknoparrot_filename(f.name)
+                if info:
+                    # Merge with DAT info if available
+                    if info.name in dat_games:
+                        dat_info = dat_games[info.name]
+                        # DAT may have better metadata
+                        if dat_info.platform != 'Unknown':
+                            info.platform = dat_info.platform
+                        if dat_info.has_chd:
+                            info.has_chd = True
+                            info.chd_names = dat_info.chd_names
+
+                    available_roms[f.stem] = info
+                    size = get_file_size(f)
+                    rom_sizes[f.stem] = size
+                    total_source_size += size
+
+            elif f.is_dir():
+                # Check for CHDs in subdirectory
+                chds = list(f.glob('*.chd'))
+                if chds:
+                    available_chds[f.name] = [c.name for c in chds]
+                    chd_size = sum(get_file_size(c) for c in chds)
+                    chd_sizes[f.name] = chd_size
+                    total_source_size += chd_size
+
+    print(f"{label}: Found {len(available_roms)} ROM files ({format_size(sum(rom_sizes.values()))})")
+    print(f"{label}: Found {len(available_chds)} games with CHDs ({format_size(sum(chd_sizes.values()))})")
+
+    # Group ROMs by normalized base title
+    title_groups = defaultdict(list)
+    for name, info in available_roms.items():
+        normalized = normalize_teknoparrot_title(info.base_title)
+        title_groups[normalized].append(info)
+
+    print(f"{label}: Grouped into {len(title_groups)} unique games")
+
+    # Filter and select best versions
+    selected_roms = []
+    skipped_games = []
+    included_reasons = defaultdict(int)
+    excluded_reasons = defaultdict(int)
+
+    # Use default platforms if not specified
+    effective_include = include_platforms or TEKNOPARROT_INCLUDE_PLATFORMS
+    effective_exclude = exclude_platforms or TEKNOPARROT_EXCLUDE_PLATFORMS
+
+    for normalized_title, games in title_groups.items():
+        # Check include/exclude patterns
+        sample_game = games[0]
+        game_name = sample_game.base_title
+
+        if include_patterns:
+            if not matches_patterns(game_name, include_patterns):
+                excluded_reasons["Excluded by include pattern"] += 1
+                for g in games:
+                    skipped_games.append((g.description, g.name, "Excluded by include pattern"))
+                continue
+
+        if exclude_patterns:
+            if matches_patterns(game_name, exclude_patterns):
+                excluded_reasons["Excluded by exclude pattern"] += 1
+                for g in games:
+                    skipped_games.append((g.description, g.name, "Excluded by exclude pattern"))
+                continue
+
+        # Filter by platform
+        valid_games = []
+        for game in games:
+            should_include, reason = should_include_teknoparrot_game(
+                game, effective_include if include_platforms or not TEKNOPARROT_INCLUDE_PLATFORMS else None,
+                effective_exclude
+            )
+            if should_include:
+                valid_games.append(game)
+            else:
+                excluded_reasons[reason] += 1
+                skipped_games.append((game.description, game.name, reason))
+
+        if not valid_games:
+            continue
+
+        # Select best version(s)
+        if keep_all_versions:
+            # Keep all valid versions
+            for game in valid_games:
+                selected_roms.append(game)
+                included_reasons[f"Platform: {game.platform}"] += 1
+        else:
+            # Select best version
+            best = select_best_teknoparrot_version(valid_games, region_priority)
+            if best:
+                selected_roms.append(best)
+                included_reasons[f"Platform: {best.platform}"] += 1
+
+                # Log other versions as superseded
+                for game in valid_games:
+                    if game != best:
+                        skipped_games.append((game.description, game.name,
+                                              f"Superseded by {best.version or 'newer version'}"))
+
+    # Calculate selected size
+    selected_size = 0
+    for game in selected_roms:
+        selected_size += rom_sizes.get(game.name, 0)
+        if copy_chds and game.name in chd_sizes:
+            selected_size += chd_sizes.get(game.name, 0)
+
+    print(f"{label}: Selected {len(selected_roms)} games ({format_size(selected_size)})")
+    if total_source_size > 0:
+        size_saved = total_source_size - selected_size
+        reduction_pct = (size_saved / total_source_size) * 100
+        print(f"{label}: Size reduction: {format_size(size_saved)} saved ({reduction_pct:.1f}%)")
+
+    # Print inclusion/exclusion stats
+    print(f"\n{label} Inclusion reasons:")
+    for reason, count in sorted(included_reasons.items(), key=lambda x: -x[1])[:10]:
+        print(f"  {reason}: {count}")
+
+    print(f"\n{label} Exclusion reasons (top 10):")
+    for reason, count in sorted(excluded_reasons.items(), key=lambda x: -x[1])[:10]:
+        print(f"  {reason}: {count}")
+
+    # Copy files
+    if not dry_run:
+        dest_path = Path(dest_dir) / 'teknoparrot'
+
+        # Clear destination
+        if dest_path.exists():
+            shutil.rmtree(dest_path)
+        dest_path.mkdir(parents=True, exist_ok=True)
+
+        copied = 0
+        copied_chds = 0
+
+        for game in tqdm(selected_roms, desc=f"{label} Copying", unit="ROM", leave=False):
+            if _shutdown_requested:
+                break
+
+            # Find source file (could be .zip or .7z)
+            src_rom = None
+            for ext in ('.zip', '.7z'):
+                candidate = source_path / f"{game.name}{ext}"
+                if candidate.exists():
+                    src_rom = candidate
+                    break
+
+            if src_rom and src_rom.exists():
+                shutil.copy2(src_rom, dest_path / src_rom.name)
+                copied += 1
+
+            # Copy CHDs if requested
+            if copy_chds and game.name in available_chds:
+                chd_dest = dest_path / game.name
+                chd_dest.mkdir(exist_ok=True)
+                src_chd_dir = source_path / game.name
+                for chd_name in available_chds[game.name]:
+                    src_chd = src_chd_dir / chd_name
+                    if src_chd.exists():
+                        shutil.copy2(src_chd, chd_dest / chd_name)
+                        copied_chds += 1
+
+        print(f"\n{label}: Copied {copied} ROMs to {dest_path}")
+        if copied_chds:
+            print(f"{label}: Copied {copied_chds} CHD files")
+
+    # Write selection log
+    log_path = Path(dest_dir) / 'teknoparrot' / '_selection_log.txt'
+    if not dry_run:
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+
+    with open(log_path, 'w', encoding='utf-8') if not dry_run else open(os.devnull, 'w', encoding='utf-8') as f:
+        if not dry_run:
+            f.write(f"{label} Selection Log\n")
+            f.write("=" * 60 + "\n\n")
+            f.write(f"Total ROMs available: {len(available_roms)}\n")
+            f.write(f"Games with CHDs: {len(available_chds)}\n")
+            f.write(f"Selected: {len(selected_roms)}\n")
+            f.write(f"Skipped: {len(skipped_games)}\n\n")
+            size_saved = total_source_size - selected_size
+            f.write(f"Source size: {format_size(total_source_size)}\n")
+            f.write(f"Selected size: {format_size(selected_size)}\n")
+            f.write(f"Size saved: {format_size(size_saved)}\n\n")
+
+            f.write("SELECTED GAMES\n")
+            f.write("-" * 60 + "\n")
+            for game in sorted(selected_roms, key=lambda g: g.description):
+                f.write(f"{game.name}: {game.description}\n")
+                f.write(f"  Platform: {game.platform}\n")
+                f.write(f"  Version: {game.version or 'N/A'} | Year: {game.year or 'N/A'} | Region: {game.region}\n")
+                if game.has_chd:
+                    f.write(f"  CHDs: {', '.join(game.chd_names)}\n")
+                f.write("\n")
+
+            f.write("\nSKIPPED GAMES\n")
+            f.write("-" * 60 + "\n")
+            for desc, name, reason in sorted(skipped_games):
+                f.write(f"{name}: {desc}\n")
+                f.write(f"  Reason: {reason}\n\n")
+
+    if not dry_run:
+        print(f"{label}: Selection log written to {log_path}")
+
+    return selected_roms, {'source_size': total_source_size, 'selected_size': selected_size}
+
+
+def filter_teknoparrot_network_roms(rom_urls: List[str],
+                                    include_platforms: set = None,
+                                    exclude_platforms: set = None,
+                                    region_priority: List[str] = None,
+                                    keep_all_versions: bool = False,
+                                    include_patterns: List[str] = None,
+                                    exclude_patterns: List[str] = None,
+                                    url_sizes: Dict[str, int] = None,
+                                    verbose: bool = False) -> Tuple[List[str], Dict[str, int]]:
+    """
+    Filter TeknoParrot network ROM URLs with TeknoParrot-specific logic.
+    Applies version deduplication, platform filtering, and region priority.
+    Returns tuple of (list of URLs to download, dict with size info).
+    """
+    label = 'TEKNOPARROT'
+    if url_sizes is None:
+        url_sizes = {}
+
+    # Use default platforms if not specified
+    effective_include = include_platforms if include_platforms else None
+    effective_exclude = exclude_platforms if exclude_platforms else TEKNOPARROT_EXCLUDE_PLATFORMS
+
+    # Parse all ROMs from URLs
+    all_roms = []
+    url_map = {}  # Map filename to URL
+    size_map = {}  # Map filename to size
+    filtered_by_pattern = 0
+    filtered_by_platform = 0
+    total_source_size = 0
+
+    for url in rom_urls:
+        filename = get_filename_from_url(url)
+        file_size = url_sizes.get(url, 0)
+        total_source_size += file_size
+
+        # Apply include/exclude patterns
+        if include_patterns and not matches_patterns(filename, include_patterns):
+            filtered_by_pattern += 1
+            if verbose:
+                print(f"  [SKIP] {filename}: doesn't match include patterns")
+            continue
+        if exclude_patterns and matches_patterns(filename, exclude_patterns):
+            filtered_by_pattern += 1
+            if verbose:
+                print(f"  [SKIP] {filename}: matches exclude pattern")
+            continue
+
+        # Parse TeknoParrot filename
+        rom_info = parse_teknoparrot_filename(filename)
+        if not rom_info:
+            # Not a valid TeknoParrot ROM (no [TP] tag)
+            if verbose:
+                print(f"  [SKIP] {filename}: not a TeknoParrot ROM")
+            continue
+
+        # Apply platform filtering
+        should_include, reason = should_include_teknoparrot_game(
+            rom_info, effective_include, effective_exclude
+        )
+        if not should_include:
+            filtered_by_platform += 1
+            if verbose:
+                print(f"  [SKIP] {filename}: {reason}")
+            continue
+
+        all_roms.append(rom_info)
+        url_map[filename] = url
+        size_map[filename] = file_size
+
+    print(f"{label}: {len(all_roms)} ROMs after filtering ({format_size(total_source_size)})")
+    if filtered_by_pattern:
+        print(f"{label}: {filtered_by_pattern} filtered by include/exclude patterns")
+    if filtered_by_platform:
+        print(f"{label}: {filtered_by_platform} filtered by platform")
+
+    # Group by normalized title
+    grouped = defaultdict(list)
+    for rom in all_roms:
+        normalized = normalize_teknoparrot_title(rom.base_title)
+        grouped[normalized].append(rom)
+
+    print(f"{label}: {len(grouped)} unique game titles")
+
+    # Select best version from each group
+    selected_urls = []
+    selected_size = 0
+
+    for title, roms in grouped.items():
+        if keep_all_versions:
+            # Keep all versions
+            for rom in roms:
+                if rom.filename in url_map:
+                    selected_urls.append(url_map[rom.filename])
+                    selected_size += size_map.get(rom.filename, 0)
+                    if verbose:
+                        print(f"  [SELECT] {rom.filename} (version: {rom.version or 'N/A'})")
+        else:
+            # Select best version
+            best = select_best_teknoparrot_version(roms, region_priority)
+            if best and best.filename in url_map:
+                selected_urls.append(url_map[best.filename])
+                selected_size += size_map.get(best.filename, 0)
+                if verbose:
+                    print(f"  [SELECT] {best.filename} (best of {len(roms)} for '{title}')")
+
+    print(f"{label}: Selected {len(selected_urls)} ROMs to download ({format_size(selected_size)})")
+    if total_source_size > 0:
+        size_saved = total_source_size - selected_size
+        reduction_pct = (size_saved / total_source_size) * 100
+        print(f"{label}: Size reduction: {format_size(size_saved)} saved ({reduction_pct:.1f}%)")
+
+    return selected_urls, {'source_size': total_source_size, 'selected_size': selected_size}
+
+
 # File extension to system mapping for auto-detection
 EXTENSION_TO_SYSTEM = {
     # Nintendo - Consoles
@@ -5320,7 +6099,7 @@ KNOWN_SYSTEMS = [
     'trs80', 'tandy', 'fm7', 'fmtowns', 'scv', 'enterprise', 'tvcomputer',
     # Arcade
     'mame', 'cps1', 'cps2', 'cps3', 'naomi', 'naomi2', 'atomiswave', 'model2', 'model3',
-    'fba', 'fbneo', 'daphne',
+    'fba', 'fbneo', 'daphne', 'teknoparrot',
     # Mobile
     'j2me', 'palmos', 'symbian', 'zeebo',
     # Misc
@@ -5509,6 +6288,8 @@ FOLDER_ALIASES = {
     'sega-model3': 'model3',
     'final-burn-alpha': 'fba',
     'finalburn-neo': 'fbneo',
+    'tekno-parrot': 'teknoparrot',
+    'tp': 'teknoparrot',
     # Fantasy/Modern
     'pico-8': 'pico8',
     'tic-80': 'tic80',
@@ -5980,6 +6761,14 @@ Pattern examples (--include / --exclude):
     parser.add_argument('--ia-secret-key', default=None,
                         help='Internet Archive S3 secret key (or set IA_SECRET_KEY env var)')
 
+    # TeknoParrot options
+    parser.add_argument('--tp-include-platforms', default=None,
+                        help='Comma-separated TeknoParrot platforms to include (e.g., "Sega Nu,Taito Type X")')
+    parser.add_argument('--tp-exclude-platforms', default=None,
+                        help='Comma-separated TeknoParrot platforms to exclude')
+    parser.add_argument('--tp-all-versions', action='store_true',
+                        help='Keep all versions of TeknoParrot games (default: latest version only)')
+
     args = parser.parse_args()
 
     # Resolve IA credentials from args or environment
@@ -6404,7 +7193,7 @@ Pattern examples (--include / --exclude):
     if use_dat and all_network_urls:
         dat_dir = Path(args.dat_dir) if args.dat_dir else primary_source / 'dat_files'
         # Skip MAME/arcade systems - they use catver.ini instead of libretro DATs
-        arcade_systems = ('mame', 'fbneo', 'fba', 'arcade')
+        arcade_systems = ('mame', 'fbneo', 'fba', 'arcade', 'teknoparrot')
         systems_needing_dat = [s for s in all_network_urls.keys() if s not in arcade_systems]
         if systems_needing_dat:
             print(f"\nDownloading DAT files for {len(systems_needing_dat)} system(s)...")
@@ -6467,27 +7256,49 @@ Pattern examples (--include / --exclude):
 
         print(f"\n{system.upper()}: Filtering {len(urls)} remote ROMs from {len(network_sources)} source(s)...")
 
-        # Get DAT entries for this system if available
-        system_dat_entries = network_dat_entries.get(system)
+        # Special handling for TeknoParrot (uses version deduplication and platform filtering)
+        if system == 'teknoparrot':
+            # Parse platform filter args
+            tp_include = None
+            tp_exclude = None
+            if hasattr(args, 'tp_include_platforms') and args.tp_include_platforms:
+                tp_include = {p.strip() for p in args.tp_include_platforms.split(',')}
+            if hasattr(args, 'tp_exclude_platforms') and args.tp_exclude_platforms:
+                tp_exclude = {p.strip() for p in args.tp_exclude_platforms.split(',')}
 
-        # Filter URLs using filter_network_roms (handles patterns, flags, and best ROM selection)
-        # This now selects the BEST ROM across ALL sources for each game
-        # DAT entries improve title matching when available
-        filtered_urls, size_info = filter_network_roms(
-            urls, system,
-            include_patterns=args.include,
-            exclude_patterns=args.exclude,
-            exclude_protos=args.exclude_protos,
-            include_betas=args.include_betas,
-            include_unlicensed=args.include_unlicensed,
-            region_priority=region_priority,
-            keep_regions=keep_regions,
-            year_from=args.year_from,
-            year_to=args.year_to,
-            verbose=args.verbose,
-            url_sizes=all_url_sizes,
-            dat_entries=system_dat_entries
-        )
+            filtered_urls, size_info = filter_teknoparrot_network_roms(
+                urls,
+                include_platforms=tp_include,
+                exclude_platforms=tp_exclude,
+                region_priority=region_priority,
+                keep_all_versions=getattr(args, 'tp_all_versions', False),
+                include_patterns=args.include,
+                exclude_patterns=args.exclude,
+                url_sizes=all_url_sizes,
+                verbose=args.verbose
+            )
+        else:
+            # Get DAT entries for this system if available
+            system_dat_entries = network_dat_entries.get(system)
+
+            # Filter URLs using filter_network_roms (handles patterns, flags, and best ROM selection)
+            # This now selects the BEST ROM across ALL sources for each game
+            # DAT entries improve title matching when available
+            filtered_urls, size_info = filter_network_roms(
+                urls, system,
+                include_patterns=args.include,
+                exclude_patterns=args.exclude,
+                exclude_protos=args.exclude_protos,
+                include_betas=args.include_betas,
+                include_unlicensed=args.include_unlicensed,
+                region_priority=region_priority,
+                keep_regions=keep_regions,
+                year_from=args.year_from,
+                year_to=args.year_to,
+                verbose=args.verbose,
+                url_sizes=all_url_sizes,
+                dat_entries=system_dat_entries
+            )
 
         if filtered_urls:
             network_downloads[system] = filtered_urls
@@ -6728,8 +7539,61 @@ Pattern examples (--include / --exclude):
         check_shutdown()
         rom_files = detected[system]
 
+        # Special handling for TeknoParrot
+        if system == 'teknoparrot':
+            # Use consolidated dat_files directory
+            dat_dir = Path(args.dat_dir) if args.dat_dir else primary_source / 'dat_files'
+
+            # Check for existing TeknoParrot DAT
+            tp_dat_path = dat_dir / 'teknoparrot.dat'
+            if not tp_dat_path.exists():
+                print("TeknoParrot: DAT file not found, downloading...")
+                tp_dat_path = download_teknoparrot_dat(dat_dir)
+
+            # Get ROM source directory (check all sources)
+            rom_source = None
+            for sp in source_paths:
+                if (sp / 'teknoparrot').exists():
+                    rom_source = sp / 'teknoparrot'
+                    break
+            if not rom_source:
+                print("TeknoParrot: ROM directory not found in any source")
+                continue
+
+            # Parse platform filter args
+            tp_include = None
+            tp_exclude = None
+            if args.tp_include_platforms:
+                tp_include = {p.strip() for p in args.tp_include_platforms.split(',')}
+            if args.tp_exclude_platforms:
+                tp_exclude = {p.strip() for p in args.tp_exclude_platforms.split(',')}
+
+            if tp_dat_path and tp_dat_path.exists():
+                print(f"TeknoParrot: Using DAT from {tp_dat_path}")
+
+            result = filter_teknoparrot_roms(
+                str(rom_source),
+                args.dest,
+                dat_path=str(tp_dat_path) if tp_dat_path and tp_dat_path.exists() else None,
+                copy_chds=not args.no_chd,
+                dry_run=dry_run,
+                include_platforms=tp_include,
+                exclude_platforms=tp_exclude,
+                region_priority=region_priority,
+                keep_all_versions=args.tp_all_versions,
+                include_patterns=args.include,
+                exclude_patterns=args.exclude
+            )
+            selected, size_info = result
+            system_stats['teknoparrot'] = size_info
+            total_source_size += size_info['source_size']
+            total_selected_size += size_info['selected_size']
+            if selected:
+                total_selected += len(selected)
+            print()
+
         # Special handling for MAME and FBNeo (arcade systems)
-        if system in ('mame', 'fbneo', 'fba', 'arcade'):
+        elif system in ('mame', 'fbneo', 'fba', 'arcade'):
             arcade_system = system.upper()
             if system in ('fba', 'arcade'):
                 system = 'fbneo'  # Normalize to fbneo
