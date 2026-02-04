@@ -326,7 +326,7 @@ python retro-refiner.py -s https://example.com/roms/ --no-auto-tune --parallel 8
 ### Download Error Handling
 Downloads include automatic retry and stall detection:
 
-- **Stall detection**: If no progress for 120 seconds, the current batch is aborted
+- **Stall detection**: If no file completions AND zero download speed for 60 seconds, the current batch is aborted
 - **Automatic retries**: Failed downloads are retried up to 3 times
 - **Failure reporting**: Lists all failed files at the end of download
 
