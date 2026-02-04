@@ -1472,11 +1472,14 @@ class DownloadUI:
     RESET = '\033[0m'
 
     def __init__(self, system_name: str, files: List[Tuple[str, Path]],
-                 parallel: int = 4, connections: int = 4, auth_header: Optional[str] = None):
+                 parallel: int = 4, connections: int = 4, auth_header: Optional[str] = None,
+                 max_retries: int = 3, stall_timeout: int = 120):
         self.system_name = system_name
         self.parallel = parallel
         self.connections = connections
         self.auth_header = auth_header
+        self.max_retries = max_retries
+        self.stall_timeout = stall_timeout  # seconds without progress = stalled
         self.rpc: Optional[Aria2cRPC] = None
         self.rpc_available = False
         self.download_thread: Optional[threading.Thread] = None
@@ -1497,6 +1500,7 @@ class DownloadUI:
                 'size': 0,
                 'completed': 0,
                 'speed': 0,
+                'retries': 0,
             })
 
         # Stats
@@ -1504,6 +1508,8 @@ class DownloadUI:
         self.total_speed = 0
         self.completed_count = 0
         self.failed_count = 0
+        self.last_progress_time = 0
+        self.last_completed_count = 0
 
     def _is_tty(self) -> bool:
         """Check if running in a terminal."""
@@ -1821,7 +1827,13 @@ class DownloadUI:
 
     def _download_worker(self) -> None:
         """Background thread that runs the actual downloads."""
-        downloads = [(f['url'], f['path']) for f in self.files]
+        # Only download files that are queued (not already done or permanently failed)
+        with self.lock:
+            downloads = [(f['url'], f['path']) for f in self.files
+                        if f['status'] == self.STATUS_QUEUED]
+
+        if not downloads:
+            return
 
         tool = get_download_tool()
         self.download_tool = tool
@@ -1907,9 +1919,13 @@ class DownloadUI:
     def _run_curl_batch(self, downloads: List[Tuple[str, Path]]) -> None:
         """Run curl batch download (no per-file progress)."""
         successful = download_batch_with_curl(downloads, parallel=self.parallel, auth_header=self.auth_header)
+        attempted_paths = {path for _, path in downloads}
 
         with self.lock:
             for f in self.files:
+                # Only update status for files that were attempted in this batch
+                if f['path'] not in attempted_paths:
+                    continue
                 if f['path'] in successful:
                     f['status'] = self.STATUS_DONE
                 elif f['path'].exists() and f['path'].stat().st_size > 0:
@@ -1951,9 +1967,14 @@ class DownloadUI:
                 self.failed_count = sum(1 for f in self.files if f['status'] == self.STATUS_FAILED)
 
     def _update_status_from_files(self) -> None:
-        """Update status by checking which files exist on disk."""
+        """Update status by checking which files exist on disk.
+
+        Only updates files that are still queued or downloading - preserves
+        DONE status for files that completed in previous batches.
+        """
         with self.lock:
             for f in self.files:
+                # Only update status for files that haven't been finalized
                 if f['status'] in (self.STATUS_QUEUED, self.STATUS_DOWNLOADING):
                     if f['path'].exists() and f['path'].stat().st_size > 0:
                         f['status'] = self.STATUS_DONE
@@ -1962,6 +1983,55 @@ class DownloadUI:
 
             self.completed_count = sum(1 for f in self.files if f['status'] == self.STATUS_DONE)
             self.failed_count = sum(1 for f in self.files if f['status'] == self.STATUS_FAILED)
+
+    def _check_stall(self) -> bool:
+        """Check if downloads appear stalled (no progress for stall_timeout seconds)."""
+        with self.lock:
+            current_completed = self.completed_count
+            if current_completed > self.last_completed_count:
+                # Progress was made
+                self.last_completed_count = current_completed
+                self.last_progress_time = _time.time()
+                return False
+            elif self.last_progress_time > 0:
+                # Check if stalled
+                stall_duration = _time.time() - self.last_progress_time
+                return stall_duration > self.stall_timeout
+            return False
+
+    def _get_failed_downloads(self) -> List[Tuple[str, Path]]:
+        """Get list of failed downloads that can be retried."""
+        failed = []
+        with self.lock:
+            for f in self.files:
+                if f['status'] == self.STATUS_FAILED and f['retries'] < self.max_retries:
+                    failed.append((f['url'], f['path']))
+        return failed
+
+    def _mark_for_retry(self, urls: List[str]) -> None:
+        """Mark failed downloads for retry by resetting their status."""
+        with self.lock:
+            for f in self.files:
+                if f['url'] in urls and f['status'] == self.STATUS_FAILED:
+                    f['retries'] += 1
+                    f['status'] = self.STATUS_QUEUED
+                    f['completed'] = 0
+                    f['speed'] = 0
+            # Reset counters
+            self.completed_count = sum(1 for f in self.files if f['status'] == self.STATUS_DONE)
+            self.failed_count = sum(1 for f in self.files if f['status'] == self.STATUS_FAILED)
+
+    def _terminate_download(self) -> None:
+        """Terminate the current download process."""
+        if self.rpc is not None:
+            try:
+                self.rpc.shutdown()
+            except Exception:
+                pass
+        if self.subprocess is not None:
+            _terminate_process(self.subprocess)
+            _unregister_aria2c_process(self.subprocess)
+            self.subprocess = None
 
     def _setup_keyboard(self) -> None:
         """Set up non-blocking keyboard input."""
@@ -2069,6 +2139,8 @@ class DownloadUI:
 
         self.start_time = _time.time()
         self.download_tool = get_download_tool()  # Set early for display
+        self.last_progress_time = _time.time()
+        self.last_completed_count = 0
 
         # Start download thread
         self.download_thread = threading.Thread(target=self._download_worker, daemon=True)
@@ -2100,6 +2172,14 @@ class DownloadUI:
 
                 self._update_from_rpc()
                 self._render_simple()
+
+                # Check for stall - if no progress for stall_timeout, abort and retry
+                if self._check_stall():
+                    sys.stdout.write('\r\033[K')
+                    print(f"  {self.RED}Stall detected - aborting and retrying failed downloads...{self.RESET}")
+                    self._terminate_download()
+                    break
+
                 _time.sleep(0.15)
         finally:
             # Always restore keyboard
@@ -2107,17 +2187,66 @@ class DownloadUI:
 
         # Handle shutdown - terminate aria2c if still running
         if self.shutdown_requested and self.subprocess:
-            # Gracefully shutdown via RPC first
-            if self.rpc is not None:
-                try:
-                    self.rpc.shutdown()
-                except Exception:
-                    pass
-            _terminate_process(self.subprocess)
-            _unregister_aria2c_process(self.subprocess)
+            self._terminate_download()
+
+        # Wait for download thread to finish
+        if self.download_thread.is_alive():
+            self.download_thread.join(timeout=5)
 
         # Final update
         self._update_status_from_files()
+
+        # Retry failed downloads
+        retry_round = 1
+        while not self.shutdown_requested:
+            failed_downloads = self._get_failed_downloads()
+            if not failed_downloads:
+                break  # All done or max retries reached
+
+            # Reset tracking for retry round
+            self.last_progress_time = _time.time()
+            self.last_completed_count = self.completed_count
+            retry_urls = [url for url, _ in failed_downloads]
+            self._mark_for_retry(retry_urls)
+
+            if not self.detailed_mode:
+                sys.stdout.write('\r\033[K')
+            print(f"  Retry {retry_round}/{self.max_retries}: {len(failed_downloads)} failed files...")
+
+            # Start new download thread for retries
+            self.download_thread = threading.Thread(target=self._download_worker, daemon=True)
+            self.download_thread.start()
+
+            self._setup_keyboard()
+            try:
+                while self.download_thread.is_alive() and not self.shutdown_requested:
+                    key = self._check_keypress()
+                    if key == 'q':
+                        self.shutdown_requested = True
+                        break
+
+                    self._update_from_rpc()
+                    self._render_simple()
+
+                    # Check for stall during retry
+                    if self._check_stall():
+                        sys.stdout.write('\r\033[K')
+                        print(f"  {self.RED}Retry stalled - moving to next retry round...{self.RESET}")
+                        self._terminate_download()
+                        break
+
+                    _time.sleep(0.15)
+            finally:
+                self._restore_keyboard()
+
+            if self.shutdown_requested and self.subprocess:
+                self._terminate_download()
+
+            if self.download_thread.is_alive():
+                self.download_thread.join(timeout=5)
+
+            self._update_status_from_files()
+            retry_round += 1
 
         if not self.detailed_mode:
             self._render_simple()
@@ -2129,6 +2258,17 @@ class DownloadUI:
         print(f"  {self.GREEN}{SYM_CHECK}{self.RESET} Downloaded {done}/{len(self.files)} files", end='')
         if failed:
             print(f" {self.RED}({failed} failed){self.RESET}")
+            # List failed files
+            failed_files = [f for f in self.files if f['status'] == self.STATUS_FAILED]
+            if len(failed_files) <= 10:
+                for f in failed_files:
+                    filename = Path(f['url']).name
+                    print(f"    {self.RED}{SYM_CROSS}{self.RESET} {filename}")
+            else:
+                for f in failed_files[:5]:
+                    filename = Path(f['url']).name
+                    print(f"    {self.RED}{SYM_CROSS}{self.RESET} {filename}")
+                print(f"    ... and {len(failed_files) - 5} more")
         else:
             print()
 
@@ -2147,30 +2287,88 @@ class DownloadUI:
         downloads = [(f['url'], f['path']) for f in self.files]
         tool = get_download_tool()
 
-        if tool == 'aria2c':
-            successful = download_batch_with_aria2c(downloads, self.parallel, self.connections)
-        elif tool == 'curl':
-            successful = download_batch_with_curl(downloads, self.parallel)
-        else:
-            successful = []
-            for url, path in downloads:
-                try:
-                    path.parent.mkdir(parents=True, exist_ok=True)
-                    req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-                    with urllib.request.urlopen(req, timeout=60) as resp:
-                        with open(path, 'wb') as out:
-                            shutil.copyfileobj(resp, out)
-                    if path.exists() and path.stat().st_size > 0:
-                        successful.append(path)
-                except Exception:
-                    pass
+        def run_batch(batch_downloads):
+            if tool == 'aria2c':
+                return download_batch_with_aria2c(batch_downloads, self.parallel, self.connections,
+                                                  auth_header=self.auth_header)
+            elif tool == 'curl':
+                return download_batch_with_curl(batch_downloads, self.parallel, auth_header=self.auth_header)
+            else:
+                successful = []
+                for url, path in batch_downloads:
+                    try:
+                        path.parent.mkdir(parents=True, exist_ok=True)
+                        headers = {'User-Agent': 'Mozilla/5.0'}
+                        if self.auth_header:
+                            headers['Authorization'] = self.auth_header
+                        req = urllib.request.Request(url, headers=headers)
+                        with urllib.request.urlopen(req, timeout=60) as resp:
+                            with open(path, 'wb') as out:
+                                shutil.copyfileobj(resp, out)
+                        if path.exists() and path.stat().st_size > 0:
+                            successful.append(path)
+                    except Exception:
+                        pass
+                return successful
+
+        # Initial download
+        successful = run_batch(downloads)
+
+        # Update file status
+        for f in self.files:
+            if f['path'] in successful or (f['path'].exists() and f['path'].stat().st_size > 0):
+                f['status'] = self.STATUS_DONE
+            else:
+                f['status'] = self.STATUS_FAILED
+
+        # Retry failed downloads
+        for retry in range(1, self.max_retries + 1):
+            failed = [(f['url'], f['path']) for f in self.files
+                      if f['status'] == self.STATUS_FAILED and f.get('retries', 0) < self.max_retries]
+            if not failed:
+                break
+
+            print(f"  Retry {retry}/{self.max_retries}: {len(failed)} failed files...")
+            for f in self.files:
+                if f['status'] == self.STATUS_FAILED:
+                    f['retries'] = f.get('retries', 0) + 1
+                    f['status'] = self.STATUS_QUEUED
+
+            successful = run_batch(failed)
+
+            # Update status
+            for f in self.files:
+                if f['status'] == self.STATUS_QUEUED:
+                    if f['path'] in successful or (f['path'].exists() and f['path'].stat().st_size > 0):
+                        f['status'] = self.STATUS_DONE
+                    else:
+                        f['status'] = self.STATUS_FAILED
 
         results = {}
-        for url, path in downloads:
-            if path in successful or (path.exists() and path.stat().st_size > 0):
-                results[url] = path
+        failed_count = 0
+        for f in self.files:
+            if f['status'] == self.STATUS_DONE:
+                results[f['url']] = f['path']
+            else:
+                failed_count += 1
 
-        print(f"  Downloaded {len(results)}/{len(self.files)} files")
+        print(f"  Downloaded {len(results)}/{len(self.files)} files", end='')
+        if failed_count:
+            print(f" ({failed_count} failed)")
+            # List failed files
+            failed_files = [f for f in self.files if f['status'] == self.STATUS_FAILED]
+            if len(failed_files) <= 10:
+                for f in failed_files:
+                    filename = Path(f['url']).name
+                    print(f"    {SYM_CROSS} {filename}")
+            else:
+                for f in failed_files[:5]:
+                    filename = Path(f['url']).name
+                    print(f"    {SYM_CROSS} {filename}")
+                print(f"    ... and {len(failed_files) - 5} more")
+        else:
+            print()
+
         return results
 
 
