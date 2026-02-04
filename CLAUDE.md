@@ -361,6 +361,23 @@ Get credentials at: https://archive.org/account/s3.php
 - `is_archive_org_url(url)` - Check if URL is from archive.org
 - `get_ia_auth_header(access_key, secret_key)` - Build `LOW accesskey:secretkey` auth header
 
+### T-En (Translation) DAT Support
+When using T-En translation ROM collections, the script automatically downloads corresponding T-En DAT files from Archive.org for improved ROM matching:
+
+```shell
+# Using both official and T-En sources
+python retro-refiner.py \
+  -s "https://myrient.erista.me/files/No-Intro/Nintendo%20-%20Game%20Boy%20Advance/" \
+  -s "https://myrient.erista.me/files/T-En%20Collection/Nintendo%20-%20Game%20Boy%20Advance%20%5BT-En%5D%20Collection/"
+```
+
+T-En DAT files are hosted on Archive.org and require authentication. Set `IA_ACCESS_KEY` and `IA_SECRET_KEY` environment variables for T-En DAT support.
+
+**Key Functions:**
+- `is_ten_source(url)` - Check if URL is a T-En collection
+- `download_ten_dat(system, dest_dir, auth_header)` - Download T-En DAT from Archive.org
+- `TEN_DAT_SYSTEMS` - Mapping of system names to T-En DAT file prefixes
+
 ## Supported Systems (144)
 Run `python retro-refiner.py --list-systems` for full details.
 

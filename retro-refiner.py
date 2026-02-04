@@ -3220,6 +3220,157 @@ DAT_NAME_TO_SYSTEM = {v.lower(): k for k, v in LIBRETRO_DAT_SYSTEMS.items()}
 # Add Redump names
 DAT_NAME_TO_SYSTEM.update({v.lower(): k for k, v in REDUMP_DAT_SYSTEMS.items()})
 
+# T-En (English Translation) DAT files from Archive.org
+# Maps system name to the folder name prefix used in Archive.org T-En DAT filenames
+# Format: "Nintendo - Famicom [T-En] Collection (DD-MM-YYYY).zip"
+TEN_DAT_SYSTEMS = {
+    # Nintendo - Consoles
+    'nes': 'Nintendo - Famicom',
+    'snes': 'Nintendo - Super Famicom',
+    'n64': 'Nintendo - Nintendo 64',
+    'gamecube': 'Nintendo - GameCube',
+    'wii': 'Nintendo - Wii',
+    # Nintendo - Handhelds
+    'gameboy': 'Nintendo - Game Boy',
+    'gameboy-color': 'Nintendo - Game Boy Color',
+    'gba': 'Nintendo - Game Boy Advance',
+    'nds': 'Nintendo - Nintendo DS',
+    '3ds': 'Nintendo - Nintendo 3DS',
+    'virtualboy': 'Nintendo - Virtual Boy',
+    # Sega
+    'genesis': 'Sega - Mega Drive',
+    'mastersystem': 'Sega - Master System',
+    'gamegear': 'Sega - Game Gear',
+    'saturn': 'Sega - Saturn',
+    'dreamcast': 'Sega - Dreamcast',
+    'segacd': 'Sega - Mega-CD',
+    # Sony
+    'psx': 'Sony - PlayStation',
+    'ps2': 'Sony - PlayStation 2',
+    'ps3': 'Sony - PlayStation 3',
+    'psp': 'Sony - PlayStation Portable',
+    # NEC
+    'tg16': 'NEC - PC Engine',
+    'tgcd': 'NEC - PC Engine CD',
+    'pc98': 'NEC - PC-9801',
+    # SNK
+    'neogeo': 'SNK - Neo Geo',
+    'neogeocd': 'SNK - Neo Geo CD',
+    'ngp': 'SNK - Neo Geo Pocket',
+    # Microsoft
+    'msx': 'Microsoft - MSX',
+    'msx2': 'Microsoft - MSX2',
+    'xbox': 'Microsoft - Xbox',
+    'xbox360': 'Microsoft - Xbox 360',
+    # Other
+    'wonderswan': 'Bandai - WonderSwan',
+    'wonderswan-color': 'Bandai - WonderSwan Color',
+    'x68000': 'Sharp - X68000',
+    'fmtowns': 'Fujitsu - FM Towns',
+}
+
+# Base URL for T-En DAT files
+TEN_DAT_BASE_URL = "https://archive.org/download/En-ROMs/DATs/"
+
+
+def is_ten_source(url: str) -> bool:
+    """Check if a URL is a T-En (translation) collection source."""
+    url_decoded = urllib.request.unquote(url).lower()
+    return '[t-en]' in url_decoded or 't-en collection' in url_decoded
+
+
+def get_ten_dat_url(system: str) -> Optional[str]:
+    """Get the Archive.org URL for a T-En DAT file (returns pattern to search for)."""
+    dat_prefix = TEN_DAT_SYSTEMS.get(system)
+    if not dat_prefix:
+        return None
+    # URL encode the prefix for the search
+    encoded_prefix = urllib.request.quote(f"{dat_prefix} [T-En] Collection")
+    return f"{TEN_DAT_BASE_URL}?prefix={encoded_prefix}"
+
+
+def download_ten_dat(system: str, dest_dir: Path, force: bool = False, auth_header: Optional[str] = None) -> Optional[Path]:
+    """
+    Download T-En DAT file for a system from Archive.org.
+    T-En DATs are ZIP files containing a DAT file inside.
+    Requires Archive.org authentication (auth_header).
+    """
+    dat_prefix = TEN_DAT_SYSTEMS.get(system)
+    if not dat_prefix:
+        return None
+
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    dat_path = dest_dir / f"{system}_t-en.dat"
+
+    if dat_path.exists() and not force:
+        return dat_path
+
+    # Fetch the directory listing to find the actual filename (includes date)
+    try:
+        list_url = TEN_DAT_BASE_URL
+        req = urllib.request.Request(list_url, headers={'User-Agent': 'Retro-Refiner/1.0'})
+        with urllib.request.urlopen(req, timeout=30) as response:
+            html = response.read().decode('utf-8', errors='ignore')
+
+        # Find the ZIP file matching our system
+        # Pattern: "Nintendo - Game Boy Advance [T-En] Collection (DD-MM-YYYY).zip"
+        search_pattern = f"{dat_prefix} [T-En] Collection"
+        zip_filename = None
+
+        # Try parsing links from HTML (standard directory listing)
+        for match in re.finditer(r'href="([^"]+\.zip)"', html):
+            href = urllib.request.unquote(match.group(1))
+            if search_pattern in href:
+                zip_filename = href
+                break
+
+        # If not found in href, try Archive.org table format (<td>filename.zip</td>)
+        if not zip_filename:
+            for match in re.finditer(r'<td>([^<]+\.zip)</td>', html):
+                filename = match.group(1)
+                if search_pattern in filename:
+                    zip_filename = filename
+                    break
+
+        if not zip_filename:
+            return None
+
+        # Download the ZIP file
+        zip_url = TEN_DAT_BASE_URL + urllib.request.quote(zip_filename)
+        print(f"  Downloading T-En DAT for {system}...")
+
+        headers = {'User-Agent': 'Retro-Refiner/1.0'}
+        if auth_header:
+            headers['Authorization'] = auth_header
+        req = urllib.request.Request(zip_url, headers=headers)
+        with urllib.request.urlopen(req, timeout=60) as response:
+            zip_data = response.read()
+
+        # Extract the DAT file from the ZIP
+        import io
+        with zipfile.ZipFile(io.BytesIO(zip_data)) as zf:
+            # Find the .dat file inside
+            dat_files = [n for n in zf.namelist() if n.lower().endswith('.dat')]
+            if not dat_files:
+                print(f"  No DAT file found in T-En ZIP for {system}")
+                return None
+
+            # Extract the first DAT file
+            with zf.open(dat_files[0]) as src:
+                with open(dat_path, 'wb') as dst:
+                    shutil.copyfileobj(src, dst)
+
+        print(f"  Downloaded: {dat_path.name}")
+        return dat_path
+
+    except urllib.error.HTTPError as e:
+        if e.code != 404:
+            print(f"  T-En DAT download error for {system}: {e}")
+        return None
+    except Exception as e:
+        print(f"  T-En DAT download error for {system}: {e}")
+        return None
+
 
 def detect_system_from_path(path: str) -> Optional[str]:
     """
@@ -5630,6 +5781,7 @@ Pattern examples (--include / --exclude):
     all_url_sizes = {}  # {url: size}
     url_to_source = {}  # {url: network_url} - track which source each URL came from
     empty_network_sources = []
+    systems_with_ten_sources = set()  # Track systems that have T-En translation sources
 
     for network_url in network_sources:
         check_shutdown()
@@ -5669,6 +5821,9 @@ Pattern examples (--include / --exclude):
                 all_network_urls[system].append(url)
                 url_to_source[url] = network_url
             all_url_sizes.update(url_sizes)
+            # Track if this is a T-En source for this system
+            if is_ten_source(network_url):
+                systems_with_ten_sources.add(system)
 
     # Step 1.5: Download DAT files for detected network systems (improves filtering accuracy)
     # DAT files provide official game names for better title matching
@@ -5686,6 +5841,27 @@ Pattern examples (--include / --exclude):
                     dat_entries = parse_clrmamepro_dat(dat_path)
                     network_dat_entries[system] = dat_entries
                     print(f"  {system.upper()}: {len(dat_entries)} DAT entries loaded")
+
+        # Download T-En DAT files for systems with T-En translation sources
+        # These are hosted on Archive.org which requires authentication
+        if systems_with_ten_sources:
+            ia_auth = get_ia_auth_header(args.ia_access_key, args.ia_secret_key)
+            if not ia_auth:
+                print(f"\nSkipping T-En DAT download (Archive.org credentials not set)")
+                print("  Set IA_ACCESS_KEY and IA_SECRET_KEY for T-En DAT support")
+            else:
+                print(f"\nDownloading T-En DAT files for {len(systems_with_ten_sources)} system(s)...")
+                for system in systems_with_ten_sources:
+                    check_shutdown()
+                    ten_dat_path = download_ten_dat(system, dat_dir, auth_header=ia_auth)
+                    if ten_dat_path:
+                        ten_dat_entries = parse_clrmamepro_dat(ten_dat_path)
+                        # Merge T-En entries with existing DAT entries
+                        if system in network_dat_entries:
+                            network_dat_entries[system].update(ten_dat_entries)
+                        else:
+                            network_dat_entries[system] = ten_dat_entries
+                        print(f"  {system.upper()}: {len(ten_dat_entries)} T-En DAT entries loaded")
 
     # Step 2: Filter combined URL pool per system (select best ROM across ALL sources)
     network_downloads = {}  # {system: [selected_urls]}
