@@ -2992,7 +2992,8 @@ no_verify: false
 # Faster but less accurate region detection
 no_dat: false
 
-# Delete and re-download all DAT files (standalone operation, no ROM processing)
+# Delete and re-download all DAT files: No-Intro, MAME, and T-En (translations)
+# T-En DATs require Archive.org credentials (IA_ACCESS_KEY, IA_SECRET_KEY)
 # Typically used via command line: python retro-refiner.py --update-dats
 # update_dats: false
 
@@ -5727,7 +5728,7 @@ Pattern examples (--include / --exclude):
     parser.add_argument('--no-dat', action='store_true',
                         help='Use filename parsing instead of DAT metadata')
     parser.add_argument('--update-dats', action='store_true',
-                        help='Delete and re-download all DAT files, then exit (no ROM processing)')
+                        help='Delete and re-download all DAT files (No-Intro, MAME, T-En), then exit')
     parser.add_argument('--clean', action='store_true',
                         help='Delete cache, DAT files, and other generated data, then exit')
     parser.add_argument('--dat-dir', default=None,
@@ -5822,6 +5823,27 @@ Pattern examples (--include / --exclude):
             print("MAME data: Downloaded successfully")
         else:
             print("MAME data: Some files failed to download")
+
+        # Download T-En (Translation) DATs from Archive.org
+        print(f"\n--- Downloading T-En DATs ({len(TEN_DAT_SYSTEMS)} systems) ---")
+        ia_auth = get_ia_auth_header(args.ia_access_key, args.ia_secret_key)
+        if not ia_auth:
+            print("Note: Set IA_ACCESS_KEY and IA_SECRET_KEY environment variables")
+            print("      or use --ia-access-key and --ia-secret-key for T-En DATs")
+            print("      Get credentials at: https://archive.org/account/s3.php")
+            print("Skipping T-En DAT download (no Archive.org credentials)")
+            ten_downloaded = 0
+            ten_failed = 0
+        else:
+            ten_downloaded = 0
+            ten_failed = 0
+            for system in sorted(TEN_DAT_SYSTEMS.keys()):
+                result = download_ten_dat(system, dat_dir, force=True, auth_header=ia_auth)
+                if result:
+                    ten_downloaded += 1
+                else:
+                    ten_failed += 1
+            print(f"\nT-En DATs: {ten_downloaded} downloaded, {ten_failed} failed")
 
         # Summary
         final_dats = list(dat_dir.glob('*.dat')) + list(dat_dir.glob('*.xml')) + list(dat_dir.glob('*.ini'))

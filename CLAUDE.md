@@ -409,6 +409,23 @@ Run `python retro-refiner.py --list-systems` for full details.
 
 ## DAT File Support
 
+### Updating All DATs
+Use `--update-dats` to download all DAT files at once:
+```bash
+# Download No-Intro, MAME, and T-En DATs (requires IA credentials for T-En)
+python retro-refiner.py --update-dats --ia-access-key KEY --ia-secret-key SECRET
+
+# Or use environment variables
+export IA_ACCESS_KEY=your_key
+export IA_SECRET_KEY=your_secret
+python retro-refiner.py --update-dats
+```
+
+This downloads:
+- No-Intro DATs (all systems in `LIBRETRO_DAT_SYSTEMS`)
+- MAME data (catver.ini + arcade DAT)
+- T-En DATs (translation DATs for 30+ systems, requires Archive.org auth)
+
 ### Libretro DAT Integration
 Auto-downloads No-Intro and Redump DAT files from libretro-database for ROM verification and metadata.
 
