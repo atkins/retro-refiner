@@ -20,7 +20,7 @@ from pathlib import Path
 from collections import defaultdict
 
 # Import from retro-refiner (using importlib since module name has hyphen)
-_spec = importlib.util.spec_from_file_location("retro_refiner", Path(__file__).parent / "retro-refiner.py")
+_spec = importlib.util.spec_from_file_location("retro_refiner", Path(__file__).parent.parent / "retro-refiner.py")
 _module = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_module)
 

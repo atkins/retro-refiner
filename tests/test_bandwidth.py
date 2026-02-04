@@ -134,8 +134,9 @@ def run_benchmark(source: dict, parallel: int, connections: int, cache_dir: Path
     print(f"Test {test_num}/{total_tests}: parallel={parallel}, connections={connections}")
     print(f"{'='*60}")
 
+    script_path = Path(__file__).parent.parent / 'retro-refiner.py'
     cmd = [
-        sys.executable, 'retro-refiner.py',
+        sys.executable, str(script_path),
         '-s', source['url'],
         '--parallel', str(parallel),
         '--connections', str(connections),

@@ -10,8 +10,8 @@ Inspired by the 1G1R (One Game, One ROM) philosophy, Retro-Refiner simplifies th
 - `title_mappings.json` - External title mappings (315+ Japan→English mappings)
 - `update_mappings.py` - Tool to scan archives and suggest new mappings
 - `retro-refiner.yaml` - Example configuration file
-- `test_selection.py` - Testing helper for verifying game series selection
-- `test-bandwidth.py` - Bandwidth benchmark tool for tuning download settings
+- `tests/test_selection.py` - Testing helper for verifying game series selection
+- `tests/test_bandwidth.py` - Bandwidth benchmark tool for tuning download settings
 
 ## Usage
 
@@ -324,16 +324,16 @@ python retro-refiner.py -s https://example.com/roms/ --no-auto-tune --parallel 8
 - `AUTOTUNE_LARGE_THRESHOLD` - 100 MB threshold
 
 ### Bandwidth Testing
-Use `test-bandwidth.py` to benchmark download performance:
+Use `tests/test_bandwidth.py` to benchmark download performance:
 ```bash
 # Quick test of Myrient
-python test-bandwidth.py --site myrient --quick
+python tests/test_bandwidth.py --site myrient --quick
 
 # Full test of both sites (requires IA credentials for Archive.org)
-python test-bandwidth.py --site both --duration 60
+python tests/test_bandwidth.py --site both --duration 60
 
 # Test only large files
-python test-bandwidth.py --size large
+python tests/test_bandwidth.py --size large
 ```
 
 ### Internet Archive Authentication
