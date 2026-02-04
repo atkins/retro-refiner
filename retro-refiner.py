@@ -28,6 +28,7 @@ import urllib.request
 import urllib.error
 import socket
 import ssl
+import atexit
 import subprocess
 import threading
 from urllib.parse import urlparse
@@ -343,6 +344,45 @@ def check_shutdown():
     if _shutdown_requested:
         print("Exiting...")
         sys.exit(0)
+
+
+# Global tracking of aria2c subprocesses for cleanup on exit
+_aria2c_processes: set = set()
+_aria2c_lock = threading.Lock()
+
+def _register_aria2c_process(proc: subprocess.Popen) -> None:
+    """Register an aria2c process for cleanup tracking."""
+    with _aria2c_lock:
+        _aria2c_processes.add(proc)
+
+def _unregister_aria2c_process(proc: subprocess.Popen) -> None:
+    """Unregister an aria2c process from cleanup tracking."""
+    with _aria2c_lock:
+        _aria2c_processes.discard(proc)
+
+def _terminate_process(proc: subprocess.Popen) -> None:
+    """Terminate a subprocess gracefully, then forcefully if needed."""
+    if proc.poll() is not None:
+        return  # Already terminated
+    try:
+        proc.terminate()
+        try:
+            proc.wait(timeout=3)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait(timeout=2)
+    except Exception:
+        pass
+
+def _cleanup_aria2c_processes() -> None:
+    """Kill any orphaned aria2c processes on exit."""
+    with _aria2c_lock:
+        for proc in list(_aria2c_processes):
+            _terminate_process(proc)
+        _aria2c_processes.clear()
+
+# Register cleanup handler
+atexit.register(_cleanup_aria2c_processes)
 
 
 def format_size(size_bytes: int) -> str:
@@ -1311,6 +1351,7 @@ def download_batch_with_aria2c(downloads: List[Tuple[str, Path]], parallel: int 
             f.write(f"  dir={dest_path.parent}\n")
             f.write(f"  out={dest_path.name}\n")
 
+    proc = None
     try:
         # -j: concurrent downloads, -x: connections per server, -s: split count
         cmd = [
@@ -1326,12 +1367,21 @@ def download_batch_with_aria2c(downloads: List[Tuple[str, Path]], parallel: int 
             cmd.append(f'--header=Authorization: {auth_header}')
         cmd.extend(['-i', input_file])
         total_timeout = max(60, (len(downloads) // parallel + 1) * timeout_per_file)
-        subprocess.run(cmd, capture_output=True, timeout=total_timeout, check=False)
-    except subprocess.TimeoutExpired:
-        pass  # Check which files succeeded anyway
+
+        # Use Popen for proper process control
+        proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        _register_aria2c_process(proc)
+        try:
+            proc.wait(timeout=total_timeout)
+        except subprocess.TimeoutExpired:
+            pass  # Will be terminated in finally block
     except Exception:
         pass
     finally:
+        # Always terminate the process if still running
+        if proc is not None:
+            _terminate_process(proc)
+            _unregister_aria2c_process(proc)
         # Clean up input file
         try:
             os.unlink(input_file)
@@ -1821,6 +1871,7 @@ class DownloadUI:
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL
             )
+            _register_aria2c_process(self.subprocess)
 
             self.rpc = Aria2cRPC(port=rpc_port, secret=rpc_secret)
             for _ in range(20):
@@ -1835,6 +1886,16 @@ class DownloadUI:
         except Exception:
             pass
         finally:
+            # Gracefully shutdown aria2c via RPC first
+            if self.rpc is not None:
+                try:
+                    self.rpc.shutdown()
+                except Exception:
+                    pass
+            # Terminate subprocess if still running
+            if self.subprocess is not None:
+                _terminate_process(self.subprocess)
+                _unregister_aria2c_process(self.subprocess)
             try:
                 os.unlink(input_file)
             except Exception:
@@ -2042,12 +2103,16 @@ class DownloadUI:
             # Always restore keyboard
             self._restore_keyboard()
 
-        # Handle shutdown
+        # Handle shutdown - terminate aria2c if still running
         if self.shutdown_requested and self.subprocess:
-            try:
-                self.subprocess.terminate()
-            except Exception:
-                pass
+            # Gracefully shutdown via RPC first
+            if self.rpc is not None:
+                try:
+                    self.rpc.shutdown()
+                except Exception:
+                    pass
+            _terminate_process(self.subprocess)
+            _unregister_aria2c_process(self.subprocess)
 
         # Final update
         self._update_status_from_files()
