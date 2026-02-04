@@ -74,6 +74,7 @@ if WINDOWS:
     SYM_CHECK = '[OK]'
     SYM_CROSS = '[X]'
     SYM_ARROW = 'v'
+    SYM_ARROW_RIGHT = '->'
     SYM_CIRCLE = 'o'
     SYM_BLOCK_FULL = '#'
     SYM_BLOCK_LIGHT = '-'
@@ -82,6 +83,7 @@ else:
     SYM_CHECK = '✓'
     SYM_CROSS = '✗'
     SYM_ARROW = '↓'
+    SYM_ARROW_RIGHT = '→'
     SYM_CIRCLE = '○'
     SYM_BLOCK_FULL = '█'
     SYM_BLOCK_LIGHT = '░'
@@ -5153,7 +5155,7 @@ def main():
   | _ \| __|_   _|| _ \/ _ \  ___ | _ \| __| __|_ _| \| | __| _ \
   |   /| _|  | |  |   / (_) ||___||   /| _|| _| | || .` | _||   /
   |_|_\|___| |_|  |_|_\\___/      |_|_\|___|_| |___|_|\_|___|_|_\
-  ─────────────────────────────────────────────────────────────────
+  ---------------------------------------------------------------------
              R E F I N E   Y O U R   C O L L E C T I O N
 """, flush=True)
 
@@ -5868,7 +5870,7 @@ Pattern examples (--include / --exclude):
                 median_size = valid_sizes[len(valid_sizes) // 2]
                 size_category = "small" if median_size < AUTOTUNE_SMALL_THRESHOLD else \
                                "large" if median_size > AUTOTUNE_LARGE_THRESHOLD else "medium"
-                print(f"Auto-tune: {size_category} files (median {format_size(median_size)}) → parallel={parallel}, connections={connections}")
+                print(f"Auto-tune: {size_category} files (median {format_size(median_size)}) {SYM_ARROW_RIGHT} parallel={parallel}, connections={connections}")
 
         ui = DownloadUI(
             system_name=system_name,
