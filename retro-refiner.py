@@ -1342,9 +1342,9 @@ def download_batch_with_aria2c(downloads: List[Tuple[str, Path]], parallel: int 
     if not downloads:
         return []
 
-    # Create a temporary input file for aria2c
+    # Create a temporary input file for aria2c (UTF-8 for Unicode filenames)
     import tempfile
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False, encoding='utf-8') as f:
         input_file = f.name
         for url, dest_path in downloads:
             dest_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1853,7 +1853,8 @@ class DownloadUI:
         """Run aria2c with RPC enabled for status tracking."""
         import tempfile
 
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
+        # UTF-8 encoding for Unicode filenames (e.g., en-dash in "Ace Attorney – Trials")
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False, encoding='utf-8') as f:
             input_file = f.name
             for url, dest_path in downloads:
                 dest_path.parent.mkdir(parents=True, exist_ok=True)
