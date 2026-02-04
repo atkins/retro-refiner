@@ -4424,7 +4424,9 @@ def download_mame_data(mame_data_dir: Path, version: str = None, force: bool = F
     # Download catver.ini
     if not catver_path.exists():
         print("\nMAME: Downloading catver.ini...")
-        catver_url = f"https://www.progettosnaps.net/catver/packs/pS_CatVer_{version_clean}.zip"
+        # Progettosnaps uses a download redirect URL format
+        alt_version = version_clean.lstrip('0')  # "285" without leading zero
+        catver_url = f"https://www.progettosnaps.net/download/?tipo=catver&file=pS_CatVer_{alt_version}.zip"
         zip_path = mame_data_dir / 'catver.zip'
 
         if download_file(catver_url, zip_path, "catver.ini pack"):
@@ -4433,10 +4435,10 @@ def download_mame_data(mame_data_dir: Path, version: str = None, force: bool = F
             else:
                 print("  Failed to extract catver.ini")
         else:
-            # Try alternative: version without leading zero
-            alt_version = version_clean.lstrip('0')
-            catver_url = f"https://www.progettosnaps.net/catver/packs/pS_CatVer_{alt_version}.zip"
-            if download_file(catver_url, zip_path, "catver.ini pack (alt)"):
+            # Try previous version (latest on site might be behind MAME releases)
+            prev_version = str(int(alt_version) - 1)
+            catver_url = f"https://www.progettosnaps.net/download/?tipo=catver&file=pS_CatVer_{prev_version}.zip"
+            if download_file(catver_url, zip_path, "catver.ini pack (prev version)"):
                 if extract_from_zip(zip_path, 'catver.ini', catver_path):
                     zip_path.unlink()
     else:
@@ -4456,15 +4458,25 @@ def download_mame_data(mame_data_dir: Path, version: str = None, force: bool = F
             else:
                 print("  Failed to extract MAME XML")
         else:
-            # Try Progetto Snaps DAT pack
+            # Try Progetto Snaps DAT pack (uses redirect URL format)
             print("  Trying alternative source...")
-            alt_url = f"https://www.progettosnaps.net/dats/MAME/pS_MAME_{version_clean}_DATs.zip"
-            if download_file(alt_url, zip_path, "MAME DAT pack"):
-                # Look for arcade dat
-                if extract_from_zip(zip_path, 'arcade).dat', dat_path):
-                    zip_path.unlink()
-                elif extract_from_zip(zip_path, 'MAME', dat_path):
-                    zip_path.unlink()
+            alt_version = version_clean.lstrip('0')
+            alt_url = f"https://www.progettosnaps.net/download/?tipo=dat_mame&file=/dats/MAME/packs/MAME_Dats_{alt_version}.7z"
+            archive_path = mame_data_dir / 'mame_dats.7z'
+            if download_file(alt_url, archive_path, "MAME DAT pack"):
+                # Extract using 7z command if available
+                try:
+                    import subprocess
+                    result = subprocess.run(['7z', 'x', '-y', f'-o{mame_data_dir}', str(archive_path)],
+                                          capture_output=True, text=True)
+                    if result.returncode == 0:
+                        # Look for arcade dat
+                        for dat in mame_data_dir.glob('*arcade*.dat'):
+                            dat.rename(dat_path)
+                            break
+                        archive_path.unlink()
+                except FileNotFoundError:
+                    print("  Note: 7z not found, cannot extract .7z archive")
     else:
         print(f"MAME: Using existing MAME data at {dat_path}")
 
