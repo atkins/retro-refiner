@@ -5888,7 +5888,7 @@ Pattern examples (--include / --exclude):
                     else:
                         ten_failed += 1
                     # Small delay to avoid rate limiting
-                    _time.sleep(0.5)
+                    _time.sleep(1.0)
             print(f"\nT-En DATs: {ten_downloaded} downloaded, {ten_failed} failed")
 
         # Summary
