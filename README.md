@@ -105,7 +105,7 @@ Whether you're building a curated collection for a Raspberry Pi, populating a Mi
 - **Language priority**: Prefers English releases (USA > World > Europe > Australia) - fully customizable
 - **Translation support**: Includes fan translations `[T-En]` for Japan-only games
 - **Japan-only inclusion**: Keeps untranslated Japan exclusives when no English version exists
-- **315+ title mappings**: Correctly groups regional variants (Rockman→Mega Man, Pocket Monsters→Pokemon, etc.)
+- **1,194 title mappings**: Correctly groups regional variants (Rockman→Mega Man, Pocket Monsters→Pokemon, etc.) across 50 categories
 
 ### Network Downloads
 - **Direct archive access**: Fetch ROMs directly from HTTP/HTTPS servers—no manual downloading
@@ -358,32 +358,47 @@ When combining official ROM sets with translation collections:
 
 ## Title Mappings
 
-Retro-Refiner includes 315+ mappings for regional title differences:
+Retro-Refiner includes **1,194 mappings** across 50 categories for regional title differences and T-En translation matching:
 
-### Pokemon
-| Japanese | English |
-|----------|---------|
-| Pocket Monsters Aka | Pokemon Red Version |
-| Pocket Monsters Ao | Pokemon Blue Version |
-| Pocket Monsters Kin/Gin | Pokemon Gold/Silver Version |
+### Major Series (28 categories, 347 mappings)
 
-### Mega Man / Rockman
-| Japanese | English |
-|----------|---------|
-| Rockman 1-6 | Mega Man 1-6 |
-| Rockman X series | Mega Man X series |
-| Rockman EXE series | Mega Man Battle Network |
+| Series | Mappings | Examples |
+|--------|----------|----------|
+| Pokemon | 69 | Pocket Monsters Aka → Pokemon Red |
+| Mega Man | 50 | Rockman X → Mega Man X, EXE → Battle Network |
+| Famicom Mini | 31 | Famicom Mini → Classic NES Series |
+| Castlevania | 22 | Akumajou Dracula → Castlevania |
+| Kirby | 16 | Hoshi no Kirby → Kirby's Dream Land |
+| Zelda | 13 | Zelda no Densetsu → Legend of Zelda |
+| Bomberman | 12 | Baku Bomberman → Bomberman 64 |
+| Dragon Quest | 12 | Dragon Quest → Dragon Warrior |
+| TMNT | 12 | Hero Turtles (EU) → Ninja Turtles |
+| Fire Emblem | 10 | Japanese subtitles → English names |
+| Donkey Kong | 9 | Super Donkey Kong → DK Country |
+| Goemon | 9 | Ganbare Goemon → Mystical Ninja |
+| Puyo Puyo | 9 | Regional variants and sequels |
 
-### Other Major Series
-- **Zelda**: Zelda no Densetsu → Legend of Zelda
-- **Final Fantasy**: JP numbering → US numbering (IV→II, VI→III)
-- **Castlevania**: Akumajou Dracula → Castlevania
-- **Contra**: Probotector (EU) → Contra
-- **Street Fighter**: Zero → Alpha
-- **Dragon Quest**: → Dragon Warrior (classic era)
-- **Kirby**: Hoshi no Kirby → Kirby's Dream Land
-- **Donkey Kong**: Super Donkey Kong → Donkey Kong Country
-- **TMNT**: Hero Turtles (EU) → Ninja Turtles (USA)
+### T-En Translation Mappings (22 categories, 847 mappings)
+
+Automatically groups Japan ROMs with their fan translation counterparts when using both No-Intro and T-En sources:
+
+| System | Mappings | Notable Titles |
+|--------|----------|----------------|
+| PlayStation | 93 | Persona 2, Policenauts, Moon, LSD |
+| NES | 88 | Wizardry Gaiden, Metal Storm, Dragon Ball Z |
+| SNES | 84 | Bahamut Lagoon, Live A Live, Star Ocean |
+| Nintendo DS | 70 | Ni no Kuni, Soma Bringer, 7th Dragon |
+| Saturn | 67 | Shining Force 3, Princess Crown, Sakura Wars |
+| Game Boy Color | 60 | Star Ocean Blue Sphere, Medabots 3/4 |
+| GBA | 58 | Mother 3, Rhythm Tengoku, Fire Emblem |
+| Genesis | 58 | Phantasy Star series, Pulseman, Langrisser |
+| TG-16/PC Engine | 53 | Ys IV, Snatcher, Tengai Makyou |
+| Dreamcast | 42 | Shenmue, Napple Tale, Under Defeat |
+| N64 | 36 | Animal Forest, Sin and Punishment, Custom Robo |
+| Game Gear | 29 | Shining Force Final Conflict, Lunar |
+| TG-CD | 19 | Castlevania Rondo of Blood, Ys IV |
+| WonderSwan | 16 | Klonoa Moonlight Museum, Clock Tower |
+| Master System | 10 | Phantasy Star, Fist of the North Star |
 
 ## Output
 
@@ -588,7 +603,8 @@ Check `_selection_log.txt` for details. Common issues:
 | Systems supported | 144 |
 | DAT files available | 102 |
 | Folder aliases | 200+ |
-| Title mappings | 315+ |
+| Title mappings | 1,194 |
+| Mapping categories | 50 |
 | File extensions | 90+ |
 
 ## Supported Systems (144)
