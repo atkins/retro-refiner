@@ -3479,6 +3479,67 @@ def download_libretro_dat(system: str, dest_dir: Path, force: bool = False) -> O
     return None
 
 
+def parse_dat_file(dat_path: Path) -> Dict[str, DatRomEntry]:
+    """Parse a DAT file (auto-detects ClrMamePro text or Logiqx XML format)."""
+    with open(dat_path, 'r', encoding='utf-8', errors='ignore') as f:
+        first_line = f.readline().strip()
+
+    # Detect format from first line
+    if first_line.startswith('<?xml') or first_line.startswith('<'):
+        return parse_logiqx_xml_dat(dat_path)
+    else:
+        return parse_clrmamepro_dat(dat_path)
+
+
+def parse_logiqx_xml_dat(dat_path: Path) -> Dict[str, DatRomEntry]:
+    """Parse a Logiqx XML format DAT file (used by T-En DATs)."""
+    entries = {}
+
+    with open(dat_path, 'r', encoding='utf-8', errors='ignore') as f:
+        content = f.read()
+
+    # Parse machine/game entries with their ROMs
+    # Format: <machine name="..."><rom name="..." size="..." crc="..." .../></machine>
+    # Also handles <game> tags (alternative format)
+    for machine_match in re.finditer(r'<(?:machine|game)\s+name="([^"]+)"[^>]*>(.*?)</(?:machine|game)>', content, re.DOTALL):
+        game_name = machine_match.group(1)
+        machine_content = machine_match.group(2)
+
+        # Find ROM entries within this machine/game
+        for rom_match in re.finditer(r'<rom\s+([^>]+)/>', machine_content):
+            rom_attrs = rom_match.group(1)
+
+            # Extract attributes
+            name_match = re.search(r'name="([^"]+)"', rom_attrs)
+            size_match = re.search(r'size="(\d+)"', rom_attrs)
+            crc_match = re.search(r'crc="([a-fA-F0-9]+)"', rom_attrs)
+            md5_match = re.search(r'md5="([a-fA-F0-9]+)"', rom_attrs)
+            sha1_match = re.search(r'sha1="([a-fA-F0-9]+)"', rom_attrs)
+
+            if name_match and crc_match:
+                rom_name = name_match.group(1)
+                crc = crc_match.group(1).lower()
+
+                # Detect region from game name
+                region = detect_dat_region(game_name)
+
+                entry = DatRomEntry(
+                    name=game_name,
+                    rom_name=rom_name,
+                    size=int(size_match.group(1)) if size_match else 0,
+                    crc=crc,
+                    md5=md5_match.group(1).lower() if md5_match else '',
+                    sha1=sha1_match.group(1).lower() if sha1_match else '',
+                    region=region,
+                    is_parent=True,
+                    parent_name='',
+                )
+                # Index by CRC for quick lookup
+                entries[crc] = entry
+
+    return entries
+
+
 def parse_clrmamepro_dat(dat_path: Path) -> Dict[str, DatRomEntry]:
     """Parse a ClrMamePro format DAT file."""
     entries = {}
@@ -5838,30 +5899,39 @@ Pattern examples (--include / --exclude):
                 check_shutdown()
                 dat_path = download_libretro_dat(system, dat_dir)
                 if dat_path:
-                    dat_entries = parse_clrmamepro_dat(dat_path)
+                    dat_entries = parse_dat_file(dat_path)
                     network_dat_entries[system] = dat_entries
                     print(f"  {system.upper()}: {len(dat_entries)} DAT entries loaded")
 
-        # Download T-En DAT files for systems with T-En translation sources
-        # These are hosted on Archive.org which requires authentication
+        # Load T-En DAT files for systems with T-En translation sources
+        # These are hosted on Archive.org which requires authentication for download
+        # but cached files can be used without auth
         if systems_with_ten_sources:
             ia_auth = get_ia_auth_header(args.ia_access_key, args.ia_secret_key)
-            if not ia_auth:
-                print(f"\nSkipping T-En DAT download (Archive.org credentials not set)")
-                print("  Set IA_ACCESS_KEY and IA_SECRET_KEY for T-En DAT support")
-            else:
-                print(f"\nDownloading T-En DAT files for {len(systems_with_ten_sources)} system(s)...")
-                for system in systems_with_ten_sources:
-                    check_shutdown()
+            print(f"\nLoading T-En DAT files for {len(systems_with_ten_sources)} system(s)...")
+            for system in systems_with_ten_sources:
+                check_shutdown()
+                # Check for cached DAT file first (no auth needed)
+                cached_dat_path = dat_dir / f"{system}_t-en.dat"
+                if cached_dat_path.exists():
+                    ten_dat_entries = parse_dat_file(cached_dat_path)
+                    if system in network_dat_entries:
+                        network_dat_entries[system].update(ten_dat_entries)
+                    else:
+                        network_dat_entries[system] = ten_dat_entries
+                    print(f"  {system.upper()}: {len(ten_dat_entries)} T-En DAT entries loaded (cached)")
+                elif ia_auth:
+                    # Download fresh DAT file if auth is available
                     ten_dat_path = download_ten_dat(system, dat_dir, auth_header=ia_auth)
                     if ten_dat_path:
-                        ten_dat_entries = parse_clrmamepro_dat(ten_dat_path)
-                        # Merge T-En entries with existing DAT entries
+                        ten_dat_entries = parse_dat_file(ten_dat_path)
                         if system in network_dat_entries:
                             network_dat_entries[system].update(ten_dat_entries)
                         else:
                             network_dat_entries[system] = ten_dat_entries
                         print(f"  {system.upper()}: {len(ten_dat_entries)} T-En DAT entries loaded")
+                else:
+                    print(f"  {system.upper()}: No cached T-En DAT (set IA_ACCESS_KEY/IA_SECRET_KEY to download)")
 
     # Step 2: Filter combined URL pool per system (select best ROM across ALL sources)
     network_downloads = {}  # {system: [selected_urls]}
@@ -6242,7 +6312,7 @@ Pattern examples (--include / --exclude):
                     dat_path = download_libretro_dat(system, dat_dir)
                     if dat_path:
                         print(f"{system.upper()}: Loading DAT file...")
-                        dat_entries = parse_clrmamepro_dat(dat_path)
+                        dat_entries = parse_dat_file(dat_path)
                         print(f"{system.upper()}: Loaded {len(dat_entries)} DAT entries")
 
             if verify and dat_entries:
