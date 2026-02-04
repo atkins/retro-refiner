@@ -7,7 +7,7 @@ Inspired by the 1G1R (One Game, One ROM) philosophy, Retro-Refiner simplifies th
 
 ## Files
 - `retro-refiner.py` - Main filtering script
-- `title_mappings.json` - External title mappings (400+ Japan→English mappings)
+- `title_mappings.json` - External title mappings (1,194 Japan→English mappings across 50 categories)
 - `update_mappings.py` - Tool to scan archives and suggest new mappings
 - `generate_mappings.py` - Analyze DATs to find potential title mappings
 - `analyze_duplicates.py` - Find duplicate ROMs in refined output
@@ -171,15 +171,16 @@ CLI arguments override config file settings.
 
 ## Title Mappings
 
-Title mappings are stored in `title_mappings.json` - an external JSON file with 315+ Japan→English mappings organized by series:
+Title mappings are stored in `title_mappings.json` - an external JSON file with 1,194 Japan→English mappings organized into 50 categories:
 
-### Major Series Covered
-- **Pokemon**: Pocket Monsters (Aka/Ao/Midori/Kin/Gin) → Pokemon, all language variants
-- **Mega Man**: All Rockman → Mega Man, including EXE/Zero/World series
+### Major Series Covered (28 categories)
+- **Pokemon**: Pocket Monsters (Aka/Ao/Midori/Kin/Gin) → Pokemon, all language variants (69 mappings)
+- **Mega Man**: All Rockman → Mega Man, including EXE/Zero/World series (50 mappings)
+- **Castlevania**: Akumajou Dracula series, Dracula Densetsu, regional names (22 mappings)
 - **Zelda**: All Zelda no Densetsu titles, Famicom Mini → Classic NES Series
 - **Final Fantasy**: FF numbering differences (JP IV = US II, JP VI = US III)
-- **Mario**: Super Donkey Kong → DK Country, Hoshi no Kirby → Kirby, regional variants
-- **Castlevania**: Akumajou Dracula series, Dracula Densetsu, regional names
+- **Mario**: Super Donkey Kong → DK Country, regional variants
+- **Kirby**: Hoshi no Kirby → Kirby's Dream Land series
 - **Contra**: Probotector (EU) mappings, Contra Spirits → Contra III
 - **Street Fighter**: Zero → Alpha, regional tournament editions
 - **Dragon Quest**: Dragon Warrior mappings
@@ -187,7 +188,37 @@ Title mappings are stored in `title_mappings.json` - an external JSON file with 
 - **TMNT**: Hero Turtles (EU) → Ninja Turtles (USA)
 - **Bomberman**: Baku Bomberman → Bomberman 64, regional Max versions
 - **Gradius**: Nemesis/Galaxies/Generation variants
-- **Kirby**: Hoshi no Kirby → Kirby's Dream Land series
+- **Puyo Puyo**: Regional variants and sequels
+- **Goemon**: Ganbare Goemon → Mystical Ninja series
+- **Dragon Ball**: Japanese subtitles to English names
+- **SD Gundam**: Japanese to English game names
+- **Kunio-kun**: Nekketsu series mappings
+
+### System-Specific T-En Translation Mappings (22 categories)
+Comprehensive mappings between Japan ROMs and their T-En (English translation) counterparts:
+
+| Category | Mappings | Description |
+|----------|----------|-------------|
+| translations_psx | 93 | PlayStation translations (Persona, Tales, etc.) |
+| translations_nes | 88 | Famicom/NES translations |
+| translations_snes | 84 | Super Famicom/SNES translations |
+| translations_ds | 70 | Nintendo DS translations |
+| translations_saturn | 67 | Sega Saturn translations |
+| translations_gbc | 60 | Game Boy Color translations |
+| translations_gba | 58 | Game Boy Advance translations |
+| translations_genesis | 58 | Mega Drive/Genesis translations |
+| translations_tg16 | 53 | TurboGrafx-16/PC Engine translations |
+| translations_dreamcast | 42 | Dreamcast translations |
+| translations_n64 | 36 | Nintendo 64 translations |
+| translations_gamegear | 29 | Game Gear translations |
+| translations_tgcd | 19 | TurboGrafx-CD translations |
+| translations_gb | 17 | Game Boy translations |
+| translations_wonderswan | 16 | WonderSwan translations |
+| translations_wsc | 13 | WonderSwan Color translations |
+| translations_mastersystem | 10 | Master System translations |
+| translations_psp | 9 | PSP translations |
+| translations_ngpc | 8 | Neo Geo Pocket Color translations |
+| translations_pc98 | 7 | PC-98 translations |
 
 ## Common Development Tasks
 
