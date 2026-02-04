@@ -11,7 +11,23 @@ import os
 import shutil
 import sys
 import argparse
+import platform
 from pathlib import Path
+
+
+def kill_aria2c_processes():
+    """Kill any running aria2c processes."""
+    try:
+        if platform.system() == 'Windows':
+            subprocess.run(['taskkill', '/F', '/IM', 'aria2c.exe'],
+                          capture_output=True, timeout=5)
+        else:
+            subprocess.run(['pkill', '-9', 'aria2c'],
+                          capture_output=True, timeout=5)
+    except Exception:
+        pass  # Ignore errors if no processes to kill
+    # Brief pause to ensure processes are cleaned up
+    time.sleep(0.5)
 
 # Test sources organized by site and file size
 SOURCES = {
@@ -168,6 +184,9 @@ def run_benchmark(source: dict, parallel: int, connections: int, cache_dir: Path
             proc.kill()
             proc.wait()
         print(f"Stopped after {duration}s timeout")
+
+    # Kill any orphaned aria2c processes before next test
+    kill_aria2c_processes()
 
     # Measure downloaded data
     end_size = get_cache_size(cache_dir)
