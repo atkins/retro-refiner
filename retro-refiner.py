@@ -7541,56 +7541,107 @@ Pattern examples (--include / --exclude):
 
         # Special handling for TeknoParrot
         if system == 'teknoparrot':
-            # Use consolidated dat_files directory
-            dat_dir = Path(args.dat_dir) if args.dat_dir else primary_source / 'dat_files'
+            # Check if files came from network sources (already pre-filtered)
+            # Network files are stored in cache and were filtered by filter_teknoparrot_network_roms()
+            network_filtered = any(str(f).startswith(str(cache_dir)) for f in rom_files if hasattr(f, '__str__'))
 
-            # Check for existing TeknoParrot DAT
-            tp_dat_path = dat_dir / 'teknoparrot.dat'
-            if not tp_dat_path.exists():
-                print("TeknoParrot: DAT file not found, downloading...")
-                tp_dat_path = download_teknoparrot_dat(dat_dir)
+            if network_filtered and rom_files:
+                # Files are already filtered from network - just copy to destination
+                print(f"TEKNOPARROT: Processing {len(rom_files)} pre-filtered ROMs from network...")
+                dest_path = Path(args.dest) / 'teknoparrot'
+                if not dry_run:
+                    dest_path.mkdir(parents=True, exist_ok=True)
 
-            # Get ROM source directory (check all sources)
-            rom_source = None
-            for sp in source_paths:
-                if (sp / 'teknoparrot').exists():
-                    rom_source = sp / 'teknoparrot'
-                    break
-            if not rom_source:
-                print("TeknoParrot: ROM directory not found in any source")
-                continue
+                selected = []
+                source_size = 0
+                selected_size = 0
 
-            # Parse platform filter args
-            tp_include = None
-            tp_exclude = None
-            if args.tp_include_platforms:
-                tp_include = {p.strip() for p in args.tp_include_platforms.split(',')}
-            if args.tp_exclude_platforms:
-                tp_exclude = {p.strip() for p in args.tp_exclude_platforms.split(',')}
+                for rom_path in rom_files:
+                    if not rom_path.exists():
+                        continue
+                    file_size = rom_path.stat().st_size
+                    source_size += file_size
+                    selected_size += file_size
 
-            if tp_dat_path and tp_dat_path.exists():
-                print(f"TeknoParrot: Using DAT from {tp_dat_path}")
+                    dest_file = dest_path / rom_path.name
+                    if not dry_run:
+                        if transfer_mode == 'copy':
+                            shutil.copy2(rom_path, dest_file)
+                        elif transfer_mode == 'move':
+                            shutil.move(str(rom_path), str(dest_file))
+                        elif transfer_mode == 'link':
+                            if dest_file.exists():
+                                dest_file.unlink()
+                            os.symlink(rom_path, dest_file)
+                    selected.append(rom_path)
+                    print(f"  {SYM_CHECK} {rom_path.name}")
 
-            result = filter_teknoparrot_roms(
-                str(rom_source),
-                args.dest,
-                dat_path=str(tp_dat_path) if tp_dat_path and tp_dat_path.exists() else None,
-                copy_chds=not args.no_chd,
-                dry_run=dry_run,
-                include_platforms=tp_include,
-                exclude_platforms=tp_exclude,
-                region_priority=region_priority,
-                keep_all_versions=args.tp_all_versions,
-                include_patterns=args.include,
-                exclude_patterns=args.exclude
-            )
-            selected, size_info = result
-            system_stats['teknoparrot'] = size_info
-            total_source_size += size_info['source_size']
-            total_selected_size += size_info['selected_size']
-            if selected:
+                size_info = {'source_size': source_size, 'selected_size': selected_size}
+                system_stats['teknoparrot'] = size_info
+                total_source_size += source_size
+                total_selected_size += selected_size
                 total_selected += len(selected)
-            print()
+                print(f"TEKNOPARROT: Selected {len(selected)} ROMs ({format_size(selected_size)})")
+                print()
+            else:
+                # Local source - use full directory scanning and filtering
+                # Use consolidated dat_files directory
+                dat_dir = Path(args.dat_dir) if args.dat_dir else primary_source / 'dat_files'
+
+                # Check for existing TeknoParrot DAT
+                tp_dat_path = dat_dir / 'teknoparrot.dat'
+                if not tp_dat_path.exists():
+                    print("TeknoParrot: DAT file not found, downloading...")
+                    tp_dat_path = download_teknoparrot_dat(dat_dir)
+
+                # Get ROM source directory (check all sources including cache)
+                rom_source = None
+                for sp in source_paths:
+                    if (sp / 'teknoparrot').exists():
+                        rom_source = sp / 'teknoparrot'
+                        break
+                # Also check cache directory for downloaded network files
+                if not rom_source and cache_dir.exists():
+                    # Check for TeknoParrot folder in cache (may be URL-encoded)
+                    for cache_subdir in cache_dir.iterdir():
+                        if cache_subdir.is_dir() and 'teknoparrot' in cache_subdir.name.lower():
+                            rom_source = cache_subdir
+                            break
+                if not rom_source:
+                    print("TeknoParrot: ROM directory not found in any source")
+                    continue
+
+                # Parse platform filter args
+                tp_include = None
+                tp_exclude = None
+                if args.tp_include_platforms:
+                    tp_include = {p.strip() for p in args.tp_include_platforms.split(',')}
+                if args.tp_exclude_platforms:
+                    tp_exclude = {p.strip() for p in args.tp_exclude_platforms.split(',')}
+
+                if tp_dat_path and tp_dat_path.exists():
+                    print(f"TeknoParrot: Using DAT from {tp_dat_path}")
+
+                result = filter_teknoparrot_roms(
+                    str(rom_source),
+                    args.dest,
+                    dat_path=str(tp_dat_path) if tp_dat_path and tp_dat_path.exists() else None,
+                    copy_chds=not args.no_chd,
+                    dry_run=dry_run,
+                    include_platforms=tp_include,
+                    exclude_platforms=tp_exclude,
+                    region_priority=region_priority,
+                    keep_all_versions=args.tp_all_versions,
+                    include_patterns=args.include,
+                    exclude_patterns=args.exclude
+                )
+                selected, size_info = result
+                system_stats['teknoparrot'] = size_info
+                total_source_size += size_info['source_size']
+                total_selected_size += size_info['selected_size']
+                if selected:
+                    total_selected += len(selected)
+                print()
 
         # Special handling for MAME and FBNeo (arcade systems)
         elif system in ('mame', 'fbneo', 'fba', 'arcade'):
