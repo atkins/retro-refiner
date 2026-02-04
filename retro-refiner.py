@@ -89,6 +89,180 @@ else:
     SYM_BLOCK_LIGHT = '░'
     SYM_HLINE = '─'
 
+# =============================================================================
+# Console Output Styling
+# =============================================================================
+
+class Style:
+    """ANSI color codes for styled terminal output."""
+    # Colors
+    RED = '\033[31m'
+    GREEN = '\033[32m'
+    YELLOW = '\033[33m'
+    BLUE = '\033[34m'
+    MAGENTA = '\033[35m'
+    CYAN = '\033[36m'
+    WHITE = '\033[37m'
+
+    # Bright colors
+    BRIGHT_RED = '\033[91m'
+    BRIGHT_GREEN = '\033[92m'
+    BRIGHT_YELLOW = '\033[93m'
+    BRIGHT_BLUE = '\033[94m'
+    BRIGHT_MAGENTA = '\033[95m'
+    BRIGHT_CYAN = '\033[96m'
+    BRIGHT_WHITE = '\033[97m'
+
+    # Formatting
+    BOLD = '\033[1m'
+    DIM = '\033[2m'
+    ITALIC = '\033[3m'
+    UNDERLINE = '\033[4m'
+    RESET = '\033[0m'
+
+    @classmethod
+    def disable(cls):
+        """Disable all colors (for non-TTY output)."""
+        for attr in dir(cls):
+            if attr.isupper() and not attr.startswith('_'):
+                setattr(cls, attr, '')
+
+
+class Console:
+    """Styled console output for consistent formatting."""
+
+    @staticmethod
+    def banner():
+        """Print the application banner."""
+        print(f"""{Style.CYAN}
+   ___  ___ _____  ___  ___        ___  ___ ___ ___ _  _ ___ ___
+  | _ \\| __|_   _|| _ \\/ _ \\  ___ | _ \\| __| __|_ _| \\| | __| _ \\
+  |   /| _|  | |  |   / (_) ||___||   /| _|| _| | || .` | _||   /
+  |_|_\\|___| |_|  |_|_\\\\___/      |_|_\\|___|_| |___|_|\\_|___|_|_\\
+{Style.DIM}  ---------------------------------------------------------------------{Style.RESET}
+{Style.BRIGHT_WHITE}             R E F I N E   Y O U R   C O L L E C T I O N{Style.RESET}
+""", flush=True)
+
+    @staticmethod
+    def header(text: str):
+        """Print a major section header."""
+        width = 65
+        print()
+        print(f"{Style.CYAN}{Style.BOLD}{'═' * width}{Style.RESET}")
+        print(f"{Style.CYAN}{Style.BOLD}{text.center(width)}{Style.RESET}")
+        print(f"{Style.CYAN}{Style.BOLD}{'═' * width}{Style.RESET}")
+
+    @staticmethod
+    def section(text: str):
+        """Print a section divider."""
+        print(f"\n{Style.YELLOW}{Style.BOLD}─── {text} {'─' * (55 - len(text))}{Style.RESET}")
+
+    @staticmethod
+    def subsection(text: str):
+        """Print a subsection header."""
+        print(f"\n{Style.CYAN}{text}{Style.RESET}")
+
+    @staticmethod
+    def success(text: str, prefix: str = None):
+        """Print a success message."""
+        sym = prefix if prefix else f"{Style.GREEN}{SYM_CHECK}{Style.RESET}"
+        print(f"  {sym} {Style.GREEN}{text}{Style.RESET}")
+
+    @staticmethod
+    def error(text: str, prefix: str = None):
+        """Print an error message."""
+        sym = prefix if prefix else f"{Style.RED}{SYM_CROSS}{Style.RESET}"
+        print(f"  {sym} {Style.RED}{text}{Style.RESET}")
+
+    @staticmethod
+    def warning(text: str):
+        """Print a warning message."""
+        print(f"  {Style.YELLOW}⚠ {text}{Style.RESET}")
+
+    @staticmethod
+    def info(text: str):
+        """Print an info message."""
+        print(f"  {Style.CYAN}ℹ {text}{Style.RESET}")
+
+    @staticmethod
+    def detail(text: str):
+        """Print a detail/status message (dimmed)."""
+        print(f"  {Style.DIM}{text}{Style.RESET}")
+
+    @staticmethod
+    def item(text: str, indent: int = 2):
+        """Print a list item."""
+        print(f"{' ' * indent}{Style.DIM}•{Style.RESET} {text}")
+
+    @staticmethod
+    def progress(current: int, total: int, label: str = ""):
+        """Print a progress indicator."""
+        pct = (current / total * 100) if total > 0 else 0
+        bar_width = 30
+        filled = int(bar_width * current / total) if total > 0 else 0
+        bar = f"{Style.GREEN}{SYM_BLOCK_FULL * filled}{Style.RESET}{Style.DIM}{SYM_BLOCK_LIGHT * (bar_width - filled)}{Style.RESET}"
+        label_text = f" {label}" if label else ""
+        print(f"\r  [{bar}] {current}/{total} ({pct:.0f}%){label_text}  ", end='', flush=True)
+
+    @staticmethod
+    def status(label: str, value: str, success: bool = None):
+        """Print a status line with label and value."""
+        if success is True:
+            val_style = Style.GREEN
+        elif success is False:
+            val_style = Style.RED
+        else:
+            val_style = Style.BRIGHT_WHITE
+        print(f"  {Style.DIM}{label}:{Style.RESET} {val_style}{value}{Style.RESET}")
+
+    @staticmethod
+    def summary(stats: dict):
+        """Print a summary box with statistics."""
+        print()
+        print(f"  {Style.DIM}┌{'─' * 50}┐{Style.RESET}")
+        for key, value in stats.items():
+            line = f"  {key}: {value}"
+            print(f"  {Style.DIM}│{Style.RESET} {line:<48} {Style.DIM}│{Style.RESET}")
+        print(f"  {Style.DIM}└{'─' * 50}┘{Style.RESET}")
+
+    @staticmethod
+    def table_row(cols: list, widths: list = None):
+        """Print a table row."""
+        if widths is None:
+            widths = [20] * len(cols)
+        parts = [f"{str(col):<{w}}" for col, w in zip(cols, widths)]
+        print(f"  {'  '.join(parts)}")
+
+    @staticmethod
+    def downloading(filename: str, size: str = None):
+        """Print a downloading message."""
+        size_text = f" ({size})" if size else ""
+        print(f"  {Style.CYAN}{SYM_ARROW}{Style.RESET} {filename}{Style.DIM}{size_text}{Style.RESET}")
+
+    @staticmethod
+    def downloaded(filename: str):
+        """Print a downloaded confirmation."""
+        print(f"  {Style.GREEN}{SYM_CHECK}{Style.RESET} {filename}")
+
+    @staticmethod
+    def skipped(filename: str, reason: str = None):
+        """Print a skipped item message."""
+        reason_text = f": {reason}" if reason else ""
+        print(f"  {Style.DIM}[SKIP]{Style.RESET} {filename}{Style.DIM}{reason_text}{Style.RESET}")
+
+    @staticmethod
+    def result(label: str, count: int, failed: int = 0):
+        """Print a result line with counts."""
+        if failed > 0:
+            print(f"\n  {Style.BOLD}{label}:{Style.RESET} {Style.GREEN}{count}{Style.RESET} succeeded, {Style.RED}{failed} failed{Style.RESET}")
+        else:
+            print(f"\n  {Style.BOLD}{label}:{Style.RESET} {Style.GREEN}{count}{Style.RESET}")
+
+
+# Disable colors if not a TTY
+if not sys.stdout.isatty():
+    Style.disable()
+
 # Title mappings cache (loaded from title_mappings.json)
 _title_mappings_cache: Optional[Dict[str, str]] = None
 
@@ -3621,7 +3795,7 @@ def download_ten_dat(system: str, dest_dir: Path, force: bool = False,
     # Download the ZIP file with retry logic
     # Use safe='[]()-' to preserve brackets and parens that Archive.org expects
     zip_url = TEN_DAT_BASE_URL + urllib.request.quote(zip_filename, safe='[]()-')
-    print(f"  Downloading T-En DAT for {system}...")
+    Console.detail(f"Downloading: {system}")
 
     headers = {'User-Agent': 'Retro-Refiner/1.0'}
     if auth_header:
@@ -3640,7 +3814,7 @@ def download_ten_dat(system: str, dest_dir: Path, force: bool = False,
                 # Find the .dat file inside
                 dat_files = [n for n in zf.namelist() if n.lower().endswith('.dat')]
                 if not dat_files:
-                    print(f"  No DAT file found in T-En ZIP for {system}")
+                    Console.error(f"No DAT in ZIP: {system}")
                     return None
 
                 # Extract the first DAT file
@@ -3648,7 +3822,7 @@ def download_ten_dat(system: str, dest_dir: Path, force: bool = False,
                     with open(dat_path, 'wb') as dst:
                         shutil.copyfileobj(src, dst)
 
-            print(f"  Downloaded: {dat_path.name}")
+            Console.downloaded(dat_path.name)
             return dat_path
 
         except urllib.error.HTTPError as e:
@@ -3656,18 +3830,18 @@ def download_ten_dat(system: str, dest_dir: Path, force: bool = False,
                 return None  # File doesn't exist, no point retrying
             if attempt < max_retries - 1:
                 wait_time = (attempt + 1) * 2  # 2s, 4s backoff
-                print(f"  Retry {attempt + 1}/{max_retries} for {system} (waiting {wait_time}s)...")
+                Console.detail(f"Retry {attempt + 1}/{max_retries} for {system} (waiting {wait_time}s)...")
                 _time.sleep(wait_time)
             else:
-                print(f"  T-En DAT download error for {system}: {e}")
+                Console.error(f"Download failed: {system} ({e})")
                 return None
         except Exception as e:
             if attempt < max_retries - 1:
                 wait_time = (attempt + 1) * 2
-                print(f"  Retry {attempt + 1}/{max_retries} for {system} (waiting {wait_time}s)...")
+                Console.detail(f"Retry {attempt + 1}/{max_retries} for {system} (waiting {wait_time}s)...")
                 _time.sleep(wait_time)
             else:
-                print(f"  T-En DAT download error for {system}: {e}")
+                Console.error(f"Download failed: {system} ({e})")
                 return None
 
     return None
@@ -3747,7 +3921,7 @@ def download_libretro_dat(system: str, dest_dir: Path, force: bool = False) -> O
     """Download libretro DAT file for a system."""
     urls = get_libretro_dat_url(system)
     if not urls:
-        print(f"  No DAT mapping for system: {system}")
+        Console.error(f"No DAT mapping for: {system}")
         return None
 
     dest_dir.mkdir(parents=True, exist_ok=True)
@@ -3757,26 +3931,26 @@ def download_libretro_dat(system: str, dest_dir: Path, force: bool = False) -> O
         return dat_path
 
     if dat_path.exists() and force:
-        print(f"  Updating DAT for {system}...")
+        Console.detail(f"Updating: {system}")
         dat_path.unlink()
 
     # Try each URL until one works
     for url in urls:
         try:
-            print(f"  Downloading DAT for {system}...")
+            Console.detail(f"Downloading: {system}")
             req = urllib.request.Request(url, headers={'User-Agent': 'Retro-Refiner/1.0'})
             with urllib.request.urlopen(req, timeout=30) as response:
                 with open(dat_path, 'wb') as f:
                     shutil.copyfileobj(response, f)
-            print(f"  Downloaded: {dat_path.name}")
+            Console.downloaded(dat_path.name)
             return dat_path
         except urllib.error.HTTPError:
             continue  # Try next URL
         except Exception as e:
-            print(f"  Download error: {e}")
+            Console.detail(f"Error: {e}")
             continue
 
-    print(f"  Could not download DAT for {system}")
+    Console.error(f"Failed to download: {system}")
     return None
 
 
@@ -4349,23 +4523,23 @@ def get_latest_mame_version() -> str:
 def download_file(url: str, dest_path: Path, description: str = "file") -> bool:
     """Download a file from URL to destination path."""
     try:
-        print(f"  Downloading {description}...")
-        print(f"  URL: {url}")
+        Console.downloading(description)
+        Console.detail(f"URL: {url}")
         req = urllib.request.Request(url, headers={'User-Agent': 'Retro-Refiner/1.0'})
         with urllib.request.urlopen(req, timeout=60) as response:
             dest_path.parent.mkdir(parents=True, exist_ok=True)
             with open(dest_path, 'wb') as f:
                 shutil.copyfileobj(response, f)
-        print(f"  Downloaded to {dest_path}")
+        Console.downloaded(str(dest_path))
         return True
     except urllib.error.HTTPError as e:
-        print(f"  HTTP Error {e.code}: {e.reason}")
+        Console.error(f"HTTP {e.code}: {e.reason}")
         return False
     except urllib.error.URLError as e:
-        print(f"  URL Error: {e.reason}")
+        Console.error(f"URL Error: {e.reason}")
         return False
     except Exception as e:
-        print(f"  Download failed: {e}")
+        Console.error(f"Download failed: {e}")
         return False
 
 
@@ -4381,15 +4555,15 @@ def extract_from_zip(zip_path: Path, filename: str, dest_path: Path) -> bool:
                         dest_path.parent.mkdir(parents=True, exist_ok=True)
                         with open(dest_path, 'wb') as dst:
                             shutil.copyfileobj(src, dst)
-                    print(f"  Extracted {filename} to {dest_path}")
+                    Console.success(f"Extracted {filename} to {dest_path}")
                     return True
-        print(f"  File {filename} not found in archive")
+        Console.error(f"File {filename} not found in archive")
         return False
     except zipfile.BadZipFile:
-        print(f"  Invalid zip file: {zip_path}")
+        Console.error(f"Invalid zip file: {zip_path}")
         return False
     except Exception as e:
-        print(f"  Extraction failed: {e}")
+        Console.error(f"Extraction failed: {e}")
         return False
 
 
@@ -4399,10 +4573,10 @@ def download_mame_data(mame_data_dir: Path, version: str = None, force: bool = F
     Returns (catver_path, dat_path) or (None, None) on failure.
     """
     if version is None:
-        print("MAME: Detecting latest MAME version...")
+        Console.detail("Detecting latest MAME version...")
         version = get_latest_mame_version()
 
-    print(f"MAME: Using version {version}")
+    Console.status("Version", version)
 
     # Format version for URLs
     version_clean = version.replace(".", "")  # "0274"
@@ -4415,15 +4589,15 @@ def download_mame_data(mame_data_dir: Path, version: str = None, force: bool = F
     # Remove existing files if force update
     if force:
         if catver_path.exists():
-            print("MAME: Removing existing catver.ini for update...")
+            Console.detail("Removing existing catver.ini...")
             catver_path.unlink()
         if dat_path.exists():
-            print("MAME: Removing existing MAME data for update...")
+            Console.detail("Removing existing MAME data...")
             dat_path.unlink()
 
     # Download catver.ini
     if not catver_path.exists():
-        print("\nMAME: Downloading catver.ini...")
+        Console.subsection("Downloading catver.ini")
         # Progettosnaps uses a download redirect URL format
         alt_version = version_clean.lstrip('0')  # "285" without leading zero
         catver_url = f"https://www.progettosnaps.net/download/?tipo=catver&file=pS_CatVer_{alt_version}.zip"
@@ -4433,7 +4607,7 @@ def download_mame_data(mame_data_dir: Path, version: str = None, force: bool = F
             if extract_from_zip(zip_path, 'catver.ini', catver_path):
                 zip_path.unlink()  # Clean up zip
             else:
-                print("  Failed to extract catver.ini")
+                Console.error("Failed to extract catver.ini")
         else:
             # Try previous version (latest on site might be behind MAME releases)
             prev_version = str(int(alt_version) - 1)
@@ -4442,11 +4616,11 @@ def download_mame_data(mame_data_dir: Path, version: str = None, force: bool = F
                 if extract_from_zip(zip_path, 'catver.ini', catver_path):
                     zip_path.unlink()
     else:
-        print(f"MAME: Using existing catver.ini at {catver_path}")
+        Console.detail(f"Using existing: {catver_path.name}")
 
     # Download MAME XML/DAT
     if not dat_path.exists():
-        print("\nMAME: Downloading MAME XML database...")
+        Console.subsection("Downloading MAME XML database")
 
         # Try official MAME release first
         mame_xml_url = f"https://github.com/mamedev/mame/releases/download/mame{version_clean}/mame{version_clean}lx.zip"
@@ -4456,10 +4630,10 @@ def download_mame_data(mame_data_dir: Path, version: str = None, force: bool = F
             if extract_from_zip(zip_path, '.xml', dat_path):
                 zip_path.unlink()
             else:
-                print("  Failed to extract MAME XML")
+                Console.error("Failed to extract MAME XML")
         else:
             # Try Progetto Snaps DAT pack (uses redirect URL format)
-            print("  Trying alternative source...")
+            Console.detail("Trying alternative source...")
             alt_version = version_clean.lstrip('0')
             alt_url = f"https://www.progettosnaps.net/download/?tipo=dat_mame&file=/dats/MAME/packs/MAME_Dats_{alt_version}.7z"
             archive_path = mame_data_dir / 'mame_dats.7z'
@@ -4476,9 +4650,9 @@ def download_mame_data(mame_data_dir: Path, version: str = None, force: bool = F
                             break
                         archive_path.unlink()
                 except FileNotFoundError:
-                    print("  Note: 7z not found, cannot extract .7z archive")
+                    Console.warning("7z not found, cannot extract .7z archive")
     else:
-        print(f"MAME: Using existing MAME data at {dat_path}")
+        Console.detail(f"Using existing: {dat_path.name}")
 
     # Verify files exist
     if catver_path.exists() and dat_path.exists():
@@ -5677,14 +5851,7 @@ def filter_roms_from_files(rom_files: list, dest_dir: str, system: str, dry_run:
 def main():
     """Main entry point."""
     # Show header
-    print(r"""
-   ___  ___ _____  ___  ___        ___  ___ ___ ___ _  _ ___ ___
-  | _ \| __|_   _|| _ \/ _ \  ___ | _ \| __| __|_ _| \| | __| _ \
-  |   /| _|  | |  |   / (_) ||___||   /| _|| _| | || .` | _||   /
-  |_|_\|___| |_|  |_|_\\___/      |_|_\|___|_| |___|_|\_|___|_|_\
-  ---------------------------------------------------------------------
-             R E F I N E   Y O U R   C O L L E C T I O N
-""", flush=True)
+    Console.banner()
 
     import argparse
 
@@ -5825,25 +5992,25 @@ Pattern examples (--include / --exclude):
 
     # List systems mode
     if args.list_systems:
-        print("Known system names:")
+        Console.section("Known Systems")
         for system in sorted(set(KNOWN_SYSTEMS)):
-            print(f"  {system}")
-        print("\nFolder name aliases:")
+            Console.item(system)
+
+        Console.section("Folder Aliases")
         for alias, system in sorted(FOLDER_ALIASES.items()):
-            print(f"  {alias} -> {system}")
-        print("\nFile extension mappings:")
+            print(f"  {Style.DIM}{alias}{Style.RESET} {SYM_ARROW_RIGHT} {Style.CYAN}{system}{Style.RESET}")
+
+        Console.section("File Extensions")
         ext_systems = defaultdict(list)
         for ext, system in EXTENSION_TO_SYSTEM.items():
             ext_systems[system].append(ext)
         for system, exts in sorted(ext_systems.items()):
-            print(f"  {system}: {', '.join(sorted(exts))}")
+            print(f"  {Style.CYAN}{system}{Style.RESET}: {Style.DIM}{', '.join(sorted(exts))}{Style.RESET}")
         return
 
     # Update DATs mode - standalone operation
     if args.update_dats:
-        print("=" * 60)
-        print("UPDATING DAT FILES")
-        print("=" * 60)
+        Console.header("UPDATING DAT FILES")
 
         # Determine DAT directory
         if args.dat_dir:
@@ -5853,19 +6020,19 @@ Pattern examples (--include / --exclude):
         else:
             dat_dir = Path('.').resolve() / 'dat_files'
 
-        print(f"DAT directory: {dat_dir}")
+        Console.status("Directory", str(dat_dir))
         dat_dir.mkdir(parents=True, exist_ok=True)
 
         # Delete all existing DAT files
         existing_dats = list(dat_dir.glob('*.dat')) + list(dat_dir.glob('*.xml')) + list(dat_dir.glob('*.ini'))
         if existing_dats:
-            print(f"\nRemoving {len(existing_dats)} existing DAT files...")
+            Console.subsection(f"Removing {len(existing_dats)} existing files...")
             for dat_file in existing_dats:
-                print(f"  Deleting: {dat_file.name}")
+                Console.detail(f"Deleting: {dat_file.name}")
                 dat_file.unlink()
 
         # Download all libretro DATs
-        print(f"\n--- Downloading No-Intro DATs ({len(LIBRETRO_DAT_SYSTEMS)} systems) ---")
+        Console.section(f"No-Intro DATs ({len(LIBRETRO_DAT_SYSTEMS)} systems)")
         downloaded = 0
         failed = 0
         for system in sorted(LIBRETRO_DAT_SYSTEMS.keys()):
@@ -5875,37 +6042,37 @@ Pattern examples (--include / --exclude):
             else:
                 failed += 1
 
-        print(f"\nNo-Intro DATs: {downloaded} downloaded, {failed} failed")
+        Console.result("No-Intro DATs", downloaded, failed)
 
         # Download MAME data
-        print("\n--- Downloading MAME Data ---")
+        Console.section("MAME Data")
         catver_path, mame_dat_path = download_mame_data(dat_dir, version=args.mame_version, force=True)
 
         if catver_path and mame_dat_path:
-            print("MAME data: Downloaded successfully")
+            Console.success("Downloaded successfully")
         else:
-            print("MAME data: Some files failed to download")
+            Console.error("Some files failed to download")
 
         # Download T-En (Translation) DATs from Archive.org
-        print(f"\n--- Downloading T-En DATs ({len(TEN_DAT_SYSTEMS)} systems) ---")
+        Console.section(f"T-En Translation DATs ({len(TEN_DAT_SYSTEMS)} systems)")
         ia_auth = get_ia_auth_header(args.ia_access_key, args.ia_secret_key)
         if not ia_auth:
-            print("Note: Set IA_ACCESS_KEY and IA_SECRET_KEY environment variables")
-            print("      or use --ia-access-key and --ia-secret-key for T-En DATs")
-            print("      Get credentials at: https://archive.org/account/s3.php")
-            print("Skipping T-En DAT download (no Archive.org credentials)")
+            Console.warning("No Archive.org credentials found")
+            Console.detail("Set IA_ACCESS_KEY and IA_SECRET_KEY environment variables")
+            Console.detail("or use --ia-access-key and --ia-secret-key")
+            Console.detail("Get credentials at: https://archive.org/account/s3.php")
             ten_downloaded = 0
             ten_failed = 0
         else:
             # Fetch directory listing once (avoids 44 redundant requests)
-            print("  Fetching T-En DAT listing...")
+            Console.detail("Fetching T-En DAT listing...")
             ten_listing = fetch_ten_dat_listing()
             if not ten_listing:
-                print("  Failed to fetch T-En DAT listing")
+                Console.error("Failed to fetch T-En DAT listing")
                 ten_downloaded = 0
                 ten_failed = len(TEN_DAT_SYSTEMS)
             else:
-                print(f"  Found {len(ten_listing)} T-En DAT files available")
+                Console.info(f"Found {len(ten_listing)} T-En DAT files available")
                 ten_downloaded = 0
                 ten_failed = 0
                 for system in sorted(TEN_DAT_SYSTEMS.keys()):
@@ -5917,20 +6084,18 @@ Pattern examples (--include / --exclude):
                         ten_failed += 1
                     # Small delay to avoid rate limiting
                     _time.sleep(1.0)
-            print(f"\nT-En DATs: {ten_downloaded} downloaded, {ten_failed} failed")
+            Console.result("T-En DATs", ten_downloaded, ten_failed)
 
         # Summary
         final_dats = list(dat_dir.glob('*.dat')) + list(dat_dir.glob('*.xml')) + list(dat_dir.glob('*.ini'))
-        print("\n" + "=" * 60)
-        print(f"DAT UPDATE COMPLETE: {len(final_dats)} files in {dat_dir}")
-        print("=" * 60)
+        Console.header("UPDATE COMPLETE")
+        Console.status("Total files", str(len(final_dats)), success=True)
+        Console.status("Location", str(dat_dir))
         return
 
     # Clean mode - delete generated data
     if args.clean:
-        print("=" * 60)
-        print("CLEANING GENERATED DATA")
-        print("=" * 60)
+        Console.header("CLEANING GENERATED DATA")
 
         # Determine base directory
         if args.source and not is_url(args.source[0]):
@@ -5950,49 +6115,51 @@ Pattern examples (--include / --exclude):
             dat_files = list(dat_dir.glob('**/*'))
             dat_files = [f for f in dat_files if f.is_file()]
             if dat_files:
-                print(f"\nDAT directory: {dat_dir}")
+                Console.section(f"DAT Directory")
+                Console.status("Path", str(dat_dir))
                 for f in dat_files:
                     size = f.stat().st_size
                     cleaned_size += size
                     cleaned_count += 1
                     f.unlink()
-                print(f"  Deleted {len(dat_files)} files")
+                Console.success(f"Deleted {len(dat_files)} files")
                 # Remove empty directories
                 for d in sorted(dat_dir.glob('**/*'), reverse=True):
                     if d.is_dir() and not any(d.iterdir()):
                         d.rmdir()
                 if dat_dir.exists() and not any(dat_dir.iterdir()):
                     dat_dir.rmdir()
-                    print(f"  Removed directory")
+                    Console.detail("Removed directory")
 
         # Clean cache directory
         if cache_dir.exists():
             cache_files = list(cache_dir.glob('**/*'))
             cache_files = [f for f in cache_files if f.is_file()]
             if cache_files:
-                print(f"\nCache directory: {cache_dir}")
+                Console.section(f"Cache Directory")
+                Console.status("Path", str(cache_dir))
                 for f in cache_files:
                     size = f.stat().st_size
                     cleaned_size += size
                     cleaned_count += 1
                     f.unlink()
-                print(f"  Deleted {len(cache_files)} files")
+                Console.success(f"Deleted {len(cache_files)} files")
                 # Remove empty directories
                 for d in sorted(cache_dir.glob('**/*'), reverse=True):
                     if d.is_dir() and not any(d.iterdir()):
                         d.rmdir()
                 if cache_dir.exists() and not any(cache_dir.iterdir()):
                     cache_dir.rmdir()
-                    print(f"  Removed directory")
+                    Console.detail("Removed directory")
 
         # Summary
-        print("\n" + "=" * 60)
+        Console.header("CLEAN COMPLETE")
         if cleaned_count > 0:
             size_str = f"{cleaned_size / 1024 / 1024:.1f} MB" if cleaned_size > 1024*1024 else f"{cleaned_size / 1024:.1f} KB"
-            print(f"CLEAN COMPLETE: Removed {cleaned_count} files ({size_str})")
+            Console.status("Files removed", str(cleaned_count), success=True)
+            Console.status("Space freed", size_str, success=True)
         else:
-            print("CLEAN COMPLETE: No generated data found")
-        print("=" * 60)
+            Console.info("No generated data found")
         return
 
     # Handle source directories (default to current directory)
