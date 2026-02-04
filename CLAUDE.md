@@ -7,8 +7,10 @@ Inspired by the 1G1R (One Game, One ROM) philosophy, Retro-Refiner simplifies th
 
 ## Files
 - `retro-refiner.py` - Main filtering script
-- `title_mappings.json` - External title mappings (315+ Japan→English mappings)
+- `title_mappings.json` - External title mappings (400+ Japan→English mappings)
 - `update_mappings.py` - Tool to scan archives and suggest new mappings
+- `generate_mappings.py` - Analyze DATs to find potential title mappings
+- `analyze_duplicates.py` - Find duplicate ROMs in refined output
 - `retro-refiner.yaml` - Example configuration file
 - `tests/test_selection.py` - Testing helper for verifying game series selection
 - `tests/test_bandwidth.py` - Bandwidth benchmark tool for tuning download settings
