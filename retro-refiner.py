@@ -3474,11 +3474,14 @@ DAT_NAME_TO_SYSTEM.update({v.lower(): k for k, v in REDUMP_DAT_SYSTEMS.items()})
 # T-En (English Translation) DAT files from Archive.org
 # Maps system name to the folder name prefix used in Archive.org T-En DAT filenames
 # Format: "Nintendo - Famicom [T-En] Collection (DD-MM-YYYY).zip"
+# Names must EXACTLY match Archive.org filenames (case-sensitive, exact punctuation)
 TEN_DAT_SYSTEMS = {
     # Nintendo - Consoles
     'nes': 'Nintendo - Famicom',
+    'fds': 'Nintendo - Family Computer Disk System',
     'snes': 'Nintendo - Super Famicom',
     'n64': 'Nintendo - Nintendo 64',
+    'n64dd': 'Nintendo - Nintendo 64DD',
     'gamecube': 'Nintendo - GameCube',
     'wii': 'Nintendo - Wii',
     # Nintendo - Handhelds
@@ -3486,15 +3489,18 @@ TEN_DAT_SYSTEMS = {
     'gameboy-color': 'Nintendo - Game Boy Color',
     'gba': 'Nintendo - Game Boy Advance',
     'nds': 'Nintendo - Nintendo DS',
+    'dsi': 'Nintendo - Nintendo DSi',
     '3ds': 'Nintendo - Nintendo 3DS',
     'virtualboy': 'Nintendo - Virtual Boy',
+    'pokemini': 'Nintendo - Pokemon Mini',
     # Sega
-    'genesis': 'Sega - Mega Drive',
+    'sg1000': 'Sega - SG-1000',
     'mastersystem': 'Sega - Master System',
+    'genesis': 'Sega - Mega Drive',
+    'segacd': 'Sega - Mega CD',  # No hyphen in "Mega CD"
     'gamegear': 'Sega - Game Gear',
     'saturn': 'Sega - Saturn',
     'dreamcast': 'Sega - Dreamcast',
-    'segacd': 'Sega - Mega-CD',
     # Sony
     'psx': 'Sony - PlayStation',
     'ps2': 'Sony - PlayStation 2',
@@ -3503,21 +3509,26 @@ TEN_DAT_SYSTEMS = {
     # NEC
     'tg16': 'NEC - PC Engine',
     'tgcd': 'NEC - PC Engine CD',
+    'pcfx': 'NEC - PC-FX',
+    'pc88': 'NEC - PC-8801',
     'pc98': 'NEC - PC-9801',
     # SNK
-    'neogeo': 'SNK - Neo Geo',
     'neogeocd': 'SNK - Neo Geo CD',
-    'ngp': 'SNK - Neo Geo Pocket',
+    'ngpc': 'SNK - Neo Geo Pocket Color',  # Only Color version exists
     # Microsoft
     'msx': 'Microsoft - MSX',
     'msx2': 'Microsoft - MSX2',
-    'xbox': 'Microsoft - Xbox',
-    'xbox360': 'Microsoft - Xbox 360',
-    # Other
+    'xbox': 'Microsoft - XBOX',  # Uppercase XBOX
+    'xbox360': 'Microsoft - XBOX 360',  # Uppercase XBOX
+    # Bandai
     'wonderswan': 'Bandai - WonderSwan',
     'wonderswan-color': 'Bandai - WonderSwan Color',
+    # Other
     'x68000': 'Sharp - X68000',
-    'fmtowns': 'Fujitsu - FM Towns',
+    'sharp-x1': 'Sharp - X1',
+    'fmtowns': 'Fujitsu - FM-Towns',  # Hyphen in FM-Towns
+    '3do': 'Panasonic - 3DO Interactive Multiplayer',
+    'zeebo': 'Zeebo - Zeebo',
 }
 
 # Base URL for T-En DAT files
@@ -3587,7 +3598,8 @@ def download_ten_dat(system: str, dest_dir: Path, force: bool = False, auth_head
             return None
 
         # Download the ZIP file
-        zip_url = TEN_DAT_BASE_URL + urllib.request.quote(zip_filename)
+        # Use safe='[]()-' to preserve brackets and parens that Archive.org expects
+        zip_url = TEN_DAT_BASE_URL + urllib.request.quote(zip_filename, safe='[]()-')
         print(f"  Downloading T-En DAT for {system}...")
 
         headers = {'User-Agent': 'Retro-Refiner/1.0'}
