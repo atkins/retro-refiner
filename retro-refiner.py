@@ -1473,7 +1473,7 @@ class DownloadUI:
 
     def __init__(self, system_name: str, files: List[Tuple[str, Path]],
                  parallel: int = 4, connections: int = 4, auth_header: Optional[str] = None,
-                 max_retries: int = 3, stall_timeout: int = 120):
+                 max_retries: int = 3, stall_timeout: int = 60):
         self.system_name = system_name
         self.parallel = parallel
         self.connections = connections
@@ -1894,7 +1894,15 @@ class DownloadUI:
                     break
                 _time.sleep(0.1)
 
-            while self.subprocess.poll() is None:
+            # Wait for aria2c to finish, checking for shutdown request
+            while True:
+                try:
+                    if self.subprocess is None or self.subprocess.poll() is not None:
+                        break
+                    if self.shutdown_requested:
+                        break
+                except Exception:
+                    break
                 _time.sleep(0.1)
 
         except Exception:
@@ -1907,9 +1915,14 @@ class DownloadUI:
                 except Exception:
                     pass
             # Terminate subprocess if still running
-            if self.subprocess is not None:
-                _terminate_process(self.subprocess)
-                _unregister_aria2c_process(self.subprocess)
+            proc = self.subprocess  # Local ref for thread safety
+            if proc is not None:
+                try:
+                    _terminate_process(proc)
+                    _unregister_aria2c_process(proc)
+                except Exception:
+                    pass
+                self.subprocess = None  # Clear only after cleanup
             try:
                 os.unlink(input_file)
             except Exception:
@@ -1985,18 +1998,32 @@ class DownloadUI:
             self.failed_count = sum(1 for f in self.files if f['status'] == self.STATUS_FAILED)
 
     def _check_stall(self) -> bool:
-        """Check if downloads appear stalled (no progress for stall_timeout seconds)."""
+        """Check if downloads appear stalled (no progress for stall_timeout seconds).
+
+        Stall is detected if BOTH conditions are true:
+        1. No new files completed for stall_timeout seconds
+        2. Download speed is 0 for stall_timeout seconds
+        """
+        now = _time.time()
         with self.lock:
             current_completed = self.completed_count
+            current_speed = self.total_speed
+
+            # Check if file completions are progressing
             if current_completed > self.last_completed_count:
-                # Progress was made
                 self.last_completed_count = current_completed
-                self.last_progress_time = _time.time()
-                return False
-            elif self.last_progress_time > 0:
-                # Check if stalled
-                stall_duration = _time.time() - self.last_progress_time
-                return stall_duration > self.stall_timeout
+                self.last_progress_time = now
+
+            # Check if there's any download speed
+            if current_speed > 0:
+                self.last_progress_time = now
+
+            # Check for stall
+            if self.last_progress_time > 0:
+                stall_duration = now - self.last_progress_time
+                if stall_duration > self.stall_timeout:
+                    return True
+
             return False
 
     def _get_failed_downloads(self) -> List[Tuple[str, Path]]:
@@ -2022,16 +2049,24 @@ class DownloadUI:
             self.failed_count = sum(1 for f in self.files if f['status'] == self.STATUS_FAILED)
 
     def _terminate_download(self) -> None:
-        """Terminate the current download process."""
+        """Terminate the current download process.
+
+        Signals the subprocess to exit but doesn't set subprocess to None
+        to avoid race conditions with the download thread.
+        """
+        # Try graceful RPC shutdown first
         if self.rpc is not None:
             try:
                 self.rpc.shutdown()
             except Exception:
                 pass
-        if self.subprocess is not None:
-            _terminate_process(self.subprocess)
-            _unregister_aria2c_process(self.subprocess)
-            self.subprocess = None
+
+        # Then forcefully terminate if still running
+        proc = self.subprocess  # Local ref to avoid race
+        if proc is not None:
+            _terminate_process(proc)
+            # Note: Don't set self.subprocess = None here
+            # The download thread will handle cleanup in its finally block
 
     def _setup_keyboard(self) -> None:
         """Set up non-blocking keyboard input."""
