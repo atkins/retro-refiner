@@ -1362,7 +1362,9 @@ def download_batch_with_aria2c(downloads: List[Tuple[str, Path]], parallel: int 
             '-x', str(connections),   # connections per server
             '-s', str(connections),   # split file into N parts
             '--connect-timeout=30',
-            '--timeout=300',
+            '--timeout=60',            # Reduced from 300s for faster failure
+            '--max-tries=3',           # Limit retries per file
+            '--retry-wait=5',          # Wait between retries
             '--file-allocation=none',  # faster startup
         ]
         if auth_header:
@@ -1508,6 +1510,7 @@ class DownloadUI:
         self.total_speed = 0
         self.completed_count = 0
         self.failed_count = 0
+        self.active_count = 0  # Number of currently active downloads
         self.last_progress_time = 0
         self.last_completed_count = 0
 
@@ -1808,6 +1811,7 @@ class DownloadUI:
             with self.lock:
                 self.completed_count = sum(1 for f in self.files if f['status'] == self.STATUS_DONE)
                 self.failed_count = sum(1 for f in self.files if f['status'] == self.STATUS_FAILED)
+                self.active_count = len(active_filenames)
 
         except Exception:
             self.rpc_available = False
@@ -1871,7 +1875,9 @@ class DownloadUI:
             '-x', str(self.connections),
             '-s', str(self.connections),
             '--connect-timeout=30',
-            '--timeout=300',
+            '--timeout=60',           # Reduced from 300s for faster failure
+            '--max-tries=3',          # Limit retries per file
+            '--retry-wait=5',         # Wait between retries
             '--file-allocation=none',
         ]
         if self.auth_header:
@@ -2000,14 +2006,18 @@ class DownloadUI:
     def _check_stall(self) -> bool:
         """Check if downloads appear stalled (no progress for stall_timeout seconds).
 
-        Stall is detected if BOTH conditions are true:
-        1. No new files completed for stall_timeout seconds
-        2. Download speed is 0 for stall_timeout seconds
+        Stall is detected if ANY of these conditions are true:
+        1. No new files completed AND speed is 0 for stall_timeout seconds
+        2. No active downloads but we're not done (for 30 seconds)
+           This catches aria2c waiting/retrying internally
         """
         now = _time.time()
         with self.lock:
             current_completed = self.completed_count
             current_speed = self.total_speed
+            current_active = self.active_count
+            total_files = len(self.files)
+            done_and_failed = self.completed_count + self.failed_count
 
             # Check if file completions are progressing
             if current_completed > self.last_completed_count:
@@ -2018,10 +2028,16 @@ class DownloadUI:
             if current_speed > 0:
                 self.last_progress_time = now
 
+            # Check if there are active downloads
+            if current_active > 0:
+                self.last_progress_time = now
+
             # Check for stall
             if self.last_progress_time > 0:
                 stall_duration = now - self.last_progress_time
-                if stall_duration > self.stall_timeout:
+                # Shorter timeout (30s) if no active downloads but work remains
+                idle_timeout = 30 if (current_active == 0 and done_and_failed < total_files) else self.stall_timeout
+                if stall_duration > idle_timeout:
                     return True
 
             return False
