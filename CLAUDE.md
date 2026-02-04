@@ -323,6 +323,18 @@ python retro-refiner.py -s https://example.com/roms/ --no-auto-tune --parallel 8
 - `AUTOTUNE_SMALL_THRESHOLD` - 10 MB threshold
 - `AUTOTUNE_LARGE_THRESHOLD` - 100 MB threshold
 
+### Download Error Handling
+Downloads include automatic retry and stall detection:
+
+- **Stall detection**: If no progress for 120 seconds, the current batch is aborted
+- **Automatic retries**: Failed downloads are retried up to 3 times
+- **Failure reporting**: Lists all failed files at the end of download
+
+**Key Functions:**
+- `DownloadUI._check_stall()` - Detect hung downloads
+- `DownloadUI._get_failed_downloads()` - Get retryable failed files
+- `DownloadUI._mark_for_retry()` - Reset failed files for retry
+
 ### Bandwidth Testing
 Use `tests/test_bandwidth.py` to benchmark download performance:
 ```bash
