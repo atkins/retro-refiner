@@ -91,6 +91,32 @@ python retro-refiner.py -s https://myserver.com/roms/
 - Uses aria2c (if installed) for best performance, otherwise curl
 - Live download progress showing active downloads and recent completions
 
+### Recursive Scanning
+Both local and network sources support recursive directory scanning (disabled by default):
+```bash
+# Default: scan system folders only (one level deep)
+python retro-refiner.py -s /path/to/roms
+
+# Enable recursive scanning (up to 3 levels deep)
+python retro-refiner.py -s /path/to/roms -r
+
+# Recursive with custom depth
+python retro-refiner.py -s /path/to/roms -r --max-depth 5
+```
+
+Useful for ROM collections with nested organization:
+```
+roms/
+  nintendo/
+    nes/
+      usa/
+        game1.zip
+      japan/
+        game2.zip
+    snes/
+      ...
+```
+
 ## Key Concepts
 
 ### ROM Naming Convention (No-Intro)
@@ -305,8 +331,10 @@ In `FOLDER_ALIASES` dict at module level:
 - `parse_html_for_files(html, base_url)` - Extract ROM file URLs from any HTML
 - `parse_html_for_directories(html, base_url)` - Extract subdirectory URLs
 - `fetch_url(url)` - Fetch content with redirect following, returns (content, final_url)
+- `fetch_urls_parallel(urls, max_workers)` - Fetch multiple URLs in parallel using ThreadPoolExecutor
 - `download_file_cached(url, cache_dir)` - Download file with local caching
-- `scan_network_source(base_url, cache_dir, systems, recursive, max_depth)` - Scan network source
+- `scan_network_source_urls(base_url, systems, recursive, max_depth, scan_workers)` - Scan network source with parallel subdirectory fetching
+- `scan_for_systems(source_dir, recursive, max_depth)` - Scan local directory for ROMs with recursive support
 
 ### Supported Page Formats
 - Apache/nginx autoindex directory listings
@@ -329,8 +357,23 @@ Install aria2c for best performance with large files:
 - macOS: `brew install aria2`
 - Linux: `apt install aria2`
 
+### Parallel Directory Scanning
+Network sources with many subdirectories (e.g., MAME CHDs with 500+ game folders) are scanned in parallel for dramatically faster discovery. Use `--scan-workers N` to control concurrent directory scans (default: 16):
+```bash
+# Fast scanning of large directory structures
+python retro-refiner.py -s "https://myrient.erista.me/files/MAME/CHDs%20%28merged%29/" --systems mame
+
+# Reduce workers for rate-limited servers
+python retro-refiner.py -s https://example.com/roms/ --scan-workers 4
+```
+
+| Scenario | Sequential | Parallel (16 workers) | Improvement |
+|----------|------------|----------------------|-------------|
+| 500 subdirs @ 100ms latency | ~50s | ~4s | **12x faster** |
+| 100 subdirs @ 100ms latency | ~10s | ~1s | **10x faster** |
+
 ### Parallel Downloads
-Use `--parallel N` to control concurrent downloads (default: 4):
+Use `--parallel N` to control concurrent file downloads (default: 4):
 ```bash
 python retro-refiner.py -s https://example.com/roms/ --parallel 8 --commit
 ```

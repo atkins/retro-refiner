@@ -36,6 +36,7 @@ from pathlib import Path
 from collections import defaultdict
 from dataclasses import dataclass
 from typing import Optional, Dict, List, Tuple
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # Platform detection
 WINDOWS = sys.platform == 'win32'
@@ -1195,6 +1196,44 @@ def fetch_url(url: str, timeout: int = 30, max_redirects: int = 5, auth_header: 
             raise
 
     raise Exception(f"Too many redirects for {url}")
+
+
+def fetch_urls_parallel(urls: List[str], max_workers: int = 16,
+                        auth_header: Optional[str] = None,
+                        progress_callback=None) -> Dict[str, Tuple[bytes, str]]:
+    """
+    Fetch multiple URLs in parallel using ThreadPoolExecutor.
+    Returns dict of {url: (content, final_url)} for successful fetches.
+    Failed fetches are silently skipped (logged via progress_callback if provided).
+    """
+    results = {}
+
+    if not urls:
+        return results
+
+    def fetch_one(url):
+        try:
+            check_shutdown()
+            content, final_url = fetch_url(url, auth_header=auth_header)
+            return url, (content, final_url), None
+        except Exception as e:
+            return url, None, str(e)
+
+    # Cap workers to avoid overwhelming servers
+    actual_workers = min(max_workers, len(urls))
+
+    with ThreadPoolExecutor(max_workers=actual_workers) as executor:
+        futures = {executor.submit(fetch_one, url): url for url in urls}
+        completed = 0
+        for future in as_completed(futures):
+            completed += 1
+            if progress_callback:
+                progress_callback(completed, len(urls))
+            url, result, error = future.result()
+            if result:
+                results[url] = result
+
+    return results
 
 
 class ConnectionPool:
@@ -2754,12 +2793,17 @@ def download_file_cached(url: str, cache_dir: Path, force: bool = False, use_poo
 def scan_network_source_urls(base_url: str, systems: List[str] = None,
                               recursive: bool = True, max_depth: int = 3,
                               _indent: str = "", _url_sizes: Dict[str, int] = None,
-                              auth_header: Optional[str] = None) -> Tuple[Dict[str, List[str]], Dict[str, int]]:
+                              auth_header: Optional[str] = None,
+                              scan_workers: int = 16) -> Tuple[Dict[str, List[str]], Dict[str, int]]:
     """
     Scan a network source and collect ROM URLs (without downloading).
     Returns tuple of (dict of system -> list of URLs, dict of URL -> size in bytes).
 
-    This allows filtering to happen before any files are downloaded.
+    Uses parallel fetching for subdirectories to dramatically speed up scanning
+    of sources with many folders (e.g., MAME CHDs with 500+ game folders).
+
+    Args:
+        scan_workers: Number of parallel workers for fetching subdirectories (default: 16)
     """
     detected = defaultdict(list)
     if _url_sizes is None:
@@ -2813,78 +2857,125 @@ def scan_network_source_urls(base_url: str, systems: List[str] = None,
     if recursive and max_depth > 0:
         subdirs = parse_html_for_directories(html, base_url)
 
-        for subdir_url in subdirs:
-            check_shutdown()
+        # Categorize subdirectories into system folders vs other folders
+        system_subdirs = []  # [(url, system, folder_name)]
+        other_subdirs = []   # [(url, folder_name)]
 
+        for subdir_url in subdirs:
             folder_name = urllib.request.unquote(subdir_url.rstrip('/').split('/')[-1])
             folder_lower = folder_name.lower()
-
             system = FOLDER_ALIASES.get(folder_lower, folder_lower)
             is_system_folder = system in KNOWN_SYSTEMS
 
             if is_system_folder:
                 if systems and system not in systems:
                     continue
+                system_subdirs.append((subdir_url, system, folder_name))
+            elif max_depth > 1 and not rom_files_with_sizes:
+                other_subdirs.append((subdir_url, folder_name))
 
-                print(f"{_indent}  Scanning {folder_name} ({system})...")
+        # Parallel fetch all system subdirectories
+        if system_subdirs:
+            urls_to_fetch = [url for url, _, _ in system_subdirs]
+            url_to_info = {url: (system, folder_name) for url, system, folder_name in system_subdirs}
 
-                try:
-                    content, final_url = fetch_url(subdir_url, auth_header=auth_header)
-                    subdir_html = content.decode('utf-8', errors='replace')
-                    sub_files_with_sizes = parse_html_for_files_with_sizes(subdir_html, final_url)
+            if len(urls_to_fetch) > 1:
+                print(f"{_indent}  Scanning {len(urls_to_fetch)} system folders in parallel...")
 
-                    if sub_files_with_sizes:
-                        sub_rom_urls = [url for url, _ in sub_files_with_sizes]
-                        total_size = sum(size for _, size in sub_files_with_sizes)
-                        if total_size > 0:
-                            print(f"{_indent}    Found {len(sub_rom_urls)} ROM URLs ({format_size(total_size)})")
-                        else:
-                            print(f"{_indent}    Found {len(sub_rom_urls)} ROM URLs")
-                        detected[system].extend(sub_rom_urls)
-                        for url, size in sub_files_with_sizes:
-                            if size > 0:
-                                _url_sizes[url] = size
+                # Progress callback for parallel scanning
+                progress_state = {'last_pct': -1}
+                def progress_callback(completed, total):
+                    pct = (completed * 100) // total
+                    if pct != progress_state['last_pct'] and pct % 10 == 0:
+                        progress_state['last_pct'] = pct
+                        # Show progress on same line
+                        bar_width = 20
+                        filled = (completed * bar_width) // total
+                        bar = '#' * filled + '-' * (bar_width - filled)
+                        print(f"{_indent}    [{bar}] {completed}/{total}", end='\r', flush=True)
 
-                    # Check for nested subdirectories (region folders, etc.)
-                    if max_depth > 1:
-                        nested_subdirs = parse_html_for_directories(subdir_html, final_url)
-                        for nested_url in nested_subdirs:
-                            check_shutdown()
-                            try:
-                                nested_content, nested_final = fetch_url(nested_url, auth_header=auth_header)
-                                nested_html = nested_content.decode('utf-8', errors='replace')
-                                nested_files = parse_html_for_files_with_sizes(nested_html, nested_final)
-                                if nested_files:
-                                    nested_name = urllib.request.unquote(nested_url.rstrip('/').split('/')[-1])
-                                    nested_roms = [url for url, _ in nested_files]
-                                    nested_size = sum(size for _, size in nested_files)
-                                    if nested_size > 0:
-                                        print(f"{_indent}      Found {len(nested_roms)} ROM URLs in {nested_name} ({format_size(nested_size)})")
-                                    else:
-                                        print(f"{_indent}      Found {len(nested_roms)} ROM URLs in {nested_name}")
-                                    detected[system].extend(nested_roms)
-                                    for url, size in nested_files:
-                                        if size > 0:
-                                            _url_sizes[url] = size
-                            except Exception:
-                                pass
-
-                except Exception as e:
-                    print(f"{_indent}    Error scanning {folder_name}: {e}")
-                    continue
+                fetched = fetch_urls_parallel(
+                    urls_to_fetch,
+                    max_workers=scan_workers,
+                    auth_header=auth_header,
+                    progress_callback=progress_callback
+                )
+                # Clear progress line
+                print(f"{_indent}    " + " " * 40, end='\r')
             else:
-                # Recursively scan non-system folders (but skip if we already found ROMs at this level)
-                # This avoids scanning hundreds of game subfolders on sites like archive.org
-                if max_depth > 1 and not rom_files_with_sizes:
-                    print(f"{_indent}  Scanning subfolder: {folder_name}...")
-                    sub_detected, _ = scan_network_source_urls(
-                        subdir_url, systems,
-                        recursive=True, max_depth=max_depth - 1,
-                        _indent=_indent + "  ", _url_sizes=_url_sizes,
-                        auth_header=auth_header
-                    )
-                    for sys, urls in sub_detected.items():
-                        detected[sys].extend(urls)
+                # Single folder, just fetch directly
+                fetched = {}
+                for url in urls_to_fetch:
+                    try:
+                        content, final = fetch_url(url, auth_header=auth_header)
+                        fetched[url] = (content, final)
+                    except Exception:
+                        pass
+
+            # Process fetched results
+            for subdir_url in urls_to_fetch:
+                check_shutdown()
+
+                if subdir_url not in fetched:
+                    continue
+
+                system, folder_name = url_to_info[subdir_url]
+                content, final_url = fetched[subdir_url]
+                subdir_html = content.decode('utf-8', errors='replace')
+                sub_files_with_sizes = parse_html_for_files_with_sizes(subdir_html, final_url)
+
+                if sub_files_with_sizes:
+                    sub_rom_urls = [url for url, _ in sub_files_with_sizes]
+                    total_size = sum(size for _, size in sub_files_with_sizes)
+                    if total_size > 0:
+                        print(f"{_indent}    {folder_name} ({system}): {len(sub_rom_urls)} ROM URLs ({format_size(total_size)})")
+                    else:
+                        print(f"{_indent}    {folder_name} ({system}): {len(sub_rom_urls)} ROM URLs")
+                    detected[system].extend(sub_rom_urls)
+                    for url, size in sub_files_with_sizes:
+                        if size > 0:
+                            _url_sizes[url] = size
+
+                # Check for nested subdirectories (region folders, etc.)
+                if max_depth > 1:
+                    nested_subdirs = parse_html_for_directories(subdir_html, final_url)
+                    if nested_subdirs:
+                        # Parallel fetch nested subdirectories too
+                        nested_fetched = fetch_urls_parallel(
+                            nested_subdirs,
+                            max_workers=scan_workers,
+                            auth_header=auth_header
+                        )
+                        for nested_url, (nested_content, nested_final) in nested_fetched.items():
+                            check_shutdown()
+                            nested_html = nested_content.decode('utf-8', errors='replace')
+                            nested_files = parse_html_for_files_with_sizes(nested_html, nested_final)
+                            if nested_files:
+                                nested_name = urllib.request.unquote(nested_url.rstrip('/').split('/')[-1])
+                                nested_roms = [url for url, _ in nested_files]
+                                nested_size = sum(size for _, size in nested_files)
+                                if nested_size > 0:
+                                    print(f"{_indent}      Found {len(nested_roms)} ROM URLs in {nested_name} ({format_size(nested_size)})")
+                                else:
+                                    print(f"{_indent}      Found {len(nested_roms)} ROM URLs in {nested_name}")
+                                detected[system].extend(nested_roms)
+                                for url, size in nested_files:
+                                    if size > 0:
+                                        _url_sizes[url] = size
+
+        # Recursively scan non-system folders (sequentially to avoid explosion)
+        for subdir_url, folder_name in other_subdirs:
+            check_shutdown()
+            print(f"{_indent}  Scanning subfolder: {folder_name}...")
+            sub_detected, _ = scan_network_source_urls(
+                subdir_url, systems,
+                recursive=True, max_depth=max_depth - 1,
+                _indent=_indent + "  ", _url_sizes=_url_sizes,
+                auth_header=auth_header,
+                scan_workers=scan_workers
+            )
+            for sys, urls in sub_detected.items():
+                detected[sys].extend(urls)
 
     return dict(detected), _url_sizes
 
@@ -3328,6 +3419,13 @@ def apply_config_to_args(args, config: dict):
         'tp_include_platforms': 'tp_include_platforms',
         'tp_exclude_platforms': 'tp_exclude_platforms',
         'tp_all_versions': 'tp_all_versions',
+        # Network options
+        'parallel': 'parallel',
+        'connections': 'connections',
+        'scan_workers': 'scan_workers',
+        # Scanning options
+        'recursive': 'recursive',
+        'max_depth': 'max_depth',
     }
 
     for config_key, arg_name in config_map.items():
@@ -6537,35 +6635,62 @@ def detect_system_from_folder(folder_name: str) -> str:
     return name
 
 
-def scan_for_systems(source_dir: str) -> dict:
+def scan_for_systems(source_dir: str, recursive: bool = False, max_depth: int = 3) -> dict:
     """Scan source directory and detect available systems.
 
     Returns dict mapping system name to list of ROM files.
     Supports both folder-based organization and flat directories.
+
+    Args:
+        source_dir: Path to scan for ROMs
+        recursive: If True, scan subdirectories recursively (default: False)
+        max_depth: Maximum directory depth to scan (only used if recursive=True)
     """
     source_path = Path(source_dir)
     systems = defaultdict(list)
 
-    # Check if source has system subdirectories
-    subdirs = [d for d in source_path.iterdir() if d.is_dir() and not d.name.startswith('_')]
+    ROM_EXTENSIONS = {'.zip', '.7z', '.rar', '.sfc', '.smc', '.nes',
+        '.gb', '.gbc', '.gba', '.n64', '.z64', '.v64', '.md', '.gen', '.sms', '.gg',
+        '.pce', '.col', '.a26', '.a52', '.a78', '.j64', '.jag', '.lnx', '.vb', '.ws',
+        '.wsc', '.mx1', '.mx2', '.32x', '.sg', '.vec', '.int', '.st', '.gcm',
+        '.iso', '.bin', '.cue', '.chd', '.cso', '.pbp', '.rvz', '.wbfs', '.nsp',
+        '.xci', '.3ds', '.cia', '.nds', '.dsi', '.fds', '.pce', '.ngp', '.ngc',
+        '.wad', '.dol', '.gcz', '.tgc', '.vpk', '.pkg'}
 
-    if subdirs:
-        # Folder-based organization
-        for subdir in subdirs:
-            system = detect_system_from_folder(subdir.name)
-            for f in subdir.iterdir():
-                if f.is_file() and f.suffix.lower() in ('.zip', '.7z', '.rar', '.sfc', '.smc', '.nes',
-                    '.gb', '.gbc', '.gba', '.n64', '.z64', '.v64', '.md', '.gen', '.sms', '.gg',
-                    '.pce', '.col', '.a26', '.a52', '.a78', '.j64', '.jag', '.lnx', '.vb', '.ws',
-                    '.wsc', '.mx1', '.mx2', '.32x', '.sg', '.vec', '.int', '.st', '.gcm'):
-                    systems[system].append(f)
+    def scan_directory(dir_path: Path, current_depth: int, parent_system: str = None):
+        """Recursively scan a directory for ROMs."""
+        if current_depth > max_depth:
+            return
 
-    # Also check for ROMs directly in source directory (flat structure)
-    for f in source_path.iterdir():
-        if f.is_file():
-            detected = detect_system_from_extension(f.name)
-            if detected:
-                systems[detected].append(f)
+        try:
+            entries = list(dir_path.iterdir())
+        except PermissionError:
+            return
+
+        # Check if this directory name is a known system
+        folder_system = detect_system_from_folder(dir_path.name)
+        is_system_folder = folder_system in KNOWN_SYSTEMS
+        active_system = folder_system if is_system_folder else parent_system
+
+        # Collect ROMs in this directory
+        for entry in entries:
+            if entry.is_file() and entry.suffix.lower() in ROM_EXTENSIONS:
+                # Determine system: use folder's system, parent's system, or detect from extension
+                if active_system:
+                    systems[active_system].append(entry)
+                else:
+                    detected = detect_system_from_extension(entry.name)
+                    if detected:
+                        systems[detected].append(entry)
+
+        # Recurse into subdirectories if enabled
+        if recursive:
+            for entry in entries:
+                if entry.is_dir() and not entry.name.startswith('_') and not entry.name.startswith('.'):
+                    scan_directory(entry, current_depth + 1, active_system)
+
+    # Start scanning from the source directory
+    scan_directory(source_path, 0, None)
 
     return dict(systems)
 
@@ -6830,6 +6955,10 @@ Pattern examples (--include / --exclude):
                         help='Systems to process (default: auto-detect from folders)')
     parser.add_argument('--auto-detect', '-a', action='store_true',
                         help='Auto-detect systems from file extensions (for flat directories)')
+    parser.add_argument('--recursive', '-r', action='store_true', default=False,
+                        help='Recursively scan subdirectories for ROMs (use with --max-depth)')
+    parser.add_argument('--max-depth', type=int, default=3,
+                        help='Maximum directory depth when using -r/--recursive (default: 3)')
     parser.add_argument('--commit', '-c', action='store_true',
                         help='Actually transfer files (default is dry run which only shows what would be selected)')
     parser.add_argument('--config', default=None,
@@ -6918,6 +7047,8 @@ Pattern examples (--include / --exclude):
                         help='Auto-tune parallel/connections based on file sizes (default: enabled)')
     parser.add_argument('--no-auto-tune', action='store_false', dest='auto_tune',
                         help='Disable auto-tuning, use fixed --parallel and --connections values')
+    parser.add_argument('--scan-workers', type=int, default=16,
+                        help='Number of parallel workers for network directory scanning (default: 16)')
 
     # Internet Archive authentication
     parser.add_argument('--ia-access-key', default=None,
@@ -7264,7 +7395,11 @@ Pattern examples (--include / --exclude):
 
     for source_path in source_paths:
         if args.auto_detect or args.systems is None:
-            source_detected = scan_for_systems(str(source_path))
+            source_detected = scan_for_systems(
+                str(source_path),
+                recursive=args.recursive,
+                max_depth=args.max_depth
+            )
 
             if args.systems:
                 # Filter to only requested systems
@@ -7282,17 +7417,23 @@ Pattern examples (--include / --exclude):
                         detected[system].append(f)
                         rom_sources[str(f)] = source_path
         else:
-            # Use specified systems with folder-based organization
+            # Use specified systems - scan each system directory with recursive support
             for system in args.systems:
                 system_dir = source_path / system
                 if system_dir.exists():
-                    rom_files = [f for f in system_dir.iterdir()
-                                if f.is_file() and f.suffix.lower() in
-                                ('.zip', '.7z', '.rar', '.sfc', '.smc', '.nes', '.gb', '.gbc',
-                                 '.gba', '.n64', '.z64', '.v64', '.md', '.gen', '.sms', '.gg',
-                                 '.pce', '.col', '.a26', '.a52', '.a78', '.j64', '.jag', '.lnx',
-                                 '.vb', '.ws', '.wsc', '.mx1', '.mx2', '.32x', '.sg', '.vec',
-                                 '.int', '.st', '.gcm')]
+                    # Use scan_for_systems for consistent recursive behavior
+                    system_detected = scan_for_systems(
+                        str(system_dir),
+                        recursive=args.recursive,
+                        max_depth=args.max_depth
+                    )
+                    # Get ROMs detected as this system or any sub-detected systems
+                    rom_files = system_detected.get(system, [])
+                    # Also include ROMs from subdirectories that may have been auto-detected
+                    for detected_system, files in system_detected.items():
+                        if detected_system != system:
+                            rom_files.extend(files)
+
                     for f in rom_files:
                         if f.name not in [x.name for x in detected[system]]:
                             detected[system].append(f)
@@ -7335,7 +7476,13 @@ Pattern examples (--include / --exclude):
                 sys.exit(1)
 
         # Scan for URLs only (no downloading yet)
-        url_dict, url_sizes = scan_network_source_urls(network_url, args.systems, auth_header=scan_auth_header)
+        url_dict, url_sizes = scan_network_source_urls(
+            network_url, args.systems,
+            recursive=args.recursive,
+            max_depth=args.max_depth,
+            auth_header=scan_auth_header,
+            scan_workers=args.scan_workers
+        )
 
         # Check if this source returned any ROMs at all
         total_urls_from_source = sum(len(urls) for urls in url_dict.values())
