@@ -1303,7 +1303,7 @@ def fetch_urls_parallel(urls: List[str], max_workers: int = 16,
             completed += 1
             if progress_callback:
                 progress_callback(completed, len(urls))
-            url, result, error = future.result()
+            url, result, _error = future.result()
             if result:
                 results[url] = result
 
@@ -3033,7 +3033,6 @@ def scan_network_source_urls(base_url: str, systems: List[str] = None,
             # these are likely game folders - scan them in parallel
             if url_system and (systems is None or url_system in systems):
                 urls_to_fetch = [url for url, _ in other_subdirs]
-                url_to_name = {url: name for url, name in other_subdirs}
 
                 if len(urls_to_fetch) > 3:
                     progress = ScanProgressBar(
@@ -5249,7 +5248,7 @@ def parse_mame_dat(dat_path: str, show_progress: bool = False) -> dict:
                 parser.feed(chunk)
                 if show_progress:
                     bytes_read += len(chunk)
-                for event, elem in parser.read_events():
+                for _, elem in parser.read_events():
                     if elem.tag not in game_tags:
                         continue
 
@@ -5936,7 +5935,7 @@ def build_ratings_cache(xml_path: Path, cache_path: Path = None) -> dict:
             parser.feed(chunk)
             bytes_read += len(chunk)
 
-            for event, elem in parser.read_events():
+            for _, elem in parser.read_events():
                 if elem.tag != 'Game':
                     continue
 
@@ -6343,7 +6342,7 @@ def filter_teknoparrot_roms(source_dir: str, dest_dir: str, dat_path: str = None
     effective_include = include_platforms or TEKNOPARROT_INCLUDE_PLATFORMS
     effective_exclude = exclude_platforms or TEKNOPARROT_EXCLUDE_PLATFORMS
 
-    for normalized_title, games in title_groups.items():
+    for _normalized_title, games in title_groups.items():
         # Check include/exclude patterns
         sample_game = games[0]
         game_name = sample_game.base_title
@@ -7213,7 +7212,7 @@ def scan_for_systems(source_dir: str, recursive: bool = False, max_depth: int = 
         '.pce', '.col', '.a26', '.a52', '.a78', '.j64', '.jag', '.lnx', '.vb', '.ws',
         '.wsc', '.mx1', '.mx2', '.32x', '.sg', '.vec', '.int', '.st', '.gcm',
         '.iso', '.bin', '.cue', '.chd', '.cso', '.pbp', '.rvz', '.wbfs', '.nsp',
-        '.xci', '.3ds', '.cia', '.nds', '.dsi', '.fds', '.pce', '.ngp', '.ngc',
+        '.xci', '.3ds', '.cia', '.nds', '.dsi', '.fds', '.ngp', '.ngc',
         '.wad', '.dol', '.gcz', '.tgc', '.vpk', '.pkg'}
 
     def scan_directory(dir_path: Path, current_depth: int, parent_system: str = None):
@@ -7482,7 +7481,7 @@ def filter_roms_from_files(rom_files: list, dest_dir: str, system: str, dry_run:
 
         f.write("SELECTED ROMS:\n")
         f.write("-" * 60 + "\n")
-        for i, rom in enumerate(sorted(selected_roms, key=lambda r: r.base_title.lower()), 1):
+        for rom in sorted(selected_roms, key=lambda r: r.base_title.lower()):
             # Get rating if available
             rating_str = ""
             if ratings and system in ratings:
