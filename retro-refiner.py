@@ -5954,6 +5954,165 @@ def filter_teknoparrot_network_roms(rom_urls: List[str],
     return selected_urls, {'source_size': total_source_size, 'selected_size': selected_size}
 
 
+def filter_mame_network_roms(rom_urls: List[str],
+                              categories: dict,
+                              games: dict,
+                              include_patterns: List[str] = None,
+                              exclude_patterns: List[str] = None,
+                              include_adult: bool = True,
+                              url_sizes: Dict[str, int] = None,
+                              verbose: bool = False) -> Tuple[List[str], dict]:
+    """
+    Filter MAME/FBNeo ROMs from network sources using category filtering.
+
+    Args:
+        rom_urls: List of ROM URLs to filter
+        categories: Dict from catver.ini (rom_name -> category)
+        games: Dict from MAME DAT (rom_name -> MameGameInfo)
+        include_patterns: Glob patterns for games to include
+        exclude_patterns: Glob patterns for games to exclude
+        include_adult: Whether to include adult/mature content
+        url_sizes: Dict of URL -> file size
+        verbose: Print detailed filtering info
+
+    Returns:
+        (selected_urls, size_info)
+    """
+    label = "MAME"
+    if url_sizes is None:
+        url_sizes = {}
+
+    # Build URL -> filename map
+    url_map = {}  # filename -> url
+    size_map = {}  # filename -> size
+    total_source_size = 0
+
+    for url in rom_urls:
+        url_clean = url.split('?')[0].split('#')[0]
+        filename = urllib.request.unquote(url_clean.split('/')[-1])
+        url_map[filename] = url
+        size = url_sizes.get(url, 0)
+        size_map[filename] = size
+        total_source_size += size
+
+    # Apply categories to games if not already done
+    for name, game in games.items():
+        if not game.category:
+            game.category = categories.get(name, '')
+
+    # Group clones by parent
+    parent_clones = defaultdict(list)
+    for name, game in games.items():
+        if not game.is_parent and game.parent_name:
+            parent_clones[game.parent_name].append(name)
+
+    # Filter and select ROMs
+    selected_urls = []
+    selected_size = 0
+    included_count = 0
+    excluded_counts = defaultdict(int)
+
+    # Track processed games to avoid duplicates
+    processed = set()
+
+    for filename, url in url_map.items():
+        # Extract ROM name from filename
+        rom_name = filename.rsplit('.', 1)[0] if '.' in filename else filename
+
+        # Skip if already processed (via parent/clone relationship)
+        if rom_name in processed:
+            continue
+
+        # Check include/exclude patterns
+        if include_patterns:
+            if not any(fnmatch.fnmatch(filename.lower(), pat.lower()) for pat in include_patterns):
+                excluded_counts['pattern exclude'] += 1
+                continue
+        if exclude_patterns:
+            if any(fnmatch.fnmatch(filename.lower(), pat.lower()) for pat in exclude_patterns):
+                excluded_counts['pattern exclude'] += 1
+                continue
+
+        # Get game info
+        game = games.get(rom_name)
+        if not game:
+            # Unknown game - include it if it matches patterns
+            selected_urls.append(url)
+            selected_size += size_map.get(filename, 0)
+            included_count += 1
+            processed.add(rom_name)
+            if verbose:
+                print(f"  [INCLUDE] {filename} (not in DAT)")
+            continue
+
+        # Check if this is a clone - process through parent
+        if not game.is_parent and game.parent_name:
+            parent_name = game.parent_name
+            if parent_name in processed:
+                continue
+            parent_game = games.get(parent_name)
+            if parent_game:
+                game = parent_game
+                rom_name = parent_name
+
+        # Check category filtering
+        category = categories.get(rom_name, game.category or '')
+        should_include, reason = should_include_mame_game(game, category, include_adult)
+
+        if not should_include:
+            excluded_counts[reason] += 1
+            if verbose:
+                print(f"  [EXCLUDE] {filename}: {reason}")
+            processed.add(rom_name)
+            # Also mark clones as processed
+            for clone in parent_clones.get(rom_name, []):
+                processed.add(clone)
+            continue
+
+        # Find best version (parent or regional clone)
+        best_rom = select_best_mame_clone(rom_name, parent_clones.get(rom_name, []), games)
+        if not best_rom:
+            best_rom = game
+
+        # Check if best ROM is available
+        best_filename = f"{best_rom.name}.zip"
+        if best_filename in url_map:
+            selected_urls.append(url_map[best_filename])
+            selected_size += size_map.get(best_filename, 0)
+            included_count += 1
+            if verbose:
+                print(f"  [SELECT] {best_filename}: {reason}")
+        elif filename in url_map:
+            # Fallback to original if best not available
+            selected_urls.append(url)
+            selected_size += size_map.get(filename, 0)
+            included_count += 1
+            if verbose:
+                print(f"  [SELECT] {filename}: {reason} (fallback)")
+
+        processed.add(rom_name)
+        for clone in parent_clones.get(rom_name, []):
+            processed.add(clone)
+
+    print(f"{label}: {len(selected_urls)} ROMs after filtering ({format_size(selected_size)})")
+
+    # Print exclusion summary
+    if excluded_counts:
+        top_reasons = sorted(excluded_counts.items(), key=lambda x: -x[1])[:5]
+        for reason, count in top_reasons:
+            print(f"{label}: {count} filtered by {reason}")
+
+    print(f"{label}: {len(set(processed))} unique games processed")
+    print(f"{label}: Selected {len(selected_urls)} ROMs to download ({format_size(selected_size)})")
+
+    if total_source_size > 0:
+        size_saved = total_source_size - selected_size
+        reduction_pct = (size_saved / total_source_size) * 100
+        print(f"{label}: Size reduction: {format_size(size_saved)} saved ({reduction_pct:.1f}%)")
+
+    return selected_urls, {'source_size': total_source_size, 'selected_size': selected_size}
+
+
 # File extension to system mapping for auto-detection
 EXTENSION_TO_SYSTEM = {
     # Nintendo - Consoles
@@ -7190,6 +7349,8 @@ Pattern examples (--include / --exclude):
 
     # Step 1.5: Download DAT files for detected network systems (improves filtering accuracy)
     # DAT files provide official game names for better title matching
+    mame_categories = {}  # For MAME network filtering
+    mame_games = {}  # For MAME network filtering
     if use_dat and all_network_urls:
         dat_dir = Path(args.dat_dir) if args.dat_dir else primary_source / 'dat_files'
         # Skip MAME/arcade systems - they use catver.ini instead of libretro DATs
@@ -7204,6 +7365,18 @@ Pattern examples (--include / --exclude):
                     dat_entries = parse_dat_file(dat_path)
                     network_dat_entries[system] = dat_entries
                     print(f"  {system.upper()}: {len(dat_entries)} DAT entries loaded")
+
+        # Download MAME data (catver.ini + DAT) for MAME/arcade network sources
+        mame_network_systems = [s for s in all_network_urls.keys() if s in ('mame', 'fbneo', 'fba', 'arcade')]
+        if mame_network_systems:
+            print(f"\nDownloading MAME data for category filtering...")
+            catver_path, mame_dat_path = download_mame_data(dat_dir, version=args.mame_version)
+            if catver_path and mame_dat_path:
+                mame_categories = parse_catver_ini(str(catver_path))
+                mame_games = parse_mame_dat(str(mame_dat_path))
+                print(f"  Loaded {len(mame_categories)} categories, {len(mame_games)} games")
+            else:
+                print("  Warning: MAME data not available, category filtering disabled")
 
         # Load T-En DAT files for systems with T-En translation sources
         # These are hosted on Archive.org which requires authentication for download
@@ -7274,6 +7447,18 @@ Pattern examples (--include / --exclude):
                 keep_all_versions=getattr(args, 'tp_all_versions', False),
                 include_patterns=args.include,
                 exclude_patterns=args.exclude,
+                url_sizes=all_url_sizes,
+                verbose=args.verbose
+            )
+        elif system in ('mame', 'fbneo', 'fba', 'arcade') and mame_categories and mame_games:
+            # Special handling for MAME/FBNeo (uses category filtering)
+            filtered_urls, size_info = filter_mame_network_roms(
+                urls,
+                categories=mame_categories,
+                games=mame_games,
+                include_patterns=args.include,
+                exclude_patterns=args.exclude,
+                include_adult=not args.exclude_adult if hasattr(args, 'exclude_adult') else True,
                 url_sizes=all_url_sizes,
                 verbose=args.verbose
             )
@@ -7646,95 +7831,139 @@ Pattern examples (--include / --exclude):
         # Special handling for MAME and FBNeo (arcade systems)
         elif system in ('mame', 'fbneo', 'fba', 'arcade'):
             arcade_system = system.upper()
+            orig_system = system
             if system in ('fba', 'arcade'):
                 system = 'fbneo'  # Normalize to fbneo
 
-            # Use consolidated dat_files directory
-            dat_dir = Path(args.dat_dir) if args.dat_dir else primary_source / 'dat_files'
+            # Check if files came from network sources (already pre-filtered)
+            network_filtered = any(str(f).startswith(str(cache_dir)) for f in rom_files if hasattr(f, '__str__'))
 
-            # Check for existing data files
-            catver_path = None
-            arcade_dat_path = None
+            if network_filtered and rom_files:
+                # Files are already filtered from network - just copy to destination
+                print(f"{arcade_system}: Processing {len(rom_files)} pre-filtered ROMs from network...")
+                dest_path = Path(args.dest) / orig_system
+                if not dry_run:
+                    dest_path.mkdir(parents=True, exist_ok=True)
 
-            # Look for catver.ini
-            if (dat_dir / 'catver.ini').exists():
-                catver_path = dat_dir / 'catver.ini'
+                selected = []
+                source_size = 0
+                selected_size = 0
 
-            # Look for DAT file based on system
-            if dat_dir.exists():
-                dat_candidates = []
+                for rom_path in rom_files:
+                    if not rom_path.exists():
+                        continue
+                    file_size = rom_path.stat().st_size
+                    source_size += file_size
+                    selected_size += file_size
 
-                if system == 'fbneo':
-                    # FBNeo: prefer FBNeo DAT
-                    for f in dat_dir.glob('*[Ff][Bb][Nn]eo*.dat'):
-                        dat_candidates.append(f)
-                    for f in dat_dir.glob('*[Ff][Bb][Aa]*.dat'):
-                        dat_candidates.append(f)
-                else:
-                    # MAME: prefer full MAME arcade DAT
-                    dat_candidates.extend(sorted(dat_dir.glob('MAME*arcade*.dat'), reverse=True))
-                    dat_candidates.extend(sorted(dat_dir.glob('MAME*.dat'), reverse=True))
-                    dat_candidates.extend(sorted(dat_dir.glob('ARCADE*.dat'), reverse=True))
-                    if (dat_dir / 'mame.xml').exists():
-                        dat_candidates.append(dat_dir / 'mame.xml')
-                    # Any DAT in root (but not FBNeo)
-                    for f in dat_dir.glob('*.dat'):
-                        if 'fbneo' not in f.name.lower() and 'fba' not in f.name.lower():
-                            dat_candidates.append(f)
+                    dest_file = dest_path / rom_path.name
+                    if not dry_run:
+                        if transfer_mode == 'copy':
+                            shutil.copy2(rom_path, dest_file)
+                        elif transfer_mode == 'move':
+                            shutil.move(str(rom_path), str(dest_file))
+                        elif transfer_mode == 'link':
+                            if dest_file.exists():
+                                dest_file.unlink()
+                            os.symlink(rom_path, dest_file)
+                    selected.append(rom_path)
+                    print(f"  {SYM_CHECK} {rom_path.name}")
 
-                if dat_candidates:
-                    arcade_dat_path = dat_candidates[0]
-
-            # Download missing files (for MAME only - FBNeo uses existing DAT)
-            if system == 'mame' and (not catver_path or not arcade_dat_path):
-                print(f"\n{arcade_system}: Data files not found, downloading...")
-                downloaded_catver, downloaded_dat = download_mame_data(
-                    dat_dir,
-                    version=args.mame_version
-                )
-                if downloaded_catver:
-                    catver_path = downloaded_catver
-                if downloaded_dat:
-                    arcade_dat_path = downloaded_dat
-
-            # Verify we have required files
-            if not catver_path or not catver_path.exists():
-                print(f"{arcade_system}: catver.ini not available. Skipping.")
-                continue
-            if not arcade_dat_path or not arcade_dat_path.exists():
-                print(f"{arcade_system}: DAT file not available. Skipping.")
-                continue
-
-            # Get ROM source directory (check all sources)
-            rom_source = None
-            for sp in source_paths:
-                if (sp / system).exists():
-                    rom_source = sp / system
-                    break
-            if not rom_source:
-                print(f"{arcade_system}: ROM directory not found in any source")
-                continue
-
-            print(f"{arcade_system}: Using catver.ini from {catver_path}")
-            print(f"{arcade_system}: Using DAT from {arcade_dat_path}")
-
-            result = filter_mame_roms(
-                str(rom_source),
-                args.dest,
-                str(catver_path),
-                str(arcade_dat_path),
-                copy_chds=not args.no_chd,
-                dry_run=dry_run,
-                system_name=system,
-                include_adult=not args.no_adult
-            )
-            selected, size_info = result
-            system_stats[system] = size_info
-            total_source_size += size_info['source_size']
-            total_selected_size += size_info['selected_size']
-            if selected:
+                size_info = {'source_size': source_size, 'selected_size': selected_size}
+                system_stats[orig_system] = size_info
+                total_source_size += source_size
+                total_selected_size += selected_size
                 total_selected += len(selected)
-            print()
+                print(f"{arcade_system}: Selected {len(selected)} ROMs ({format_size(selected_size)})")
+                print()
+            else:
+                # Local source - use full directory scanning and filtering
+                # Use consolidated dat_files directory
+                dat_dir = Path(args.dat_dir) if args.dat_dir else primary_source / 'dat_files'
+
+                # Check for existing data files
+                catver_path = None
+                arcade_dat_path = None
+
+                # Look for catver.ini
+                if (dat_dir / 'catver.ini').exists():
+                    catver_path = dat_dir / 'catver.ini'
+
+                # Look for DAT file based on system
+                if dat_dir.exists():
+                    dat_candidates = []
+
+                    if system == 'fbneo':
+                        # FBNeo: prefer FBNeo DAT
+                        for f in dat_dir.glob('*[Ff][Bb][Nn]eo*.dat'):
+                            dat_candidates.append(f)
+                        for f in dat_dir.glob('*[Ff][Bb][Aa]*.dat'):
+                            dat_candidates.append(f)
+                    else:
+                        # MAME: prefer full MAME arcade DAT
+                        dat_candidates.extend(sorted(dat_dir.glob('MAME*arcade*.dat'), reverse=True))
+                        dat_candidates.extend(sorted(dat_dir.glob('MAME*.dat'), reverse=True))
+                        dat_candidates.extend(sorted(dat_dir.glob('ARCADE*.dat'), reverse=True))
+                        if (dat_dir / 'mame.xml').exists():
+                            dat_candidates.append(dat_dir / 'mame.xml')
+                        # Any DAT in root (but not FBNeo)
+                        for f in dat_dir.glob('*.dat'):
+                            if 'fbneo' not in f.name.lower() and 'fba' not in f.name.lower():
+                                dat_candidates.append(f)
+
+                    if dat_candidates:
+                        arcade_dat_path = dat_candidates[0]
+
+                # Download missing files (for MAME only - FBNeo uses existing DAT)
+                if system == 'mame' and (not catver_path or not arcade_dat_path):
+                    print(f"\n{arcade_system}: Data files not found, downloading...")
+                    downloaded_catver, downloaded_dat = download_mame_data(
+                        dat_dir,
+                        version=args.mame_version
+                    )
+                    if downloaded_catver:
+                        catver_path = downloaded_catver
+                    if downloaded_dat:
+                        arcade_dat_path = downloaded_dat
+
+                # Verify we have required files
+                if not catver_path or not catver_path.exists():
+                    print(f"{arcade_system}: catver.ini not available. Skipping.")
+                    continue
+                if not arcade_dat_path or not arcade_dat_path.exists():
+                    print(f"{arcade_system}: DAT file not available. Skipping.")
+                    continue
+
+                # Get ROM source directory (check all sources)
+                rom_source = None
+                for sp in source_paths:
+                    if (sp / system).exists():
+                        rom_source = sp / system
+                        break
+                if not rom_source:
+                    print(f"{arcade_system}: ROM directory not found in any source")
+                    continue
+
+                print(f"{arcade_system}: Using catver.ini from {catver_path}")
+                print(f"{arcade_system}: Using DAT from {arcade_dat_path}")
+
+                result = filter_mame_roms(
+                    str(rom_source),
+                    args.dest,
+                    str(catver_path),
+                    str(arcade_dat_path),
+                    copy_chds=not args.no_chd,
+                    dry_run=dry_run,
+                    system_name=system,
+                    include_adult=not args.no_adult
+                )
+                selected, size_info = result
+                system_stats[system] = size_info
+                total_source_size += size_info['source_size']
+                total_selected_size += size_info['selected_size']
+                if selected:
+                    total_selected += len(selected)
+                print()
         else:
             # DAT verification/matching for non-MAME systems
             dat_entries = None
