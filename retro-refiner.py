@@ -572,7 +572,7 @@ class ScanProgressBar:
 
     def make_callback(self):
         """Return a callback function for use with fetch_urls_parallel."""
-        def callback(completed, total):
+        def callback(completed, _total):
             self.update(completed)
         return callback
 
@@ -1261,7 +1261,7 @@ def fetch_url(url: str, timeout: int = 30, max_redirects: int = 5, auth_header: 
                             "Get credentials at: https://archive.org/account/s3.php\n"
                             "Then set: export IA_ACCESS_KEY=your_key\n"
                             "         export IA_SECRET_KEY=your_secret"
-                        )
+                        ) from e
                     current_url = normalize_url(new_url, current_url) or new_url
                     redirects += 1
                     continue
@@ -5004,9 +5004,8 @@ def download_mame_data(mame_data_dir: Path, version: str = None, force: bool = F
             if download_file(alt_url, archive_path, "MAME DAT pack"):
                 # Extract using 7z command if available
                 try:
-                    import subprocess
                     result = subprocess.run(['7z', 'x', '-y', f'-o{mame_data_dir}', str(archive_path)],
-                                          capture_output=True, text=True)
+                                          capture_output=True, text=True, check=False)
                     if result.returncode == 0:
                         # Look for arcade dat
                         for dat in mame_data_dir.glob('*arcade*.dat'):
