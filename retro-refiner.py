@@ -7132,7 +7132,10 @@ def filter_roms_from_files(rom_files: list, dest_dir: str, system: str, dry_run:
                            transfer_mode: str = 'copy',
                            year_from: int = None,
                            year_to: int = None,
-                           verbose: bool = False):
+                           verbose: bool = False,
+                           top_n: int = None,
+                           include_unrated: bool = False,
+                           ratings: dict = None):
     """Filter ROMs from a list of file paths.
 
     If dat_entries is provided, uses DAT metadata to enhance/override filename parsing.
@@ -7272,6 +7275,27 @@ def filter_roms_from_files(rom_files: list, dest_dir: str, system: str, dry_run:
                 if verbose:
                     print(f"  [SKIP] No suitable ROM for '{title}' (sample: {sample})")
 
+    # Apply top-N filter if requested
+    if top_n and ratings:
+        system_ratings = ratings.get(system, {})
+        pre_filter_count = len(selected_roms)
+
+        rated_count = sum(1 for r in selected_roms
+                        if normalize_title(r.base_title) in system_ratings)
+
+        print(f"{system.upper()}: Rating data matched {rated_count} of {pre_filter_count} games")
+
+        selected_roms = apply_top_n_filter(
+            selected_roms, system_ratings, top_n, include_unrated
+        )
+
+        filtered_out = pre_filter_count - len(selected_roms)
+        if include_unrated:
+            print(f"{system.upper()}: Top {top_n} selected ({filtered_out} below cutoff)")
+        else:
+            unrated_excluded = pre_filter_count - rated_count
+            print(f"{system.upper()}: Top {top_n} selected ({filtered_out} below cutoff, {unrated_excluded} unrated excluded)")
+
     # Calculate selected size
     selected_size = sum(size_map.get(rom.filename, 0) for rom in selected_roms)
     size_saved = total_source_size - selected_size
@@ -7321,8 +7345,16 @@ def filter_roms_from_files(rom_files: list, dest_dir: str, system: str, dry_run:
 
         f.write("SELECTED ROMS:\n")
         f.write("-" * 60 + "\n")
-        for rom in sorted(selected_roms, key=lambda r: r.base_title.lower()):
-            f.write(f"{rom.filename}\n")
+        for i, rom in enumerate(sorted(selected_roms, key=lambda r: r.base_title.lower()), 1):
+            # Get rating if available
+            rating_str = ""
+            if ratings and system in ratings:
+                normalized = normalize_title(rom.base_title)
+                rating_entry = ratings[system].get(normalized)
+                if rating_entry:
+                    rating_str = f" [★{rating_entry['rating']:.2f} ({rating_entry['votes']} votes)]"
+
+            f.write(f"{rom.filename}{rating_str}\n")
             f.write(f"  Title: {rom.base_title}\n")
             f.write(f"  Region: {rom.region}, Rev: {rom.revision}")
             if rom.is_translation:
