@@ -53,6 +53,20 @@ python retro-refiner.py --list-systems
 python retro-refiner.py --clean
 ```
 
+### Top-N filtering (highest-rated games)
+```bash
+# Top 50 rated games per system
+python retro-refiner.py -s /path/to/roms --top 50 --commit
+
+# Top 25 Mario games by rating
+python retro-refiner.py -s /path/to/roms --top 25 --include "*Mario*" --commit
+
+# Top 100, include unrated games if slots remain
+python retro-refiner.py -s /path/to/roms --top 100 --include-unrated --commit
+```
+
+Ratings data from LaunchBox (auto-downloaded on first use, refresh with `--update-dats`).
+
 ## System Detection
 
 The script supports two modes:
@@ -154,6 +168,13 @@ When combining multiple sources (e.g., No-Intro + T-En Collection):
 - Prototypes
 - Fan translations [T-En by...]
 - Japan-only games when no English version exists
+
+### Top-N Rating Filter
+- Uses LaunchBox community ratings (0-5 scale)
+- Data stored in `dat_files/launchbox/`
+- `--top N` keeps N highest-rated games per system
+- `--include-unrated` adds unrated games after rated ones
+- Filters apply before top-N (e.g., `--top 50 --include "*Mario*"` = top 50 Mario games)
 
 ## Configuration File
 
