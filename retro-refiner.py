@@ -7632,6 +7632,16 @@ Pattern examples (--include / --exclude):
                     _time.sleep(1.0)
             Console.result("T-En DATs", ten_downloaded, ten_failed)
 
+        # LaunchBox ratings data
+        Console.section("LaunchBox Ratings Data")
+        lb_result = download_launchbox_data(dat_dir, force=True)
+        if lb_result:
+            # Rebuild cache
+            load_ratings_cache(dat_dir, force_rebuild=True)
+            Console.success("Downloaded and cached successfully")
+        else:
+            Console.error("Failed to download LaunchBox data")
+
         # Summary
         final_dats = list(dat_dir.glob('*.dat')) + list(dat_dir.glob('*.xml')) + list(dat_dir.glob('*.ini'))
         Console.header("UPDATE COMPLETE")
@@ -8334,6 +8344,30 @@ Pattern examples (--include / --exclude):
     total_selected_size = 0
     system_stats = {}  # Track stats per system
 
+    # Load ratings if --top is used
+    ratings = {}
+    if args.top:
+        Console.section("Loading Rating Data")
+        dat_dir = Path(args.dat_dir) if args.dat_dir else Path(__file__).parent / 'dat_files'
+
+        # Check if LaunchBox data exists
+        lb_xml = dat_dir / "launchbox" / "Metadata.xml"
+        if not lb_xml.exists():
+            Console.warning("LaunchBox data not found. Downloading...")
+            if not download_launchbox_data(dat_dir):
+                Console.error("Failed to download LaunchBox data. --top requires rating data.")
+                Console.info("Run with --update-dats to download, or remove --top flag.")
+                sys.exit(1)
+
+        ratings = load_ratings_cache(dat_dir)
+        if not ratings:
+            Console.error("Failed to load ratings cache.")
+            sys.exit(1)
+
+        total_rated = sum(len(games) for games in ratings.values())
+        Console.success(f"Loaded ratings for {total_rated} games across {len(ratings)} systems")
+        print()
+
     for system in sorted(detected.keys()):
         check_shutdown()
         rom_files = detected[system]
@@ -8645,7 +8679,10 @@ Pattern examples (--include / --exclude):
                 transfer_mode=transfer_mode,
                 year_from=args.year_from,
                 year_to=args.year_to,
-                verbose=args.verbose
+                verbose=args.verbose,
+                top_n=args.top,
+                include_unrated=args.include_unrated,
+                ratings=ratings
             )
             selected, size_info = result
             system_stats[system] = size_info
