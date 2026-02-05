@@ -1065,6 +1065,88 @@ def test_build_ratings_cache():
         temp_path.unlink()
 
 
+def test_apply_top_n_filter():
+    """Test top-N filtering logic."""
+    print("\n" + "="*60)
+    print("TOP-N FILTER TESTS")
+    print("="*60)
+
+    try:
+        apply_top_n_filter = _module.apply_top_n_filter
+    except AttributeError:
+        print("  [SKIP] apply_top_n_filter not yet implemented")
+        return
+
+    # Create sample ROMs
+    roms = [
+        RomInfo(filename="Game A (USA).zip", base_title="Game A", region="USA",
+                revision=0, is_english=True, is_translation=False,
+                is_beta=False, is_demo=False, is_promo=False, is_sample=False,
+                is_proto=False, is_bios=False, is_pirate=False, is_unlicensed=False,
+                is_homebrew=False, is_rerelease=False, is_compilation=False, is_lock_on=False),
+        RomInfo(filename="Game B (USA).zip", base_title="Game B", region="USA",
+                revision=0, is_english=True, is_translation=False,
+                is_beta=False, is_demo=False, is_promo=False, is_sample=False,
+                is_proto=False, is_bios=False, is_pirate=False, is_unlicensed=False,
+                is_homebrew=False, is_rerelease=False, is_compilation=False, is_lock_on=False),
+        RomInfo(filename="Game C (USA).zip", base_title="Game C", region="USA",
+                revision=0, is_english=True, is_translation=False,
+                is_beta=False, is_demo=False, is_promo=False, is_sample=False,
+                is_proto=False, is_bios=False, is_pirate=False, is_unlicensed=False,
+                is_homebrew=False, is_rerelease=False, is_compilation=False, is_lock_on=False),
+        RomInfo(filename="Unrated Game (USA).zip", base_title="Unrated Game", region="USA",
+                revision=0, is_english=True, is_translation=False,
+                is_beta=False, is_demo=False, is_promo=False, is_sample=False,
+                is_proto=False, is_bios=False, is_pirate=False, is_unlicensed=False,
+                is_homebrew=False, is_rerelease=False, is_compilation=False, is_lock_on=False),
+    ]
+
+    # Sample ratings (higher = better)
+    ratings = {
+        'game a': {'rating': 4.5, 'votes': 100},
+        'game b': {'rating': 3.0, 'votes': 50},
+        'game c': {'rating': 4.8, 'votes': 200},
+        # 'unrated game' intentionally missing
+    }
+
+    # Test 1: Top 2, no unrated
+    result = apply_top_n_filter(roms, ratings, top_n=2, include_unrated=False)
+    titles = [r.base_title for r in result]
+
+    if len(result) == 2:
+        results.ok("Top 2 returns 2 games")
+    else:
+        results.fail("Top 2 returns 2 games", 2, len(result))
+
+    # Should be C (4.8) then A (4.5)
+    if titles == ['Game C', 'Game A']:
+        results.ok("Top 2 sorted by rating (C=4.8, A=4.5)")
+    else:
+        results.fail("Top 2 sorted by rating", ['Game C', 'Game A'], titles)
+
+    # Test 2: Top 4 with unrated included
+    result = apply_top_n_filter(roms, ratings, top_n=4, include_unrated=True)
+    titles = [r.base_title for r in result]
+
+    if len(result) == 4:
+        results.ok("Top 4 with unrated returns 4 games")
+    else:
+        results.fail("Top 4 with unrated returns 4 games", 4, len(result))
+
+    # Unrated should be last
+    if titles[-1] == 'Unrated Game':
+        results.ok("Unrated game appears last")
+    else:
+        results.fail("Unrated game appears last", 'Unrated Game', titles[-1])
+
+    # Test 3: Top 5, exclude unrated (should only get rated games)
+    result = apply_top_n_filter(roms, ratings, top_n=5, include_unrated=False)
+    if len(result) == 3:  # Only 3 rated games exist
+        results.ok("Without include_unrated, only rated games returned")
+    else:
+        results.fail("Without include_unrated, only rated games returned", 3, len(result))
+
+
 def test_system_detection():
     """Test system detection from folders and extensions."""
     print("\n" + "="*60)
@@ -1291,6 +1373,7 @@ def main():
     test_launchbox_platform_mapping()
     test_launchbox_download_function()
     test_build_ratings_cache()
+    test_apply_top_n_filter()
     test_system_detection()
     test_playlist_generation()
 

@@ -5930,6 +5930,45 @@ def load_ratings_cache(dat_dir: Path, force_rebuild: bool = False) -> dict:
     return build_ratings_cache(xml_path, cache_path)
 
 
+def apply_top_n_filter(roms: List[RomInfo], ratings: dict, top_n: int,
+                       include_unrated: bool = False) -> List[RomInfo]:
+    """Filter ROMs to top N by rating.
+
+    Args:
+        roms: List of RomInfo objects (already selected best per game)
+        ratings: Dict of {normalized_title: {"rating": float, "votes": int}}
+        top_n: Number of top games to keep
+        include_unrated: If True, append unrated games after rated ones
+
+    Returns:
+        Filtered list of RomInfo, sorted by rating descending
+    """
+    rated_roms = []
+    unrated_roms = []
+
+    for rom in roms:
+        normalized = normalize_title(rom.base_title)
+        rating_entry = ratings.get(normalized)
+
+        if rating_entry:
+            rated_roms.append((rom, rating_entry['rating'], rating_entry['votes']))
+        else:
+            unrated_roms.append(rom)
+
+    # Sort rated ROMs by rating (desc), then by votes (desc) for ties
+    rated_roms.sort(key=lambda x: (-x[1], -x[2]))
+
+    # Take top N rated
+    result = [rom for rom, rating, votes in rated_roms[:top_n]]
+
+    # If including unrated and we have room, append them
+    if include_unrated and len(result) < top_n:
+        remaining_slots = top_n - len(result)
+        result.extend(unrated_roms[:remaining_slots])
+
+    return result
+
+
 def parse_teknoparrot_dat(dat_path: str) -> dict:
     """Parse TeknoParrot DAT file and return game info dict.
 
