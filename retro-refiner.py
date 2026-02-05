@@ -503,6 +503,76 @@ def tqdm(iterable=None, **kwargs):
         total=kwargs.get('total')
     )
 
+
+class ScanProgressBar:
+    """Progress bar for parallel scanning operations with callback interface."""
+
+    def __init__(self, total: int, desc: str = 'Scanning', indent: str = ''):
+        self.total = total
+        self.desc = desc
+        self.indent = indent
+        self.current = 0
+        self.start_time = _time.time()
+        self.bar_width = 20
+        self._print_bar()
+
+    def update(self, completed: int):
+        """Update progress to specific count."""
+        self.current = completed
+        self._print_bar()
+
+    def _format_time(self, seconds):
+        """Format seconds into human-readable string."""
+        if seconds < 60:
+            return f"{seconds:.0f}s"
+        elif seconds < 3600:
+            mins, secs = divmod(int(seconds), 60)
+            return f"{mins}:{secs:02d}"
+        else:
+            hours, remainder = divmod(int(seconds), 3600)
+            mins, secs = divmod(remainder, 60)
+            return f"{hours}:{mins:02d}:{secs:02d}"
+
+    def _print_bar(self):
+        elapsed = _time.time() - self.start_time
+
+        if self.total > 0:
+            pct = self.current / self.total
+            filled = int(self.bar_width * pct)
+            bar = SYM_BLOCK_FULL * filled + SYM_BLOCK_LIGHT * (self.bar_width - filled)
+
+            # Calculate throughput and ETA
+            if self.current > 0 and elapsed > 0:
+                rate = self.current / elapsed
+                remaining = (self.total - self.current) / rate if rate > 0 else 0
+                rate_str = f"{rate:.1f}" if rate < 100 else f"{rate:.0f}"
+                eta_str = self._format_time(remaining)
+                elapsed_str = self._format_time(elapsed)
+                stats = f" [{elapsed_str}<{eta_str}, {rate_str}/s]"
+            else:
+                stats = ""
+
+            line = f"\r{self.indent}{self.desc}: |{bar}| {self.current}/{self.total}{stats}"
+        else:
+            line = f"\r{self.indent}{self.desc}: {self.current}"
+
+        # Pad to clear previous longer lines
+        print(f"{line:<79}", end='', flush=True)
+
+    def finish(self, message: str = None):
+        """Finish progress bar and optionally print a completion message."""
+        # Clear the line
+        print('\r' + ' ' * 79 + '\r', end='', flush=True)
+        if message:
+            print(f"{self.indent}{message}")
+
+    def make_callback(self):
+        """Return a callback function for use with fetch_urls_parallel."""
+        def callback(completed, total):
+            self.update(completed)
+        return callback
+
+
 # Global flag for graceful shutdown
 _shutdown_requested = False
 
@@ -2880,28 +2950,18 @@ def scan_network_source_urls(base_url: str, systems: List[str] = None,
             url_to_info = {url: (system, folder_name) for url, system, folder_name in system_subdirs}
 
             if len(urls_to_fetch) > 1:
-                print(f"{_indent}  Scanning {len(urls_to_fetch)} system folders in parallel...")
-
-                # Progress callback for parallel scanning
-                progress_state = {'last_pct': -1}
-                def progress_callback(completed, total):
-                    pct = (completed * 100) // total
-                    if pct != progress_state['last_pct'] and pct % 10 == 0:
-                        progress_state['last_pct'] = pct
-                        # Show progress on same line
-                        bar_width = 20
-                        filled = (completed * bar_width) // total
-                        bar = '#' * filled + '-' * (bar_width - filled)
-                        print(f"{_indent}    [{bar}] {completed}/{total}", end='\r', flush=True)
-
+                progress = ScanProgressBar(
+                    total=len(urls_to_fetch),
+                    desc=f"Scanning {len(urls_to_fetch)} system folders",
+                    indent=f"{_indent}  "
+                )
                 fetched = fetch_urls_parallel(
                     urls_to_fetch,
                     max_workers=scan_workers,
                     auth_header=auth_header,
-                    progress_callback=progress_callback
+                    progress_callback=progress.make_callback()
                 )
-                # Clear progress line
-                print(f"{_indent}    " + " " * 40, end='\r')
+                progress.finish()
             else:
                 # Single folder, just fetch directly
                 fetched = {}
@@ -2963,19 +3023,72 @@ def scan_network_source_urls(base_url: str, systems: List[str] = None,
                                     if size > 0:
                                         _url_sizes[url] = size
 
-        # Recursively scan non-system folders (sequentially to avoid explosion)
-        for subdir_url, folder_name in other_subdirs:
-            check_shutdown()
-            print(f"{_indent}  Scanning subfolder: {folder_name}...")
-            sub_detected, _ = scan_network_source_urls(
-                subdir_url, systems,
-                recursive=True, max_depth=max_depth - 1,
-                _indent=_indent + "  ", _url_sizes=_url_sizes,
-                auth_header=auth_header,
-                scan_workers=scan_workers
-            )
-            for sys, urls in sub_detected.items():
-                detected[sys].extend(urls)
+        # Handle non-system subdirectories
+        if other_subdirs:
+            # If we detected a system from the URL path (e.g., "mame" from CHDs URL),
+            # these are likely game folders - scan them in parallel
+            if url_system and (systems is None or url_system in systems):
+                urls_to_fetch = [url for url, _ in other_subdirs]
+                url_to_name = {url: name for url, name in other_subdirs}
+
+                if len(urls_to_fetch) > 3:
+                    progress = ScanProgressBar(
+                        total=len(urls_to_fetch),
+                        desc=f"Scanning {len(urls_to_fetch)} game folders",
+                        indent=f"{_indent}  "
+                    )
+                    fetched = fetch_urls_parallel(
+                        urls_to_fetch,
+                        max_workers=scan_workers,
+                        auth_header=auth_header,
+                        progress_callback=progress.make_callback()
+                    )
+                    progress.finish(f"Scanned {len(fetched)}/{len(urls_to_fetch)} folders")
+                else:
+                    # Few folders, fetch directly
+                    fetched = {}
+                    for url in urls_to_fetch:
+                        try:
+                            content, final = fetch_url(url, auth_header=auth_header)
+                            fetched[url] = (content, final)
+                        except Exception:
+                            pass
+
+                # Process fetched game folders
+                total_roms = 0
+                total_size = 0
+                for subdir_url, (content, final_url) in fetched.items():
+                    check_shutdown()
+                    subdir_html = content.decode('utf-8', errors='replace')
+                    sub_files = parse_html_for_files_with_sizes(subdir_html, final_url)
+                    if sub_files:
+                        for url, size in sub_files:
+                            detected[url_system].append(url)
+                            if size > 0:
+                                _url_sizes[url] = size
+                                total_size += size
+                        total_roms += len(sub_files)
+
+                if total_roms > 0:
+                    if total_size > 0:
+                        print(f"{_indent}  Found {total_roms} ROM URLs ({format_size(total_size)})")
+                    else:
+                        print(f"{_indent}  Found {total_roms} ROM URLs")
+
+            else:
+                # No URL system detected - scan recursively (sequentially to avoid explosion)
+                for subdir_url, folder_name in other_subdirs:
+                    check_shutdown()
+                    print(f"{_indent}  Scanning subfolder: {folder_name}...")
+                    sub_detected, _ = scan_network_source_urls(
+                        subdir_url, systems,
+                        recursive=True, max_depth=max_depth - 1,
+                        _indent=_indent + "  ", _url_sizes=_url_sizes,
+                        auth_header=auth_header,
+                        scan_workers=scan_workers
+                    )
+                    for sys, urls in sub_detected.items():
+                        detected[sys].extend(urls)
 
     return dict(detected), _url_sizes
 
