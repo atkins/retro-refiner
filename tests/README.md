@@ -107,7 +107,8 @@ Functional tests for network source operations. Tests real network scanning agai
 
 - **No-Intro sources**: GBA scanning, filtering, dry-run mode
 - **No-Intro + T-En combined**: Translation source integration
-- **MAME CHDs**: Parallel game folder scanning, category filtering
+- **MAME ROMs**: Category filtering, arcade ROM scanning
+- **MAME CHDs**: Parallel game folder scanning (600+ folders)
 - **FBNeo arcade**: Direct arcade ROM scanning
 - **FBNeo recursive**: Multi-system scanning with `-r` flag
 - **TeknoParrot**: Modern arcade ROM scanning, platform filtering
@@ -140,7 +141,9 @@ python tests/test_network_sources.py --test redump
 |------|-------------|
 | `nointro` | No-Intro GBA source scan |
 | `ten` | No-Intro + T-En combined |
-| `mame` | MAME CHDs with parallel scanning |
+| `mame` | MAME ROMs with category filtering |
+| `mame_roms` | MAME ROMs with category filtering |
+| `mame_chd` | MAME CHDs with parallel folder scanning |
 | `fbneo` | FBNeo arcade |
 | `fbneo_recursive` | FBNeo all systems with `-r` |
 | `teknoparrot` | TeknoParrot scan |
