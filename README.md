@@ -84,6 +84,21 @@ python retro-refiner.py \
   --systems teknoparrot --commit
 ```
 
+**FinalBurn Neo (Arcade)**
+```bash
+python retro-refiner.py \
+  -s "https://myrient.erista.me/files/FinalBurn%20Neo/arcade/" \
+  --systems fbneo --commit
+```
+
+**FinalBurn Neo (All Systems)**
+```bash
+# Scan all FBNeo systems with recursive scanning
+python retro-refiner.py \
+  -s "https://myrient.erista.me/files/FinalBurn%20Neo/" \
+  -r --commit
+```
+
 </details>
 
 **Dry run first?** Remove `--commit` to preview what will be selected without downloading anything.
@@ -262,7 +277,7 @@ python retro-refiner.py -s https://myserver.com/roms/ --cache-dir /path/to/cache
 - **Download summary**: Shows what will be downloaded before starting
 - Only selected ROMs are downloaded, saving bandwidth and time
 - Automatic redirect following
-- Recursive subdirectory scanning (up to 3 levels deep)
+- Recursive subdirectory scanning with `-r` (up to 3 levels deep by default)
 - URL normalization (relative paths, `../`, encoded characters)
 - Robust link extraction from various HTML structures
 - Verification automatically disabled (files verified by filename only)
@@ -278,6 +293,11 @@ python retro-refiner.py -s https://myserver.com/roms/ --cache-dir /path/to/cache
 - Auto-detects best download tool: aria2c > curl > Python urllib
 - Install aria2c for best performance: `brew install aria2` (macOS) or `apt install aria2` (Linux)
 - Live progress display showing active downloads with per-file progress and recent completions
+
+**Directory Scanning Performance:**
+- Parallel directory scanning with `--scan-workers N` (default: 16)
+- Progress bar with ETA and throughput during scanning
+- 673 MAME CHD folders scanned in ~48 seconds (~14 folders/s)
 
 ## Arcade Filtering (MAME & FBNeo)
 
@@ -529,6 +549,13 @@ Each system folder contains `_selection_log.txt` with:
 |--------|-------------|
 | `-s` (multiple) | Merge multiple source directories |
 | `--prefer-source` | Prefer ROMs from this source for duplicates |
+
+### Scanning Options
+| Option | Description |
+|--------|-------------|
+| `-r, --recursive` | Recursively scan subdirectories for ROMs |
+| `--max-depth` | Maximum directory depth when using `-r` (default: 3) |
+| `--scan-workers` | Number of parallel workers for directory scanning (default: 16) |
 
 ### Network Options
 | Option | Description |
