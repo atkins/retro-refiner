@@ -3865,6 +3865,95 @@ DAT_NAME_TO_SYSTEM = {v.lower(): k for k, v in LIBRETRO_DAT_SYSTEMS.items()}
 # Add Redump names
 DAT_NAME_TO_SYSTEM.update({v.lower(): k for k, v in REDUMP_DAT_SYSTEMS.items()})
 
+# LaunchBox platform names to retro-refiner system codes
+LAUNCHBOX_PLATFORM_MAP = {
+    # Nintendo consoles
+    "Nintendo Entertainment System": "nes",
+    "Nintendo Famicom Disk System": "fds",
+    "Super Nintendo Entertainment System": "snes",
+    "Nintendo 64": "n64",
+    "Nintendo 64DD": "n64dd",
+    "Nintendo GameCube": "gamecube",
+    "Nintendo Wii": "wii",
+    "Nintendo Wii U": "wiiu",
+    "Nintendo Switch": "switch",
+    # Nintendo handhelds
+    "Nintendo Game Boy": "gameboy",
+    "Nintendo Game Boy Color": "gameboy-color",
+    "Nintendo Game Boy Advance": "gba",
+    "Nintendo DS": "nds",
+    "Nintendo DSi": "dsi",
+    "Nintendo 3DS": "3ds",
+    "Nintendo Virtual Boy": "virtualboy",
+    "Nintendo Pokemon Mini": "pokemini",
+    # Sega consoles
+    "Sega SG-1000": "sg1000",
+    "Sega Master System": "mastersystem",
+    "Sega Genesis": "genesis",
+    "Sega Mega Drive": "genesis",
+    "Sega CD": "segacd",
+    "Sega 32X": "sega32x",
+    "Sega Saturn": "saturn",
+    "Sega Dreamcast": "dreamcast",
+    # Sega handhelds
+    "Sega Game Gear": "gamegear",
+    # Sony
+    "Sony Playstation": "psx",
+    "Sony Playstation 2": "ps2",
+    "Sony Playstation 3": "ps3",
+    "Sony PSP": "psp",
+    "Sony Playstation Vita": "psvita",
+    # Microsoft
+    "Microsoft Xbox": "xbox",
+    "Microsoft Xbox 360": "xbox360",
+    # Atari
+    "Atari 2600": "atari2600",
+    "Atari 5200": "atari5200",
+    "Atari 7800": "atari7800",
+    "Atari Lynx": "atarilynx",
+    "Atari Jaguar": "atarijaguar",
+    "Atari Jaguar CD": "atarijaguarcd",
+    "Atari ST": "atarist",
+    # NEC
+    "NEC TurboGrafx-16": "tg16",
+    "NEC TurboGrafx-CD": "tgcd",
+    "NEC PC-FX": "pcfx",
+    "NEC SuperGrafx": "supergrafx",
+    "NEC PC-8801": "pc88",
+    "NEC PC-9801": "pc98",
+    # SNK
+    "SNK Neo Geo AES": "neogeo",
+    "SNK Neo Geo MVS": "neogeo",
+    "SNK Neo Geo CD": "neogeocd",
+    "SNK Neo Geo Pocket": "ngp",
+    "SNK Neo Geo Pocket Color": "ngpc",
+    # Other consoles
+    "3DO Interactive Multiplayer": "3do",
+    "Philips CD-i": "cdi",
+    "Mattel Intellivision": "intellivision",
+    "ColecoVision": "colecovision",
+    "GCE Vectrex": "vectrex",
+    "Magnavox Odyssey 2": "odyssey2",
+    "Bandai WonderSwan": "wonderswan",
+    "Bandai WonderSwan Color": "wonderswan-color",
+    # Arcade
+    "Arcade": "mame",
+    "MAME": "mame",
+    # Computers
+    "Commodore 64": "c64",
+    "Commodore Amiga": "amiga",
+    "Sinclair ZX Spectrum": "zxspectrum",
+    "MSX": "msx",
+    "MSX2": "msx2",
+    "Sharp X68000": "x68000",
+}
+
+# Reverse mapping for lookups
+SYSTEM_TO_LAUNCHBOX = {}
+for lb_name, system in LAUNCHBOX_PLATFORM_MAP.items():
+    if system not in SYSTEM_TO_LAUNCHBOX:
+        SYSTEM_TO_LAUNCHBOX[system] = lb_name
+
 # T-En (English Translation) DAT files from Archive.org
 # Maps system name to the folder name prefix used in Archive.org T-En DAT filenames
 # Format: "Nintendo - Famicom [T-En] Collection (DD-MM-YYYY).zip"

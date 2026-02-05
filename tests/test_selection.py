@@ -933,6 +933,36 @@ def test_edge_cases():
         results.fail("Hack detection [Hack by]", "has_hacks=True", f"has_hacks={rom.has_hacks}")
 
 
+def test_launchbox_platform_mapping():
+    """Test LaunchBox platform names map to retro-refiner system codes."""
+    print("\n" + "="*60)
+    print("LAUNCHBOX PLATFORM MAPPING TESTS")
+    print("="*60)
+
+    # Import after implementation
+    try:
+        LAUNCHBOX_PLATFORM_MAP = _module.LAUNCHBOX_PLATFORM_MAP
+    except AttributeError:
+        print("  [SKIP] LAUNCHBOX_PLATFORM_MAP not yet implemented")
+        return
+
+    test_cases = [
+        ("Super Nintendo Entertainment System", "snes"),
+        ("Nintendo Entertainment System", "nes"),
+        ("Sega Genesis", "genesis"),
+        ("Sega Mega Drive", "genesis"),
+        ("Sony Playstation", "psx"),
+        ("Nintendo Game Boy Advance", "gba"),
+    ]
+
+    for launchbox_name, expected_system in test_cases:
+        actual = LAUNCHBOX_PLATFORM_MAP.get(launchbox_name)
+        if actual == expected_system:
+            results.ok(f"Platform mapping: {launchbox_name} -> {expected_system}")
+        else:
+            results.fail(f"Platform mapping: {launchbox_name}", expected_system, actual)
+
+
 def test_system_detection():
     """Test system detection from folders and extensions."""
     print("\n" + "="*60)
@@ -1156,6 +1186,7 @@ def main():
     test_pattern_matching()
     test_network_rom_filtering()
     test_edge_cases()
+    test_launchbox_platform_mapping()
     test_system_detection()
     test_playlist_generation()
 
