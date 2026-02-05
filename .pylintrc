@@ -39,6 +39,10 @@ disable=
     missing-class-docstring,
     disallowed-name,
 
+[TYPECHECK]
+# curses members are dynamically loaded from a C extension and not visible to pylint on Windows
+generated-members=curses.*
+
 [FORMAT]
 # Maximum line length (for reference, not enforced)
 max-line-length=120

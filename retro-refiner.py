@@ -1660,7 +1660,7 @@ def download_batch_with_aria2c(downloads: List[Tuple[str, Path]], parallel: int 
         total_timeout = max(60, (len(downloads) // parallel + 1) * timeout_per_file)
 
         # Use Popen for proper process control
-        proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)  # pylint: disable=consider-using-with
         _register_aria2c_process(proc)
         try:
             proc.wait(timeout=total_timeout)
@@ -2406,7 +2406,7 @@ class DownloadUI:
         try:
             if WINDOWS and HAS_MSVCRT:
                 # Windows: use msvcrt for non-blocking keyboard input
-                if msvcrt.kbhit():
+                if msvcrt.kbhit():  # pylint: disable=possibly-used-before-assignment
                     key = msvcrt.getch()
                     # Decode bytes to string
                     try:
