@@ -12,8 +12,9 @@ Inspired by the 1G1R (One Game, One ROM) philosophy, Retro-Refiner simplifies th
 - `generate_mappings.py` - Analyze DATs to find potential title mappings
 - `analyze_duplicates.py` - Find duplicate ROMs in refined output
 - `retro-refiner.yaml` - Example configuration file
-- `tests/test_selection.py` - Testing helper for verifying game series selection
+- `tests/test_selection.py` - Unit tests for ROM parsing, selection, and filtering
 - `tests/test_bandwidth.py` - Bandwidth benchmark tool for tuning download settings
+- `tests/test_network_sources.py` - Functional tests for network source operations
 
 ## Usage
 
