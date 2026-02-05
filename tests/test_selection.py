@@ -1147,6 +1147,111 @@ def test_apply_top_n_filter():
         results.fail("Without include_unrated, only rated games returned", 3, len(result))
 
 
+def test_resolve_top_n():
+    """Test resolve_top_n and percentage-based top-N filtering."""
+    print("\n" + "="*60)
+    print("TOP-N PERCENTAGE TESTS")
+    print("="*60)
+
+    try:
+        resolve_top_n = _module.resolve_top_n
+        apply_top_n_filter = _module.apply_top_n_filter
+    except AttributeError:
+        print("  [SKIP] resolve_top_n not yet implemented")
+        return
+
+    # Test absolute integer
+    if resolve_top_n(10, 100) == 10:
+        results.ok("resolve_top_n: integer 10 -> 10")
+    else:
+        results.fail("resolve_top_n: integer 10", 10, resolve_top_n(10, 100))
+
+    # Test absolute string
+    if resolve_top_n("50", 200) == 50:
+        results.ok("resolve_top_n: string '50' -> 50")
+    else:
+        results.fail("resolve_top_n: string '50'", 50, resolve_top_n("50", 200))
+
+    # Test percentage
+    if resolve_top_n("10%", 100) == 10:
+        results.ok("resolve_top_n: '10%' of 100 -> 10")
+    else:
+        results.fail("resolve_top_n: '10%' of 100", 10, resolve_top_n("10%", 100))
+
+    # Test percentage rounding
+    if resolve_top_n("10%", 33) == 3:
+        results.ok("resolve_top_n: '10%' of 33 -> 3 (rounded)")
+    else:
+        results.fail("resolve_top_n: '10%' of 33", 3, resolve_top_n("10%", 33))
+
+    # Test percentage minimum 1
+    if resolve_top_n("1%", 5) == 1:
+        results.ok("resolve_top_n: '1%' of 5 -> 1 (minimum)")
+    else:
+        results.fail("resolve_top_n: '1%' of 5", 1, resolve_top_n("1%", 5))
+
+    # Test 50%
+    if resolve_top_n("50%", 200) == 100:
+        results.ok("resolve_top_n: '50%' of 200 -> 100")
+    else:
+        results.fail("resolve_top_n: '50%' of 200", 100, resolve_top_n("50%", 200))
+
+    # Test 100%
+    if resolve_top_n("100%", 50) == 50:
+        results.ok("resolve_top_n: '100%' of 50 -> 50")
+    else:
+        results.fail("resolve_top_n: '100%' of 50", 50, resolve_top_n("100%", 50))
+
+    # Test None passthrough
+    if resolve_top_n(None, 100) is None:
+        results.ok("resolve_top_n: None -> None")
+    else:
+        results.fail("resolve_top_n: None", None, resolve_top_n(None, 100))
+
+    # Test percentage with apply_top_n_filter
+    roms = [
+        RomInfo(filename="Game A (USA).zip", base_title="Game A", region="USA",
+                revision=0, is_english=True, is_translation=False,
+                is_beta=False, is_demo=False, is_promo=False, is_sample=False,
+                is_proto=False, is_bios=False, is_pirate=False, is_unlicensed=False,
+                is_homebrew=False, is_rerelease=False, is_compilation=False, is_lock_on=False),
+        RomInfo(filename="Game B (USA).zip", base_title="Game B", region="USA",
+                revision=0, is_english=True, is_translation=False,
+                is_beta=False, is_demo=False, is_promo=False, is_sample=False,
+                is_proto=False, is_bios=False, is_pirate=False, is_unlicensed=False,
+                is_homebrew=False, is_rerelease=False, is_compilation=False, is_lock_on=False),
+        RomInfo(filename="Game C (USA).zip", base_title="Game C", region="USA",
+                revision=0, is_english=True, is_translation=False,
+                is_beta=False, is_demo=False, is_promo=False, is_sample=False,
+                is_proto=False, is_bios=False, is_pirate=False, is_unlicensed=False,
+                is_homebrew=False, is_rerelease=False, is_compilation=False, is_lock_on=False),
+        RomInfo(filename="Game D (USA).zip", base_title="Game D", region="USA",
+                revision=0, is_english=True, is_translation=False,
+                is_beta=False, is_demo=False, is_promo=False, is_sample=False,
+                is_proto=False, is_bios=False, is_pirate=False, is_unlicensed=False,
+                is_homebrew=False, is_rerelease=False, is_compilation=False, is_lock_on=False),
+    ]
+    ratings = {
+        'game a': {'rating': 4.5, 'votes': 100},
+        'game b': {'rating': 3.0, 'votes': 50},
+        'game c': {'rating': 4.8, 'votes': 200},
+        'game d': {'rating': 2.0, 'votes': 10},
+    }
+
+    # 50% of 4 games = 2 games
+    result = apply_top_n_filter(roms, ratings, top_n="50%", include_unrated=False)
+    if len(result) == 2:
+        results.ok("apply_top_n_filter with '50%' of 4 games -> 2")
+    else:
+        results.fail("apply_top_n_filter with '50%' of 4 games", 2, len(result))
+
+    titles = [r.base_title for r in result]
+    if titles == ['Game C', 'Game A']:
+        results.ok("Percentage filter returns highest rated (C=4.8, A=4.5)")
+    else:
+        results.fail("Percentage filter returns highest rated", ['Game C', 'Game A'], titles)
+
+
 def test_system_detection():
     """Test system detection from folders and extensions."""
     print("\n" + "="*60)
@@ -1374,6 +1479,7 @@ def main():
     test_launchbox_download_function()
     test_build_ratings_cache()
     test_apply_top_n_filter()
+    test_resolve_top_n()
     test_system_detection()
     test_playlist_generation()
 

@@ -279,7 +279,7 @@ def load_title_mappings() -> Dict[str, str]:
     if _title_mappings_cache is not None:
         return _title_mappings_cache
 
-    mappings_path = Path(__file__).parent / 'title_mappings.json'
+    mappings_path = Path(__file__).parent / 'data' / 'title_mappings.json'
     flat_mappings = {}
 
     if mappings_path.exists():
@@ -3274,11 +3274,13 @@ def filter_network_roms(rom_urls: List[str], system: str,
                         if get_filename_from_url(url) in filtered_filenames]
 
         filtered_out = pre_filter_count - len(filtered_roms)
+        top_label = format_top_label(top_n)
+        actual_kept = len(filtered_roms)
         if include_unrated:
-            print(f"{system.upper()}: Top {top_n} selected ({filtered_out} below cutoff)")
+            print(f"{system.upper()}: {top_label} selected ({actual_kept} games, {filtered_out} below cutoff)")
         else:
             unrated_excluded = pre_filter_count - rated_count
-            print(f"{system.upper()}: Top {top_n} selected ({filtered_out} below cutoff, {unrated_excluded} unrated excluded)")
+            print(f"{system.upper()}: {top_label} selected ({actual_kept} games, {filtered_out} below cutoff, {unrated_excluded} unrated excluded)")
 
     # Calculate selected size
     selected_size = sum(size_map.get(get_filename_from_url(url), 0) for url in selected_urls)
@@ -3592,7 +3594,11 @@ def apply_config_to_args(args, config: dict):
             current_value = getattr(args, arg_name, None)
             # Only apply config if CLI didn't set it
             if current_value is None or current_value == False or current_value == []:
-                setattr(args, arg_name, config[config_key])
+                value = config[config_key]
+                # Convert top to string for consistency (YAML may parse "10" as int)
+                if config_key == 'top' and value is not None:
+                    value = str(value)
+                setattr(args, arg_name, value)
 
 
 def matches_patterns(name: str, patterns: List[str]) -> bool:
@@ -5180,13 +5186,20 @@ TEKNOPARROT_INCLUDE_PLATFORMS = {
 TEKNOPARROT_EXCLUDE_PLATFORMS = set()
 
 
-def parse_catver_ini(catver_path: str) -> dict:
+def parse_catver_ini(catver_path: str, show_progress: bool = False) -> dict:
     """Parse catver.ini and return a dict of romname -> category."""
     categories = {}
     in_category_section = False
 
+    total_size = Path(catver_path).stat().st_size if show_progress else 0
+    bytes_read = 0
+
     with open(catver_path, 'r', encoding='utf-8', errors='ignore') as f:
         for line in f:
+            if show_progress:
+                bytes_read += len(line.encode('utf-8', errors='ignore'))
+                if len(categories) % 500 == 0 and total_size > 0:
+                    Console.progress(bytes_read, total_size, f"{len(categories)} categories")
             line = line.strip()
             if line == '[Category]':
                 in_category_section = True
@@ -5200,10 +5213,14 @@ def parse_catver_ini(catver_path: str) -> dict:
                     category = parts[1].strip()
                     categories[romname] = category
 
+    if show_progress and total_size > 0:
+        Console.progress(total_size, total_size, f"{len(categories)} categories")
+        print()
+
     return categories
 
 
-def parse_mame_dat(dat_path: str) -> dict:
+def parse_mame_dat(dat_path: str, show_progress: bool = False) -> dict:
     """Parse MAME DAT file and return game info dict."""
     import xml.etree.ElementTree as ET
 
@@ -5214,62 +5231,81 @@ def parse_mame_dat(dat_path: str) -> dict:
         first_line = f.readline()
 
     if '<?xml' in first_line or '<datafile' in first_line or '<mame' in first_line:
-        # XML format
-        tree = ET.parse(dat_path)
-        root = tree.getroot()
+        # XML format - use XMLPullParser for progress tracking
+        total_size = Path(dat_path).stat().st_size if show_progress else 0
+        bytes_read = 0
+        game_tags = ('machine', 'game')
 
-        # Handle different XML formats
-        game_elements = root.findall('.//machine') or root.findall('.//game')
+        parser = ET.XMLPullParser(events=('end',))
+        with open(dat_path, 'rb') as f:
+            while True:
+                chunk = f.read(65536)
+                if not chunk:
+                    break
+                parser.feed(chunk)
+                if show_progress:
+                    bytes_read += len(chunk)
+                for event, elem in parser.read_events():
+                    if elem.tag not in game_tags:
+                        continue
 
-        for game in game_elements:
-            name = game.get('name', '')
-            if not name:
-                continue
+                    name = elem.get('name', '')
+                    if not name:
+                        elem.clear()
+                        continue
 
-            # Check if it's a BIOS or device
-            is_bios = game.get('isbios', 'no') == 'yes'
-            is_device = game.get('isdevice', 'no') == 'yes'
+                    # Check if it's a BIOS or device
+                    is_bios = elem.get('isbios', 'no') == 'yes'
+                    is_device = elem.get('isdevice', 'no') == 'yes'
 
-            # Get parent info
-            parent_name = game.get('cloneof', '') or game.get('romof', '')
-            is_parent = not parent_name or parent_name == name
+                    # Get parent info
+                    parent_name = elem.get('cloneof', '') or elem.get('romof', '')
+                    is_parent = not parent_name or parent_name == name
 
-            # Get description
-            desc_elem = game.find('description')
-            description = desc_elem.text if desc_elem is not None else name
+                    # Get description
+                    desc_elem = elem.find('description')
+                    description = desc_elem.text if desc_elem is not None else name
 
-            # Get year
-            year_elem = game.find('year')
-            year = year_elem.text if year_elem is not None else ''
+                    # Get year
+                    year_elem = elem.find('year')
+                    year = year_elem.text if year_elem is not None else ''
 
-            # Get manufacturer
-            mfr_elem = game.find('manufacturer') or game.find('publisher')
-            manufacturer = mfr_elem.text if mfr_elem is not None else ''
+                    # Get manufacturer
+                    mfr_elem = elem.find('manufacturer') or elem.find('publisher')
+                    manufacturer = mfr_elem.text if mfr_elem is not None else ''
 
-            # Check for CHDs (disk elements)
-            chd_names = []
-            for disk in game.findall('.//disk'):
-                disk_name = disk.get('name', '')
-                if disk_name:
-                    chd_names.append(disk_name + '.chd')
+                    # Check for CHDs (disk elements)
+                    chd_names = []
+                    for disk in elem.findall('.//disk'):
+                        disk_name = disk.get('name', '')
+                        if disk_name:
+                            chd_names.append(disk_name + '.chd')
 
-            # Detect region from description
-            region = detect_mame_region(description)
+                    # Detect region from description
+                    region = detect_mame_region(description)
 
-            games[name] = MameGameInfo(
-                name=name,
-                description=description,
-                year=year,
-                manufacturer=manufacturer or '',
-                category='',  # Will be filled from catver.ini
-                is_parent=is_parent,
-                parent_name=parent_name if not is_parent else '',
-                is_bios=is_bios,
-                is_device=is_device,
-                has_chd=len(chd_names) > 0,
-                chd_names=chd_names,
-                region=region,
-            )
+                    games[name] = MameGameInfo(
+                        name=name,
+                        description=description,
+                        year=year,
+                        manufacturer=manufacturer or '',
+                        category='',  # Will be filled from catver.ini
+                        is_parent=is_parent,
+                        parent_name=parent_name if not is_parent else '',
+                        is_bios=is_bios,
+                        is_device=is_device,
+                        has_chd=len(chd_names) > 0,
+                        chd_names=chd_names,
+                        region=region,
+                    )
+                    elem.clear()
+
+                if show_progress and total_size > 0 and len(games) % 500 == 0:
+                    Console.progress(bytes_read, total_size, f"{len(games)} games")
+
+        if show_progress and total_size > 0:
+            Console.progress(total_size, total_size, f"{len(games)} games")
+            print()
     else:
         # ClrMamePro DAT format - simplified parsing
         # This is more complex, so we'll just handle the XML format primarily
@@ -5407,12 +5443,10 @@ def filter_mame_roms(source_dir: str, dest_dir: str, catver_path: str, dat_path:
     label = system_name.upper()
 
     print(f"\n{label}: Loading catver.ini...")
-    categories = parse_catver_ini(catver_path)
-    print(f"{label}: Loaded {len(categories)} game categories")
+    categories = parse_catver_ini(catver_path, show_progress=True)
 
     print(f"{label}: Loading DAT...")
-    games = parse_mame_dat(dat_path)
-    print(f"{label}: Loaded {len(games)} games from DAT")
+    games = parse_mame_dat(dat_path, show_progress=True)
 
     # Apply categories to games
     for name, game in games.items():
@@ -5993,14 +6027,45 @@ def load_ratings_cache(dat_dir: Path, force_rebuild: bool = False) -> dict:
     return build_ratings_cache(xml_path, cache_path)
 
 
-def apply_top_n_filter(roms: List[RomInfo], ratings: dict, top_n: int,
+def resolve_top_n(top_value, total_count: int) -> int:
+    """Resolve a top-N value to an absolute count.
+
+    Args:
+        top_value: Integer, or string like "10" or "10%"
+        total_count: Total number of items (used for percentage calculation)
+
+    Returns:
+        Integer count (minimum 1 for percentage mode)
+    """
+    if top_value is None:
+        return None
+    if isinstance(top_value, (int, float)) and not isinstance(top_value, bool):
+        return int(top_value)
+    top_str = str(top_value).strip()
+    if top_str.endswith('%'):
+        pct = float(top_str[:-1])
+        return max(1, int(round(pct / 100.0 * total_count)))
+    return int(top_str)
+
+
+def format_top_label(top_value) -> str:
+    """Format top value for display (e.g., 'Top 10' or 'Top 10%')."""
+    if top_value is None:
+        return "Top ?"
+    top_str = str(top_value).strip()
+    if top_str.endswith('%'):
+        return f"Top {top_str}"
+    return f"Top {top_str}"
+
+
+def apply_top_n_filter(roms: List[RomInfo], ratings: dict, top_n,
                        include_unrated: bool = False) -> List[RomInfo]:
     """Filter ROMs to top N by rating.
 
     Args:
         roms: List of RomInfo objects (already selected best per game)
         ratings: Dict of {normalized_title: {"rating": float, "votes": int}}
-        top_n: Number of top games to keep
+        top_n: Number of top games to keep, or percentage string like "10%"
         include_unrated: If True, append unrated games after rated ones
 
     Returns:
@@ -6021,12 +6086,15 @@ def apply_top_n_filter(roms: List[RomInfo], ratings: dict, top_n: int,
     # Sort rated ROMs by rating (desc), then by votes (desc) for ties
     rated_roms.sort(key=lambda x: (-x[1], -x[2]))
 
+    # Resolve percentage to absolute count based on total available games
+    count = resolve_top_n(top_n, len(roms))
+
     # Take top N rated
-    result = [rom for rom, rating, votes in rated_roms[:top_n]]
+    result = [rom for rom, rating, votes in rated_roms[:count]]
 
     # If including unrated and we have room, append them
-    if include_unrated and len(result) < top_n:
-        remaining_slots = top_n - len(result)
+    if include_unrated and len(result) < count:
+        remaining_slots = count - len(result)
         result.extend(unrated_roms[:remaining_slots])
 
     return result
@@ -7353,11 +7421,13 @@ def filter_roms_from_files(rom_files: list, dest_dir: str, system: str, dry_run:
         )
 
         filtered_out = pre_filter_count - len(selected_roms)
+        top_label = format_top_label(top_n)
+        actual_kept = len(selected_roms)
         if include_unrated:
-            print(f"{system.upper()}: Top {top_n} selected ({filtered_out} below cutoff)")
+            print(f"{system.upper()}: {top_label} selected ({actual_kept} games, {filtered_out} below cutoff)")
         else:
             unrated_excluded = pre_filter_count - rated_count
-            print(f"{system.upper()}: Top {top_n} selected ({filtered_out} below cutoff, {unrated_excluded} unrated excluded)")
+            print(f"{system.upper()}: {top_label} selected ({actual_kept} games, {filtered_out} below cutoff, {unrated_excluded} unrated excluded)")
 
     # Calculate selected size
     selected_size = sum(size_map.get(rom.filename, 0) for rom in selected_roms)
@@ -7527,8 +7597,8 @@ Pattern examples (--include / --exclude):
                         help='Include only ROMs up to this year')
 
     # Top-N filtering
-    parser.add_argument('--top', type=int, default=None,
-                        help='Keep only top N rated games per system (requires LaunchBox data)')
+    parser.add_argument('--top', type=str, default=None,
+                        help='Keep only top N rated games per system, or top N%% (e.g., --top 50, --top 10%%)')
     parser.add_argument('--include-unrated', action='store_true',
                         help='Include unrated games after rated games when using --top')
 
@@ -7594,6 +7664,21 @@ Pattern examples (--include / --exclude):
                         help='Keep all versions of TeknoParrot games (default: latest version only)')
 
     args = parser.parse_args()
+
+    # Validate --top value
+    if args.top is not None:
+        top_str = args.top.strip()
+        try:
+            if top_str.endswith('%'):
+                pct = float(top_str[:-1])
+                if pct <= 0 or pct > 100:
+                    parser.error(f"--top percentage must be between 0 and 100, got {top_str}")
+            else:
+                n = int(top_str)
+                if n <= 0:
+                    parser.error(f"--top must be a positive number, got {top_str}")
+        except ValueError:
+            parser.error(f"--top must be a number or percentage (e.g., 50, 10%), got '{top_str}'")
 
     # Resolve IA credentials from args or environment
     args.ia_access_key = args.ia_access_key or os.environ.get('IA_ACCESS_KEY')
@@ -8063,9 +8148,8 @@ Pattern examples (--include / --exclude):
             print(f"\nDownloading MAME data for category filtering...")
             catver_path, mame_dat_path = download_mame_data(dat_dir, version=args.mame_version)
             if catver_path and mame_dat_path:
-                mame_categories = parse_catver_ini(str(catver_path))
-                mame_games = parse_mame_dat(str(mame_dat_path))
-                print(f"  Loaded {len(mame_categories)} categories, {len(mame_games)} games")
+                mame_categories = parse_catver_ini(str(catver_path), show_progress=True)
+                mame_games = parse_mame_dat(str(mame_dat_path), show_progress=True)
             else:
                 print("  Warning: MAME data not available, category filtering disabled")
 
@@ -8232,15 +8316,17 @@ Pattern examples (--include / --exclude):
                             unrated.append(url)
 
                     rated.sort(key=lambda x: (-x[1], -x[2]))
-                    filtered_urls = [url for url, r, v in rated[:args.top]]
-                    if args.include_unrated and len(filtered_urls) < args.top:
-                        remaining = args.top - len(filtered_urls)
+                    top_count = resolve_top_n(args.top, pre_count)
+                    filtered_urls = [url for url, r, v in rated[:top_count]]
+                    if args.include_unrated and len(filtered_urls) < top_count:
+                        remaining = top_count - len(filtered_urls)
                         filtered_urls.extend(unrated[:remaining])
 
                     matched = len(rated)
                     filtered_out = pre_count - len(filtered_urls)
+                    top_label = format_top_label(args.top)
                     print(f"{system.upper()}: Rating data matched {matched} of {pre_count} games")
-                    print(f"{system.upper()}: Top {args.top} selected ({filtered_out} below cutoff)")
+                    print(f"{system.upper()}: {top_label} selected ({len(filtered_urls)} games, {filtered_out} below cutoff)")
 
                     # Recalculate size info
                     selected_size = sum(all_url_sizes.get(url, 0) for url in filtered_urls)
@@ -8604,12 +8690,14 @@ Pattern examples (--include / --exclude):
                             else:
                                 unrated_games.append(game)
                         rated.sort(key=lambda x: (-x[1], -x[2]))
-                        selected = [g for g, r, v in rated[:args.top]]
-                        if args.include_unrated and len(selected) < args.top:
-                            remaining = args.top - len(selected)
+                        top_count = resolve_top_n(args.top, pre_count)
+                        selected = [g for g, r, v in rated[:top_count]]
+                        if args.include_unrated and len(selected) < top_count:
+                            remaining = top_count - len(selected)
                             selected.extend(unrated_games[:remaining])
+                        top_label = format_top_label(args.top)
                         print(f"TEKNOPARROT: Rating data matched {len(rated)} of {pre_count} games")
-                        print(f"TEKNOPARROT: Top {args.top} selected ({pre_count - len(selected)} below cutoff)")
+                        print(f"TEKNOPARROT: {top_label} selected ({len(selected)} games, {pre_count - len(selected)} below cutoff)")
 
                 system_stats['teknoparrot'] = size_info
                 total_source_size += size_info['source_size']
@@ -8768,12 +8856,14 @@ Pattern examples (--include / --exclude):
                             else:
                                 unrated_games.append(game)
                         rated.sort(key=lambda x: (-x[1], -x[2]))
-                        selected = [g for g, r, v in rated[:args.top]]
-                        if args.include_unrated and len(selected) < args.top:
-                            remaining = args.top - len(selected)
+                        top_count = resolve_top_n(args.top, pre_count)
+                        selected = [g for g, r, v in rated[:top_count]]
+                        if args.include_unrated and len(selected) < top_count:
+                            remaining = top_count - len(selected)
                             selected.extend(unrated_games[:remaining])
+                        top_label = format_top_label(args.top)
                         print(f"{arcade_system}: Rating data matched {len(rated)} of {pre_count} games")
-                        print(f"{arcade_system}: Top {args.top} selected ({pre_count - len(selected)} below cutoff)")
+                        print(f"{arcade_system}: {top_label} selected ({len(selected)} games, {pre_count - len(selected)} below cutoff)")
 
                 system_stats[system] = size_info
                 total_source_size += size_info['source_size']

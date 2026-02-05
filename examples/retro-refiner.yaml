@@ -99,6 +99,12 @@ include_unlicensed: false
 # Filter by genre (for arcade systems with catver.ini)
 # genres: "platformer,shooter,puzzle"
 
+# Keep only top-rated games per system (requires LaunchBox data)
+# Use a number for absolute count, or percentage string for relative
+# top: 50        # Top 50 games per system
+# top: "10%"     # Top 10% of games per system
+# include_unrated: true  # Include unrated games if slots remain
+
 # -----------------------------------------------------------------------------
 # DAT File Options
 # -----------------------------------------------------------------------------

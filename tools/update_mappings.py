@@ -275,7 +275,7 @@ def scan_myrient_system(system: str, include_redump: bool = True) -> Dict[str, L
 def load_existing_mappings(path: Path = None) -> Dict[str, Dict[str, str]]:
     """Load existing title mappings."""
     if path is None:
-        path = Path(__file__).parent / 'title_mappings.json'
+        path = Path(__file__).parent.parent / 'data' / 'title_mappings.json'
 
     if not path.exists():
         return {}

@@ -105,7 +105,7 @@ def find_duplicates(rom_dir: Path):
 
 
 def main():
-    refined_dir = Path('refined')
+    refined_dir = Path(__file__).parent.parent / 'refined'
 
     all_duplicates = []
 

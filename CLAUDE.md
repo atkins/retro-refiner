@@ -7,11 +7,11 @@ Inspired by the 1G1R (One Game, One ROM) philosophy, Retro-Refiner simplifies th
 
 ## Files
 - `retro-refiner.py` - Main filtering script
-- `title_mappings.json` - External title mappings (1,194 Japan→English mappings across 50 categories)
-- `update_mappings.py` - Tool to scan archives and suggest new mappings
-- `generate_mappings.py` - Analyze DATs to find potential title mappings
-- `analyze_duplicates.py` - Find duplicate ROMs in refined output
-- `retro-refiner.yaml` - Example configuration file
+- `data/title_mappings.json` - External title mappings (1,194 Japan→English mappings across 50 categories)
+- `tools/update_mappings.py` - Tool to scan archives and suggest new mappings
+- `tools/generate_mappings.py` - Analyze DATs to find potential title mappings
+- `tools/analyze_duplicates.py` - Find duplicate ROMs in refined output
+- `examples/retro-refiner.yaml` - Example configuration file
 - `tests/test_selection.py` - Unit tests for ROM parsing, selection, and filtering
 - `tests/test_bandwidth.py` - Bandwidth benchmark tool for tuning download settings
 - `tests/test_network_sources.py` - Functional tests for network source operations
@@ -57,6 +57,9 @@ python retro-refiner.py --clean
 ```bash
 # Top 50 rated games per system
 python retro-refiner.py -s /path/to/roms --top 50 --commit
+
+# Top 10% of rated games per system
+python retro-refiner.py -s /path/to/roms --top 10% --commit
 
 # Top 25 Mario games by rating
 python retro-refiner.py -s /path/to/roms --top 25 --include "*Mario*" --commit
@@ -172,7 +175,8 @@ When combining multiple sources (e.g., No-Intro + T-En Collection):
 ### Top-N Rating Filter
 - Uses LaunchBox community ratings (0-5 scale)
 - Data stored in `dat_files/launchbox/`
-- `--top N` keeps N highest-rated games per system
+- `--top N` keeps N highest-rated games per system (e.g., `--top 50`)
+- `--top N%` keeps top N% of games per system (e.g., `--top 10%`)
 - `--include-unrated` adds unrated games after rated ones
 - Filters apply before top-N (e.g., `--top 50 --include "*Mario*"` = top 50 Mario games)
 
@@ -219,7 +223,7 @@ CLI arguments override config file settings.
 
 ## Title Mappings
 
-Title mappings are stored in `title_mappings.json` - an external JSON file with 1,194 Japan→English mappings organized into 50 categories:
+Title mappings are stored in `data/title_mappings.json` - an external JSON file with 1,194 Japan→English mappings organized into 50 categories:
 
 ### Major Series Covered (28 categories)
 - **Pokemon**: Pocket Monsters (Aka/Ao/Midori/Kin/Gin) → Pokemon, all language variants (69 mappings)
@@ -278,7 +282,7 @@ print(normalize_title(rom.base_title))  # → 'pokemon red version'
 ```
 
 ### Add new title mapping
-Add to `title_mappings.json` under the appropriate category:
+Add to `data/title_mappings.json` under the appropriate category:
 ```json
 {
   "category_name": {
@@ -289,11 +293,11 @@ Add to `title_mappings.json` under the appropriate category:
 Note: Titles should be lowercase, punctuation removed, roman numerals converted to arabic.
 
 ### Suggest new mappings automatically
-Use `update_mappings.py` to scan archives and suggest mappings:
+Use `tools/update_mappings.py` to scan archives and suggest mappings:
 ```bash
-python update_mappings.py --scan-myrient gba    # Scan Myrient for GBA
-python update_mappings.py --suggest              # Show suggested mappings
-python update_mappings.py --merge                # Merge suggestions into mappings
+python tools/update_mappings.py --scan-myrient gba    # Scan Myrient for GBA
+python tools/update_mappings.py --suggest              # Show suggested mappings
+python tools/update_mappings.py --merge                # Merge suggestions into mappings
 ```
 
 ### Add new re-release pattern
@@ -323,11 +327,11 @@ In `FOLDER_ALIASES` dict at module level:
 ## Title Mapping Functions
 
 ### Key Functions
-- `load_title_mappings()` - Load mappings from `title_mappings.json`
+- `load_title_mappings()` - Load mappings from `data/title_mappings.json`
 - `normalize_title(title)` - Normalize and map titles (lowercase, remove punctuation, apply mappings)
 
 ### Mapping File Format
-`title_mappings.json` structure:
+`data/title_mappings.json` structure:
 ```json
 {
   "pokemon": {

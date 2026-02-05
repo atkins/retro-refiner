@@ -29,6 +29,7 @@ Thumbs.db
 
 # Retro-Refiner specific
 dat_files/
+duplicate_mappings.json
 cache/
 *_refined/
 *_selection_log.txt

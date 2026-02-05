@@ -176,7 +176,7 @@ def find_exact_duplicates(refined_dir: Path) -> dict:
 
 
 def main():
-    dat_dir = Path('dat_files')
+    dat_dir = Path(__file__).parent.parent / 'dat_files'
 
     # Systems to analyze
     systems = ['nes', 'snes', 'gba', 'genesis', 'gameboy', 'gameboy-color',
@@ -243,7 +243,7 @@ def main():
                         print(f"    -> {ten_base}")
 
     # Also scan the refined directory for actual duplicates
-    refined_dir = Path('refined')
+    refined_dir = Path(__file__).parent.parent / 'refined'
     if refined_dir.exists():
         print("\n\n=== ACTUAL DUPLICATES IN REFINED ===")
         for system_dir in refined_dir.iterdir():
