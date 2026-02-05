@@ -135,13 +135,13 @@ class Console:
     @staticmethod
     def banner():
         """Print the application banner."""
-        print(f"""{Style.CYAN}
+        print(f"""{Style.BRIGHT_GREEN}
    ___  ___ _____  ___  ___        ___  ___ ___ ___ _  _ ___ ___
   | _ \\| __|_   _|| _ \\/ _ \\  ___ | _ \\| __| __|_ _| \\| | __| _ \\
   |   /| _|  | |  |   / (_) ||___||   /| _|| _| | || .` | _||   /
   |_|_\\|___| |_|  |_|_\\\\___/      |_|_\\|___|_| |___|_|\\_|___|_|_\\
-{Style.DIM}  ---------------------------------------------------------------------{Style.RESET}
-{Style.BRIGHT_WHITE}             R E F I N E   Y O U R   C O L L E C T I O N{Style.RESET}
+{Style.GREEN}  ---------------------------------------------------------------------{Style.RESET}
+{Style.BRIGHT_GREEN}             R E F I N E   Y O U R   C O L L E C T I O N{Style.RESET}
 """, flush=True)
 
     @staticmethod
@@ -149,19 +149,19 @@ class Console:
         """Print a major section header."""
         width = 65
         print()
-        print(f"{Style.CYAN}{Style.BOLD}{'═' * width}{Style.RESET}")
-        print(f"{Style.CYAN}{Style.BOLD}{text.center(width)}{Style.RESET}")
-        print(f"{Style.CYAN}{Style.BOLD}{'═' * width}{Style.RESET}")
+        print(f"{Style.GREEN}{Style.BOLD}{'═' * width}{Style.RESET}")
+        print(f"{Style.BRIGHT_GREEN}{Style.BOLD}{text.center(width)}{Style.RESET}")
+        print(f"{Style.GREEN}{Style.BOLD}{'═' * width}{Style.RESET}")
 
     @staticmethod
     def section(text: str):
         """Print a section divider."""
-        print(f"\n{Style.YELLOW}{Style.BOLD}─── {text} {'─' * (55 - len(text))}{Style.RESET}")
+        print(f"\n{Style.GREEN}{Style.BOLD}─── {text} {'─' * (55 - len(text))}{Style.RESET}")
 
     @staticmethod
     def subsection(text: str):
         """Print a subsection header."""
-        print(f"\n{Style.CYAN}{text}{Style.RESET}")
+        print(f"\n{Style.GREEN}{text}{Style.RESET}")
 
     @staticmethod
     def success(text: str, prefix: str = None):
@@ -178,12 +178,12 @@ class Console:
     @staticmethod
     def warning(text: str):
         """Print a warning message."""
-        print(f"  {Style.YELLOW}⚠ {text}{Style.RESET}")
+        print(f"  {Style.BRIGHT_GREEN}⚠ {text}{Style.RESET}")
 
     @staticmethod
     def info(text: str):
         """Print an info message."""
-        print(f"  {Style.CYAN}ℹ {text}{Style.RESET}")
+        print(f"  {Style.GREEN}ℹ {text}{Style.RESET}")
 
     @staticmethod
     def detail(text: str):
@@ -209,11 +209,11 @@ class Console:
     def status(label: str, value: str, success: bool = None):
         """Print a status line with label and value."""
         if success is True:
-            val_style = Style.GREEN
+            val_style = Style.BRIGHT_GREEN
         elif success is False:
             val_style = Style.RED
         else:
-            val_style = Style.BRIGHT_WHITE
+            val_style = Style.GREEN
         print(f"  {Style.DIM}{label}:{Style.RESET} {val_style}{value}{Style.RESET}")
 
     @staticmethod
@@ -238,7 +238,7 @@ class Console:
     def downloading(filename: str, size: str = None):
         """Print a downloading message."""
         size_text = f" ({size})" if size else ""
-        print(f"  {Style.CYAN}{SYM_ARROW}{Style.RESET} {filename}{Style.DIM}{size_text}{Style.RESET}")
+        print(f"  {Style.GREEN}{SYM_ARROW}{Style.RESET} {filename}{Style.DIM}{size_text}{Style.RESET}")
 
     @staticmethod
     def downloaded(filename: str):
@@ -1751,7 +1751,7 @@ class DownloadUI:
 
     # ANSI colors for simple mode
     GREEN = '\033[32m'
-    CYAN = '\033[36m'
+    BRIGHT_GREEN = '\033[92m'
     RED = '\033[31m'
     DIM = '\033[2m'
     RESET = '\033[0m'
@@ -1903,9 +1903,9 @@ class DownloadUI:
         curses.start_color()
         curses.use_default_colors()
         curses.init_pair(1, curses.COLOR_GREEN, -1)
-        curses.init_pair(2, curses.COLOR_CYAN, -1)
+        curses.init_pair(2, curses.COLOR_GREEN, -1)
         curses.init_pair(3, curses.COLOR_RED, -1)
-        curses.init_pair(4, curses.COLOR_YELLOW, -1)
+        curses.init_pair(4, curses.COLOR_GREEN, -1)
 
         # Header
         header = f" Downloading ROMs for {self.system_name.upper()}"
@@ -5842,8 +5842,7 @@ def download_launchbox_data(dat_dir: Path, force: bool = False) -> Optional[Path
                     f.write(chunk)
                     downloaded += len(chunk)
                     if total_size > 0:
-                        pct = (downloaded / total_size) * 100
-                        print(f"\r  Downloading: {format_size(downloaded)} / {format_size(total_size)} ({pct:.1f}%)", end='', flush=True)
+                        Console.progress(downloaded, total_size, f"{format_size(downloaded)}/{format_size(total_size)}")
             print()  # Newline after progress
 
         Console.success(f"Downloaded {format_size(downloaded)}")
@@ -5879,59 +5878,74 @@ def build_ratings_cache(xml_path: Path, cache_path: Path = None) -> dict:
     """
     import xml.etree.ElementTree as ET
 
-    Console.info(f"Building ratings cache from {xml_path.name}...")
+    total_file_size = xml_path.stat().st_size
+    Console.info(f"Building ratings cache from {xml_path.name} ({format_size(total_file_size)})...")
 
     cache = {}
     game_count = 0
     rated_count = 0
+    bytes_read = 0
 
-    # Use iterparse for memory efficiency with large XML
-    context = ET.iterparse(str(xml_path), events=('end',))
+    # Use XMLPullParser with manual chunk reading for progress tracking
+    # (iterparse doesn't work with file objects - only filename strings)
+    parser = ET.XMLPullParser(events=('end',))
 
-    for event, elem in context:
-        if elem.tag == 'Game':
-            name = elem.findtext('Name')
-            platform = elem.findtext('Platform')
-            rating_str = elem.findtext('CommunityRating')
-            votes_str = elem.findtext('CommunityRatingCount')
+    with open(xml_path, 'rb') as f:
+        while True:
+            chunk = f.read(65536)
+            if not chunk:
+                break
+            parser.feed(chunk)
+            bytes_read += len(chunk)
 
-            if name and platform:
-                game_count += 1
-
-                # Map platform to our system code
-                system = LAUNCHBOX_PLATFORM_MAP.get(platform)
-                if not system:
-                    elem.clear()
+            for event, elem in parser.read_events():
+                if elem.tag != 'Game':
                     continue
 
-                # Only include games with ratings
-                if rating_str and votes_str:
-                    try:
-                        rating = float(rating_str)
-                        votes = int(votes_str)
+                name = elem.findtext('Name')
+                platform = elem.findtext('Platform')
+                rating_str = elem.findtext('CommunityRating')
+                votes_str = elem.findtext('CommunityRatingCount')
 
-                        # Normalize title for matching
-                        normalized = normalize_title(name)
+                if name and platform:
+                    game_count += 1
 
-                        if system not in cache:
-                            cache[system] = {}
+                    # Map platform to our system code
+                    system = LAUNCHBOX_PLATFORM_MAP.get(platform)
+                    if system and rating_str and votes_str:
+                        try:
+                            rating = float(rating_str)
+                            votes = int(votes_str)
 
-                        # Keep highest-voted entry if duplicate titles
-                        existing = cache[system].get(normalized)
-                        if not existing or votes > existing['votes']:
-                            cache[system][normalized] = {
-                                'rating': rating,
-                                'votes': votes,
-                                'name': name  # Keep original for debugging
-                            }
+                            # Normalize title for matching
+                            normalized = normalize_title(name)
 
-                        rated_count += 1
-                    except (ValueError, TypeError):
-                        pass
+                            if system not in cache:
+                                cache[system] = {}
 
-            # Clear element to free memory
-            elem.clear()
+                            # Keep highest-voted entry if duplicate titles
+                            existing = cache[system].get(normalized)
+                            if not existing or votes > existing['votes']:
+                                cache[system][normalized] = {
+                                    'rating': rating,
+                                    'votes': votes,
+                                    'name': name  # Keep original for debugging
+                                }
 
+                            rated_count += 1
+                        except (ValueError, TypeError):
+                            pass
+
+                # Clear Game element to free memory
+                # (only clear Game elements - clearing children prematurely
+                # wipes their text before the parent Game can read it)
+                elem.clear()
+
+            # Update progress bar each chunk
+            if total_file_size > 0:
+                Console.progress(bytes_read, total_file_size, f"{game_count} games")
+
+    print()  # Newline after progress bar
     Console.success(f"Parsed {game_count} games, {rated_count} with ratings")
 
     # Save cache if path provided
@@ -5968,7 +5982,10 @@ def load_ratings_cache(dat_dir: Path, force_rebuild: bool = False) -> dict:
             Console.detail(f"Loading ratings cache from {cache_path.name}...")
             try:
                 with open(cache_path, 'r', encoding='utf-8') as f:
-                    return json.load(f)
+                    cached = json.load(f)
+                if cached:
+                    return cached
+                Console.warning("Cache is empty, rebuilding...")
             except (json.JSONDecodeError, IOError):
                 Console.warning("Cache corrupted, rebuilding...")
 
@@ -7515,6 +7532,10 @@ Pattern examples (--include / --exclude):
     parser.add_argument('--include-unrated', action='store_true',
                         help='Include unrated games after rated games when using --top')
 
+    # Output options
+    parser.add_argument('--print', action='store_true', dest='print_roms',
+                        help='Print selected ROM filenames to terminal')
+
     # Export options
     parser.add_argument('--playlists', action='store_true',
                         help='Generate M3U playlists for each system')
@@ -7590,14 +7611,14 @@ Pattern examples (--include / --exclude):
 
         Console.section("Folder Aliases")
         for alias, system in sorted(FOLDER_ALIASES.items()):
-            print(f"  {Style.DIM}{alias}{Style.RESET} {SYM_ARROW_RIGHT} {Style.CYAN}{system}{Style.RESET}")
+            print(f"  {Style.DIM}{alias}{Style.RESET} {SYM_ARROW_RIGHT} {Style.GREEN}{system}{Style.RESET}")
 
         Console.section("File Extensions")
         ext_systems = defaultdict(list)
         for ext, system in EXTENSION_TO_SYSTEM.items():
             ext_systems[system].append(ext)
         for system, exts in sorted(ext_systems.items()):
-            print(f"  {Style.CYAN}{system}{Style.RESET}: {Style.DIM}{', '.join(sorted(exts))}{Style.RESET}")
+            print(f"  {Style.GREEN}{system}{Style.RESET}: {Style.DIM}{', '.join(sorted(exts))}{Style.RESET}")
         return
 
     # Update DATs mode - standalone operation
@@ -8086,6 +8107,30 @@ Pattern examples (--include / --exclude):
                             network_dat_entries[system] = ten_dat_entries
                         print(f"  {system.upper()}: {len(ten_dat_entries)} T-En DAT entries loaded")
 
+    # Load ratings if --top is used (needed for both network and local filtering)
+    ratings = {}
+    if args.top:
+        Console.section("Loading Rating Data")
+        dat_dir_ratings = Path(args.dat_dir) if args.dat_dir else Path(__file__).parent / 'dat_files'
+
+        # Check if LaunchBox data exists
+        lb_xml = dat_dir_ratings / "launchbox" / "Metadata.xml"
+        if not lb_xml.exists():
+            Console.warning("LaunchBox data not found. Downloading...")
+            if not download_launchbox_data(dat_dir_ratings):
+                Console.error("Failed to download LaunchBox data. --top requires rating data.")
+                Console.info("Run with --update-dats to download, or remove --top flag.")
+                sys.exit(1)
+
+        ratings = load_ratings_cache(dat_dir_ratings)
+        if not ratings:
+            Console.error("Failed to load ratings cache.")
+            sys.exit(1)
+
+        total_rated = sum(len(games) for games in ratings.values())
+        Console.success(f"Loaded ratings for {total_rated} games across {len(ratings)} systems")
+        print()
+
     # Step 2: Filter combined URL pool per system (select best ROM across ALL sources)
     network_downloads = {}  # {system: [selected_urls]}
     total_network_files = 0
@@ -8158,6 +8203,49 @@ Pattern examples (--include / --exclude):
                 ratings=ratings
             )
 
+        # Apply top-N filter for paths that don't handle it internally
+        # filter_network_roms handles top-N itself; TeknoParrot and MAME need it here
+        if args.top and ratings and filtered_urls:
+            arcade_systems = ('teknoparrot', 'mame', 'fbneo', 'fba', 'arcade')
+            if system in arcade_systems:
+                # TeknoParrot/MAME arcade games use 'mame' ratings in LaunchBox
+                system_ratings = ratings.get('mame', {})
+                if system_ratings:
+                    pre_count = len(filtered_urls)
+
+                    # Score each URL by rating
+                    rated = []
+                    unrated = []
+                    for url in filtered_urls:
+                        fname = get_filename_from_url(url)
+                        # Extract clean game title for rating lookup
+                        if system == 'teknoparrot':
+                            tp_info = parse_teknoparrot_filename(fname)
+                            title = tp_info.base_title if tp_info else Path(fname).stem
+                        else:
+                            title = Path(fname).stem
+                        normalized = normalize_title(title)
+                        entry = system_ratings.get(normalized)
+                        if entry:
+                            rated.append((url, entry['rating'], entry['votes']))
+                        else:
+                            unrated.append(url)
+
+                    rated.sort(key=lambda x: (-x[1], -x[2]))
+                    filtered_urls = [url for url, r, v in rated[:args.top]]
+                    if args.include_unrated and len(filtered_urls) < args.top:
+                        remaining = args.top - len(filtered_urls)
+                        filtered_urls.extend(unrated[:remaining])
+
+                    matched = len(rated)
+                    filtered_out = pre_count - len(filtered_urls)
+                    print(f"{system.upper()}: Rating data matched {matched} of {pre_count} games")
+                    print(f"{system.upper()}: Top {args.top} selected ({filtered_out} below cutoff)")
+
+                    # Recalculate size info
+                    selected_size = sum(all_url_sizes.get(url, 0) for url in filtered_urls)
+                    size_info = {'source_size': size_info['source_size'], 'selected_size': selected_size}
+
         if filtered_urls:
             network_downloads[system] = filtered_urls
             total_network_files += len(filtered_urls)
@@ -8167,6 +8255,12 @@ Pattern examples (--include / --exclude):
             }
             total_network_source_size += size_info['source_size']
             total_network_selected_size += size_info['selected_size']
+
+            if args.print_roms:
+                Console.section(f"{system.upper()} ({len(filtered_urls)} ROMs)")
+                for url in sorted(filtered_urls):
+                    filename = get_filename_from_url(url)
+                    print(f"  {filename}")
         else:
             print(f"{system.upper()}: No ROMs remaining after filtering")
 
@@ -8393,30 +8487,6 @@ Pattern examples (--include / --exclude):
     total_selected_size = 0
     system_stats = {}  # Track stats per system
 
-    # Load ratings if --top is used
-    ratings = {}
-    if args.top:
-        Console.section("Loading Rating Data")
-        dat_dir = Path(args.dat_dir) if args.dat_dir else Path(__file__).parent / 'dat_files'
-
-        # Check if LaunchBox data exists
-        lb_xml = dat_dir / "launchbox" / "Metadata.xml"
-        if not lb_xml.exists():
-            Console.warning("LaunchBox data not found. Downloading...")
-            if not download_launchbox_data(dat_dir):
-                Console.error("Failed to download LaunchBox data. --top requires rating data.")
-                Console.info("Run with --update-dats to download, or remove --top flag.")
-                sys.exit(1)
-
-        ratings = load_ratings_cache(dat_dir)
-        if not ratings:
-            Console.error("Failed to load ratings cache.")
-            sys.exit(1)
-
-        total_rated = sum(len(games) for games in ratings.values())
-        Console.success(f"Loaded ratings for {total_rated} games across {len(ratings)} systems")
-        print()
-
     for system in sorted(detected.keys()):
         check_shutdown()
         rom_files = detected[system]
@@ -8518,11 +8588,38 @@ Pattern examples (--include / --exclude):
                     exclude_patterns=args.exclude
                 )
                 selected, size_info = result
+
+                # Apply top-N filter for TeknoParrot (uses MAME ratings)
+                if args.top and ratings and selected:
+                    mame_ratings = ratings.get('mame', {})
+                    if mame_ratings:
+                        pre_count = len(selected)
+                        rated = []
+                        unrated_games = []
+                        for game in selected:
+                            normalized = normalize_title(game.base_title)
+                            entry = mame_ratings.get(normalized)
+                            if entry:
+                                rated.append((game, entry['rating'], entry['votes']))
+                            else:
+                                unrated_games.append(game)
+                        rated.sort(key=lambda x: (-x[1], -x[2]))
+                        selected = [g for g, r, v in rated[:args.top]]
+                        if args.include_unrated and len(selected) < args.top:
+                            remaining = args.top - len(selected)
+                            selected.extend(unrated_games[:remaining])
+                        print(f"TEKNOPARROT: Rating data matched {len(rated)} of {pre_count} games")
+                        print(f"TEKNOPARROT: Top {args.top} selected ({pre_count - len(selected)} below cutoff)")
+
                 system_stats['teknoparrot'] = size_info
                 total_source_size += size_info['source_size']
                 total_selected_size += size_info['selected_size']
                 if selected:
                     total_selected += len(selected)
+                    if args.print_roms:
+                        Console.section(f"TEKNOPARROT ({len(selected)} ROMs)")
+                        for game in sorted(selected, key=lambda g: g.description):
+                            print(f"  {game.name}.zip - {game.description}")
                 print()
 
         # Special handling for MAME and FBNeo (arcade systems)
@@ -8655,11 +8752,38 @@ Pattern examples (--include / --exclude):
                     include_adult=not args.no_adult
                 )
                 selected, size_info = result
+
+                # Apply top-N filter for MAME/FBNeo (uses MAME ratings)
+                if args.top and ratings and selected:
+                    mame_ratings = ratings.get('mame', {})
+                    if mame_ratings:
+                        pre_count = len(selected)
+                        rated = []
+                        unrated_games = []
+                        for game in selected:
+                            normalized = normalize_title(game.description)
+                            entry = mame_ratings.get(normalized)
+                            if entry:
+                                rated.append((game, entry['rating'], entry['votes']))
+                            else:
+                                unrated_games.append(game)
+                        rated.sort(key=lambda x: (-x[1], -x[2]))
+                        selected = [g for g, r, v in rated[:args.top]]
+                        if args.include_unrated and len(selected) < args.top:
+                            remaining = args.top - len(selected)
+                            selected.extend(unrated_games[:remaining])
+                        print(f"{arcade_system}: Rating data matched {len(rated)} of {pre_count} games")
+                        print(f"{arcade_system}: Top {args.top} selected ({pre_count - len(selected)} below cutoff)")
+
                 system_stats[system] = size_info
                 total_source_size += size_info['source_size']
                 total_selected_size += size_info['selected_size']
                 if selected:
                     total_selected += len(selected)
+                    if args.print_roms:
+                        Console.section(f"{system.upper()} ({len(selected)} ROMs)")
+                        for game in sorted(selected, key=lambda g: g.description):
+                            print(f"  {game.name}.zip - {game.description}")
                 print()
         else:
             # DAT verification/matching for non-MAME systems
@@ -8757,6 +8881,10 @@ Pattern examples (--include / --exclude):
 
             if selected:
                 total_selected += len(selected)
+                if args.print_roms:
+                    Console.section(f"{system.upper()} ({len(selected)} ROMs)")
+                    for rom in sorted(selected, key=lambda r: r.filename):
+                        print(f"  {rom.filename}")
             print()
 
     check_shutdown()
