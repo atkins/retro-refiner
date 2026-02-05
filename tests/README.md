@@ -96,3 +96,76 @@ Reports download speed for each configuration and recommends optimal settings:
 ```
 BEST: --parallel 8 --connections 8 (12.5 MB/s)
 ```
+
+---
+
+## test_network_sources.py
+
+Functional tests for network source operations. Tests real network scanning against Myrient archives.
+
+### What it tests
+
+- **No-Intro sources**: GBA scanning, filtering, dry-run mode
+- **No-Intro + T-En combined**: Translation source integration
+- **MAME CHDs**: Parallel game folder scanning, category filtering
+- **FBNeo arcade**: Direct arcade ROM scanning
+- **FBNeo recursive**: Multi-system scanning with `-r` flag
+- **TeknoParrot**: Modern arcade ROM scanning, platform filtering
+- **Redump sources**: PlayStation, Saturn CD-ROM scanning
+- **Cache operations**: Cache directory configuration, `--clean` flag
+- **Parallel scanning**: `--scan-workers`, `-r/--recursive`, `--max-depth`
+- **Error handling**: Invalid URLs, 404 responses
+- **Filtering**: Region priority, include/exclude patterns with network sources
+- **Multi-source**: Combining sources, `--prefer-source`
+
+### Usage
+
+```bash
+# Run all tests (takes several minutes)
+python tests/test_network_sources.py
+
+# Run quick test suite (5 key tests)
+python tests/test_network_sources.py --quick
+
+# Run specific test
+python tests/test_network_sources.py --test mame
+python tests/test_network_sources.py --test teknoparrot
+python tests/test_network_sources.py --test fbneo
+python tests/test_network_sources.py --test redump
+```
+
+### Available tests
+
+| Test | Description |
+|------|-------------|
+| `nointro` | No-Intro GBA source scan |
+| `ten` | No-Intro + T-En combined |
+| `mame` | MAME CHDs with parallel scanning |
+| `fbneo` | FBNeo arcade |
+| `fbneo_recursive` | FBNeo all systems with `-r` |
+| `teknoparrot` | TeknoParrot scan |
+| `teknoparrot_platform` | TeknoParrot platform filter |
+| `redump` | Redump PlayStation |
+| `redump_saturn` | Redump Saturn |
+| `cache` | Cache directory |
+| `clean` | Cache clearing `--clean` |
+| `workers` | `--scan-workers` option |
+| `recursive` | `-r` recursive flag |
+| `maxdepth` | `--max-depth` option |
+| `invalid_url` | Invalid URL handling |
+| `404` | 404 error handling |
+| `region` | Region filter with network |
+| `include_exclude` | Include/exclude patterns |
+| `multi_source` | Multiple network sources |
+| `prefer_source` | `--prefer-source` option |
+
+### Requirements
+
+- Network connection to Myrient (myrient.erista.me)
+- Tests run in dry-run mode (no files downloaded)
+- Typical run time: 5-15 minutes for full suite
+
+### Exit codes
+
+- `0` - All tests passed
+- `1` - One or more tests failed
