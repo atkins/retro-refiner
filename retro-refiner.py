@@ -3384,6 +3384,16 @@ include_betas: false
 include_unlicensed: false
 
 # -----------------------------------------------------------------------------
+# Top-N Filtering (keep only highest-rated games)
+# -----------------------------------------------------------------------------
+
+# Keep only the top N rated games per system (uses RetroArch ratings database)
+# top: 50
+
+# Include unrated games after rated ones when using top-N filtering
+# include_unrated: false
+
+# -----------------------------------------------------------------------------
 # Metadata Filters
 # -----------------------------------------------------------------------------
 
@@ -3572,6 +3582,9 @@ def apply_config_to_args(args, config: dict):
         # Scanning options
         'recursive': 'recursive',
         'max_depth': 'max_depth',
+        # Top-N filtering
+        'top': 'top',
+        'include_unrated': 'include_unrated',
     }
 
     for config_key, arg_name in config_map.items():
