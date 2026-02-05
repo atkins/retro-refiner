@@ -80,6 +80,8 @@ if WINDOWS:
     SYM_BLOCK_FULL = '#'
     SYM_BLOCK_LIGHT = '-'
     SYM_HLINE = '-'
+    SYM_INFO = '[i]'
+    SYM_WARNING = '[!]'
 else:
     SYM_CHECK = '✓'
     SYM_CROSS = '✗'
@@ -89,6 +91,8 @@ else:
     SYM_BLOCK_FULL = '█'
     SYM_BLOCK_LIGHT = '░'
     SYM_HLINE = '─'
+    SYM_INFO = 'ℹ'
+    SYM_WARNING = '⚠'
 
 # =============================================================================
 # Console Output Styling
@@ -178,12 +182,12 @@ class Console:
     @staticmethod
     def warning(text: str):
         """Print a warning message."""
-        print(f"  {Style.BRIGHT_GREEN}⚠ {text}{Style.RESET}")
+        print(f"  {Style.BRIGHT_GREEN}{SYM_WARNING} {text}{Style.RESET}")
 
     @staticmethod
     def info(text: str):
         """Print an info message."""
-        print(f"  {Style.GREEN}ℹ {text}{Style.RESET}")
+        print(f"  {Style.GREEN}{SYM_INFO} {text}{Style.RESET}")
 
     @staticmethod
     def detail(text: str):
