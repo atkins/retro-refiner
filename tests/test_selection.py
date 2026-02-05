@@ -987,6 +987,84 @@ def test_launchbox_download_function():
         results.fail("download_launchbox_data has dat_dir parameter", "dat_dir", params)
 
 
+def test_build_ratings_cache():
+    """Test building ratings cache from sample XML."""
+    print("\n" + "="*60)
+    print("RATINGS CACHE TESTS")
+    print("="*60)
+
+    try:
+        build_ratings_cache = _module.build_ratings_cache
+    except AttributeError:
+        print("  [SKIP] build_ratings_cache not yet implemented")
+        return
+
+    # Create sample XML
+    sample_xml = '''<?xml version="1.0" encoding="utf-8"?>
+<LaunchBox>
+  <Game>
+    <Name>Super Mario World</Name>
+    <Platform>Super Nintendo Entertainment System</Platform>
+    <CommunityRating>4.73</CommunityRating>
+    <CommunityRatingCount>892</CommunityRatingCount>
+  </Game>
+  <Game>
+    <Name>Sonic the Hedgehog</Name>
+    <Platform>Sega Genesis</Platform>
+    <CommunityRating>4.21</CommunityRating>
+    <CommunityRatingCount>456</CommunityRatingCount>
+  </Game>
+  <Game>
+    <Name>No Rating Game</Name>
+    <Platform>Super Nintendo Entertainment System</Platform>
+  </Game>
+</LaunchBox>'''
+
+    # Write to temp file
+    import tempfile
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.xml', delete=False) as f:
+        f.write(sample_xml)
+        temp_path = Path(f.name)
+
+    try:
+        cache = build_ratings_cache(temp_path)
+
+        # Check SNES entries
+        if 'snes' in cache:
+            results.ok("Cache contains snes platform")
+        else:
+            results.fail("Cache contains snes platform", "snes in cache", list(cache.keys()))
+            return
+
+        # Check normalized title lookup
+        if 'super mario world' in cache['snes']:
+            results.ok("Cache contains normalized title 'super mario world'")
+        else:
+            results.fail("Cache contains normalized title", "super mario world", list(cache['snes'].keys()))
+
+        # Check rating value
+        rating_entry = cache['snes'].get('super mario world', {})
+        if rating_entry.get('rating') == 4.73:
+            results.ok("Rating value correct (4.73)")
+        else:
+            results.fail("Rating value", 4.73, rating_entry.get('rating'))
+
+        # Check votes
+        if rating_entry.get('votes') == 892:
+            results.ok("Vote count correct (892)")
+        else:
+            results.fail("Vote count", 892, rating_entry.get('votes'))
+
+        # Check genesis
+        if 'genesis' in cache and 'sonic the hedgehog' in cache['genesis']:
+            results.ok("Cache contains genesis/sonic")
+        else:
+            results.fail("Cache contains genesis/sonic", True, False)
+
+    finally:
+        temp_path.unlink()
+
+
 def test_system_detection():
     """Test system detection from folders and extensions."""
     print("\n" + "="*60)
@@ -1212,6 +1290,7 @@ def main():
     test_edge_cases()
     test_launchbox_platform_mapping()
     test_launchbox_download_function()
+    test_build_ratings_cache()
     test_system_detection()
     test_playlist_generation()
 

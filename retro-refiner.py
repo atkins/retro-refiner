@@ -5821,6 +5821,115 @@ def download_launchbox_data(dat_dir: Path, force: bool = False) -> Optional[Path
         return None
 
 
+def build_ratings_cache(xml_path: Path, cache_path: Path = None) -> dict:
+    """Parse LaunchBox Metadata.xml and build ratings cache.
+
+    Args:
+        xml_path: Path to Metadata.xml
+        cache_path: Optional path to save JSON cache
+
+    Returns:
+        Dict of {system: {normalized_title: {"rating": float, "votes": int}}}
+    """
+    import xml.etree.ElementTree as ET
+
+    Console.info(f"Building ratings cache from {xml_path.name}...")
+
+    cache = {}
+    game_count = 0
+    rated_count = 0
+
+    # Use iterparse for memory efficiency with large XML
+    context = ET.iterparse(str(xml_path), events=('end',))
+
+    for event, elem in context:
+        if elem.tag == 'Game':
+            name = elem.findtext('Name')
+            platform = elem.findtext('Platform')
+            rating_str = elem.findtext('CommunityRating')
+            votes_str = elem.findtext('CommunityRatingCount')
+
+            if name and platform:
+                game_count += 1
+
+                # Map platform to our system code
+                system = LAUNCHBOX_PLATFORM_MAP.get(platform)
+                if not system:
+                    elem.clear()
+                    continue
+
+                # Only include games with ratings
+                if rating_str and votes_str:
+                    try:
+                        rating = float(rating_str)
+                        votes = int(votes_str)
+
+                        # Normalize title for matching
+                        normalized = normalize_title(name)
+
+                        if system not in cache:
+                            cache[system] = {}
+
+                        # Keep highest-voted entry if duplicate titles
+                        existing = cache[system].get(normalized)
+                        if not existing or votes > existing['votes']:
+                            cache[system][normalized] = {
+                                'rating': rating,
+                                'votes': votes,
+                                'name': name  # Keep original for debugging
+                            }
+
+                        rated_count += 1
+                    except (ValueError, TypeError):
+                        pass
+
+            # Clear element to free memory
+            elem.clear()
+
+    Console.success(f"Parsed {game_count} games, {rated_count} with ratings")
+
+    # Save cache if path provided
+    if cache_path:
+        Console.info(f"Saving ratings cache to {cache_path.name}...")
+        with open(cache_path, 'w', encoding='utf-8') as f:
+            json.dump(cache, f)
+        Console.success(f"Cache saved ({format_size(cache_path.stat().st_size)})")
+
+    return cache
+
+
+def load_ratings_cache(dat_dir: Path, force_rebuild: bool = False) -> dict:
+    """Load ratings cache, building from XML if needed.
+
+    Args:
+        dat_dir: Directory containing launchbox/ subfolder
+        force_rebuild: Force rebuild even if cache exists
+
+    Returns:
+        Ratings cache dict or empty dict if unavailable
+    """
+    launchbox_dir = dat_dir / "launchbox"
+    xml_path = launchbox_dir / "Metadata.xml"
+    cache_path = launchbox_dir / "ratings_cache.json"
+
+    # Check if we have the XML
+    if not xml_path.exists():
+        return {}
+
+    # Check if cache is newer than XML
+    if cache_path.exists() and not force_rebuild:
+        if cache_path.stat().st_mtime >= xml_path.stat().st_mtime:
+            Console.detail(f"Loading ratings cache from {cache_path.name}...")
+            try:
+                with open(cache_path, 'r', encoding='utf-8') as f:
+                    return json.load(f)
+            except (json.JSONDecodeError, IOError):
+                Console.warning("Cache corrupted, rebuilding...")
+
+    # Build cache from XML
+    return build_ratings_cache(xml_path, cache_path)
+
+
 def parse_teknoparrot_dat(dat_path: str) -> dict:
     """Parse TeknoParrot DAT file and return game info dict.
 
