@@ -3112,7 +3112,10 @@ def filter_network_roms(rom_urls: List[str], system: str,
                         year_to: int = None,
                         verbose: bool = False,
                         url_sizes: Dict[str, int] = None,
-                        dat_entries: Dict[str, 'DatRomEntry'] = None) -> Tuple[List[str], Dict[str, int]]:
+                        dat_entries: Dict[str, 'DatRomEntry'] = None,
+                        top_n: int = None,
+                        include_unrated: bool = False,
+                        ratings: dict = None) -> Tuple[List[str], Dict[str, int]]:
     """
     Filter network ROM URLs based on filename parsing and optional DAT metadata.
     When dat_entries is provided, uses DAT game names for better title normalization.
@@ -3217,6 +3220,7 @@ def filter_network_roms(rom_urls: List[str], system: str,
 
     # Select best ROM from each group
     selected_urls = []
+    selected_roms = []  # Track RomInfo for top-N filtering
     for title, roms in grouped.items():
         if keep_regions:
             # Keep one ROM per specified region
@@ -3228,6 +3232,7 @@ def filter_network_roms(rom_urls: List[str], system: str,
                     if rom.region == region and region not in seen_regions:
                         if rom.filename in url_map:
                             selected_urls.append(url_map[rom.filename])
+                            selected_roms.append(rom)
                             seen_regions.add(region)
                             if verbose:
                                 print(f"  [SELECT] {rom.filename} ({region} version of '{title}')")
@@ -3237,6 +3242,7 @@ def filter_network_roms(rom_urls: List[str], system: str,
                 best = select_best_rom(roms, region_priority)
                 if best and best.filename in url_map:
                     selected_urls.append(url_map[best.filename])
+                    selected_roms.append(best)
                     if verbose:
                         print(f"  [SELECT] {best.filename} (fallback for '{title}')")
         else:
@@ -3244,8 +3250,35 @@ def filter_network_roms(rom_urls: List[str], system: str,
             best = select_best_rom(roms, region_priority)
             if best and best.filename in url_map:
                 selected_urls.append(url_map[best.filename])
+                selected_roms.append(best)
                 if verbose:
                     print(f"  [SELECT] {best.filename} (best of {len(roms)} for '{title}')")
+
+    # Apply top-N filter if requested
+    if top_n and ratings:
+        system_ratings = ratings.get(system, {})
+        pre_filter_count = len(selected_roms)
+
+        rated_count = sum(1 for r in selected_roms
+                        if normalize_title(r.base_title) in system_ratings)
+
+        print(f"{system.upper()}: Rating data matched {rated_count} of {pre_filter_count} games")
+
+        filtered_roms = apply_top_n_filter(
+            selected_roms, system_ratings, top_n, include_unrated
+        )
+
+        # Rebuild selected_urls from filtered ROMs
+        filtered_filenames = {r.filename for r in filtered_roms}
+        selected_urls = [url for url in selected_urls
+                        if get_filename_from_url(url) in filtered_filenames]
+
+        filtered_out = pre_filter_count - len(filtered_roms)
+        if include_unrated:
+            print(f"{system.upper()}: Top {top_n} selected ({filtered_out} below cutoff)")
+        else:
+            unrated_excluded = pre_filter_count - rated_count
+            print(f"{system.upper()}: Top {top_n} selected ({filtered_out} below cutoff, {unrated_excluded} unrated excluded)")
 
     # Calculate selected size
     selected_size = sum(size_map.get(get_filename_from_url(url), 0) for url in selected_urls)
@@ -8106,7 +8139,10 @@ Pattern examples (--include / --exclude):
                 year_to=args.year_to,
                 verbose=args.verbose,
                 url_sizes=all_url_sizes,
-                dat_entries=system_dat_entries
+                dat_entries=system_dat_entries,
+                top_n=args.top,
+                include_unrated=args.include_unrated,
+                ratings=ratings
             )
 
         if filtered_urls:
