@@ -7120,6 +7120,12 @@ Pattern examples (--include / --exclude):
     parser.add_argument('--year-to', type=int, default=None,
                         help='Include only ROMs up to this year')
 
+    # Top-N filtering
+    parser.add_argument('--top', type=int, default=None,
+                        help='Keep only top N rated games per system (requires LaunchBox data)')
+    parser.add_argument('--include-unrated', action='store_true',
+                        help='Include unrated games after rated games when using --top')
+
     # Export options
     parser.add_argument('--playlists', action='store_true',
                         help='Generate M3U playlists for each system')
