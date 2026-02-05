@@ -16,9 +16,9 @@ Note: `pytest` is not installed. Tests use `unittest` and are run directly.
 
 ### Lint
 ```bash
-pylint retro-refiner.py
+python -m pylint retro-refiner.py
 ```
-CI runs pylint across Python 3.8/3.9/3.10 (see `.github/workflows/pylint.yml`). The `.pylintrc` disables complexity checks since this is a large single-file script by design.
+CI runs pylint across Python 3.8/3.9/3.10 (see `.github/workflows/pylint.yml`). The `.pylintrc` disables complexity checks since this is a large single-file script by design. Current score: **10.00/10** — avoid introducing new warnings.
 
 ### Dry run (preview only)
 ```bash
@@ -94,10 +94,10 @@ Test files:
 ## Platform Notes
 
 - Cross-platform: Windows, macOS, Linux
-- Windows uses ASCII fallbacks for Unicode symbols (line ~73)
+- All Unicode symbols must use `SYM_*` constants (defined at module top) — never hardcode Unicode in `Console` methods or print statements. Windows uses ASCII fallbacks.
 - Windows enables ANSI escape codes via `ctypes` (line ~63)
 - `DownloadUI` uses curses on Unix, falls back on Windows
-- The `Console.info()` unicode `ℹ` character can fail on Windows cp1252 console encoding
+- Windows cp1252 console cannot render Unicode symbols — always use `SYM_*` constants
 
 ## XML Parsing Caveat
 
