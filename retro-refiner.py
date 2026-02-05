@@ -5747,6 +5747,80 @@ def download_teknoparrot_dat(dat_dir: Path, force: bool = False) -> Optional[Pat
         return None
 
 
+# =============================================================================
+# LaunchBox Data Download
+# =============================================================================
+
+LAUNCHBOX_METADATA_URL = "http://gamesdb.launchbox-app.com/Metadata.zip"
+
+
+def download_launchbox_data(dat_dir: Path, force: bool = False) -> Optional[Path]:
+    """Download LaunchBox Metadata.xml for game ratings.
+
+    Args:
+        dat_dir: Directory to store downloaded files
+        force: Re-download even if file exists
+
+    Returns:
+        Path to Metadata.xml or None if download failed
+    """
+    launchbox_dir = dat_dir / "launchbox"
+    launchbox_dir.mkdir(parents=True, exist_ok=True)
+
+    xml_path = launchbox_dir / "Metadata.xml"
+    zip_path = launchbox_dir / "Metadata.zip"
+
+    # Skip if already exists and not forcing
+    if xml_path.exists() and not force:
+        Console.detail(f"LaunchBox data exists: {xml_path}")
+        return xml_path
+
+    Console.info(f"Downloading LaunchBox metadata (~50MB)...")
+
+    try:
+        # Download zip file
+        req = urllib.request.Request(
+            LAUNCHBOX_METADATA_URL,
+            headers={'User-Agent': 'Retro-Refiner/1.0'}
+        )
+
+        with urllib.request.urlopen(req, timeout=120) as response:
+            total_size = int(response.headers.get('content-length', 0))
+            downloaded = 0
+
+            with open(zip_path, 'wb') as f:
+                while True:
+                    chunk = response.read(8192)
+                    if not chunk:
+                        break
+                    f.write(chunk)
+                    downloaded += len(chunk)
+                    if total_size > 0:
+                        pct = (downloaded / total_size) * 100
+                        print(f"\r  Downloading: {format_size(downloaded)} / {format_size(total_size)} ({pct:.1f}%)", end='', flush=True)
+            print()  # Newline after progress
+
+        Console.success(f"Downloaded {format_size(downloaded)}")
+
+        # Extract Metadata.xml from zip
+        Console.info("Extracting Metadata.xml...")
+        with zipfile.ZipFile(zip_path, 'r') as zf:
+            zf.extract('Metadata.xml', launchbox_dir)
+
+        # Remove zip to save space
+        zip_path.unlink()
+
+        Console.success(f"LaunchBox data ready: {xml_path}")
+        return xml_path
+
+    except Exception as e:
+        Console.error(f"Failed to download LaunchBox data: {e}")
+        # Clean up partial downloads
+        if zip_path.exists():
+            zip_path.unlink()
+        return None
+
+
 def parse_teknoparrot_dat(dat_path: str) -> dict:
     """Parse TeknoParrot DAT file and return game info dict.
 

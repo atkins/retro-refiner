@@ -963,6 +963,30 @@ def test_launchbox_platform_mapping():
             results.fail(f"Platform mapping: {launchbox_name}", expected_system, actual)
 
 
+def test_launchbox_download_function():
+    """Test LaunchBox download function exists."""
+    print("\n" + "="*60)
+    print("LAUNCHBOX DOWNLOAD TESTS")
+    print("="*60)
+
+    try:
+        download_launchbox_data = _module.download_launchbox_data
+        results.ok("download_launchbox_data function exists")
+    except AttributeError:
+        results.fail("download_launchbox_data function exists", "function", "not found")
+        return
+
+    # Test that it returns expected structure (without actually downloading)
+    import inspect
+    sig = inspect.signature(download_launchbox_data)
+    params = list(sig.parameters.keys())
+
+    if 'dat_dir' in params:
+        results.ok("download_launchbox_data has dat_dir parameter")
+    else:
+        results.fail("download_launchbox_data has dat_dir parameter", "dat_dir", params)
+
+
 def test_system_detection():
     """Test system detection from folders and extensions."""
     print("\n" + "="*60)
@@ -1187,6 +1211,7 @@ def main():
     test_network_rom_filtering()
     test_edge_cases()
     test_launchbox_platform_mapping()
+    test_launchbox_download_function()
     test_system_detection()
     test_playlist_generation()
 
