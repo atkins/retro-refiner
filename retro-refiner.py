@@ -2790,12 +2790,17 @@ def scan_network_source_urls(base_url: str, systems: List[str] = None,
             else:
                 print(f"  Found {len(rom_files_with_sizes)} ROM files in root")
         # Auto-detect system from extensions, fall back to URL path detection
+        # For ambiguous extensions (like .chd used by multiple systems), prefer URL path
+        ambiguous_extensions = {'.chd', '.iso', '.bin', '.cue', '.img'}
         for url, size in rom_files_with_sizes:
             url_clean = url.split('?')[0].split('#')[0]
             ext = '.' + url_clean.rsplit('.', 1)[-1].lower() if '.' in url_clean else ''
             system = EXTENSION_TO_SYSTEM.get(ext)
+            # For ambiguous extensions, prefer URL path detection if available
+            if ext in ambiguous_extensions and url_system:
+                system = url_system
             # If extension didn't give a system, use URL path detection
-            if not system and url_system:
+            elif not system and url_system:
                 system = url_system
             elif not system:
                 system = 'unknown'
