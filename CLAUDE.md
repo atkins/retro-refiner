@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Retro-Refiner is a zero-dependency Python script (~9,000 lines in a single file `retro-refiner.py`) that filters ROM collections to select the best English version of each game. It supports 144 systems, local and network sources, and multiple arcade formats (MAME, FBNeo, TeknoParrot).
+Retro-Refiner is a zero-dependency Python script (~8,400 lines in a single file `retro-refiner.py`) that filters ROM collections to select the best English version of each game. It supports 144 systems, local and network sources, and multiple arcade formats (MAME, FBNeo, TeknoParrot).
 
 ## Commands
 
@@ -33,16 +33,18 @@ python retro-refiner.py -s /path/to/roms --commit
 ## Architecture
 
 ### Single-file design
-Everything lives in `retro-refiner.py` with no external dependencies. YAML parsing, progress bars, and all network handling are built-in. The file is organized into major sections separated by `# ===` comment banners:
+Everything lives in `retro-refiner.py` with no external dependencies. YAML parsing, progress bars, and all network handling are built-in. System definitions are externalized to `data/systems.json`. The file is organized into major sections separated by `# ===` comment banners:
 
-1. **Console Output Styling** (~lines 93-665) - `Style`, `Console`, `ProgressBar`, `ScanProgressBar` classes, plus `load_title_mappings()`, YAML parser, and graceful shutdown handling
-2. **Network Source Support** (~lines 665-3300) - URL parsing, HTML link extraction, connection pooling (`ConnectionPool`), download tools (aria2c/curl/urllib), `DownloadUI` (curses-based download progress), batch downloading, network source scanning
-3. **Configuration** (~lines 3300-3740) - Default config template, `load_config()`, `apply_config_to_args()`, transfer/playlist/gamelist functions
-4. **Libretro DAT File Support** (~lines 3741-4843) - `RomInfo`/`DatRomEntry` dataclasses, system-to-DAT mappings (`LIBRETRO_DAT_SYSTEMS`, `REDUMP_DAT_SYSTEMS`), T-En translation DAT support, DAT parsing (Logiqx XML + ClrMamePro formats), ROM verification, `parse_rom_filename()`, `normalize_title()`, `select_best_rom()`
-5. **MAME Arcade Filtering** (~lines 4843-5627) - `MameGameInfo`/`TeknoParrotGameInfo` dataclasses, catver.ini parsing, category include/exclude sets, clone selection, `filter_mame_roms()`
-6. **TeknoParrot Filtering** (~lines 5627-5830) - Version parsing, platform filtering, deduplication
-7. **LaunchBox Data** (~lines 5830-6100) - Rating downloads, XML parsing with `XMLPullParser` for progress tracking, top-N filtering
-8. **Main Flow** (~lines 6100-end) - System detection (`EXTENSION_TO_SYSTEM`, `FOLDER_ALIASES`), `scan_for_systems()`, `filter_roms_from_files()`, `main()`
+1. **Console Output Styling** (~lines 93-305) - `Style`, `Console`, `ProgressBar`, `ScanProgressBar` classes, plus `load_title_mappings()`
+2. **System Data Loading** (~lines 307-420) - `load_system_data()` reads `data/systems.json` and populates all system lookup dicts at module load
+3. **YAML Parser & Shutdown** (~lines 420-788) - `parse_simple_yaml()`, graceful shutdown handling
+4. **Network Source Support** (~lines 788-3420) - URL parsing, HTML link extraction, connection pooling (`ConnectionPool`), download tools (aria2c/curl/urllib), `DownloadUI` (curses-based download progress), batch downloading, network source scanning
+5. **Configuration** (~lines 3420-3860) - Default config template, `load_config()`, `apply_config_to_args()`, transfer/playlist/gamelist functions
+6. **Libretro DAT File Support** (~lines 3863-4655) - `RomInfo`/`DatRomEntry` dataclasses, T-En translation DAT support, DAT parsing (Logiqx XML + ClrMamePro formats), ROM verification, `parse_rom_filename()`, `normalize_title()`, `select_best_rom()`
+7. **MAME Arcade Filtering** (~lines 4656-5440) - `MameGameInfo`/`TeknoParrotGameInfo` dataclasses, catver.ini parsing, category include/exclude sets, clone selection, `filter_mame_roms()`
+8. **TeknoParrot Filtering** (~lines 5440-5640) - Version parsing, platform filtering, deduplication
+9. **LaunchBox Data** (~lines 5642-5920) - Rating downloads, XML parsing with `XMLPullParser` for progress tracking, top-N filtering
+10. **Main Flow** (~lines 5920-end) - System detection helpers, `scan_for_systems()`, `filter_roms_from_files()`, `main()`
 
 ### Key data flow
 1. `main()` parses args, loads config, validates sources
@@ -52,19 +54,27 @@ Everything lives in `retro-refiner.py` with no external dependencies. YAML parsi
 5. Transfer: copy/move/symlink/hardlink based on `--commit` mode
 
 ### Key dataclasses
-- `RomInfo` (line ~3718): Parsed ROM metadata (title, region, language, revision, flags like is_beta/is_proto/is_translation)
-- `DatRomEntry` (line ~3746): DAT file entry (name, description, CRC32, region, size)
-- `MameGameInfo` (line ~5032): MAME game with parent/clone relationships
-- `TeknoParrotGameInfo` (line ~5049): TeknoParrot game with version/platform info
+- `RomInfo` (line ~3840): Parsed ROM metadata (title, region, language, revision, flags like is_beta/is_proto/is_translation)
+- `DatRomEntry` (line ~3868): DAT file entry (name, description, CRC32, region, size)
+- `MameGameInfo` (line ~4844): MAME game with parent/clone relationships
+- `TeknoParrotGameInfo` (line ~4861): TeknoParrot game with version/platform info
 
-### Important lookup tables (module-level dicts)
-- `FOLDER_ALIASES` (~line 6927): 200+ folder name → system name mappings
-- `EXTENSION_TO_SYSTEM` (~line 6774): File extension → system name mappings
-- `LIBRETRO_DAT_SYSTEMS` (~line 3759): System → No-Intro DAT name
-- `REDUMP_DAT_SYSTEMS` (~line 3879): System → Redump DAT name
-- `TEN_DAT_SYSTEMS` (~line 4010): System → T-En DAT prefix
-- `LAUNCHBOX_PLATFORMS` (~line 3920): LaunchBox platform → system name
-- `MAME_INCLUDE_CATEGORIES` / `MAME_EXCLUDE_CATEGORIES` (~line 5072/5091): Arcade category filtering
+### System data (`data/systems.json`)
+All system definitions (144 systems) live in `data/systems.json`. At module load, `load_system_data()` reads this file and populates module-level globals:
+- `KNOWN_SYSTEMS` — list of all system codes
+- `EXTENSION_TO_SYSTEM` — file extension → system code (91 extensions)
+- `FOLDER_ALIASES` — folder name → system code (215 aliases)
+- `LIBRETRO_DAT_SYSTEMS` — system → No-Intro DAT name (101 systems)
+- `REDUMP_DAT_SYSTEMS` — system → Redump DAT name (25 systems)
+- `TEN_DAT_SYSTEMS` — system → T-En DAT prefix (44 systems)
+- `LAUNCHBOX_PLATFORM_MAP` — LaunchBox platform name → system code (67 platforms)
+- `DAT_NAME_TO_SYSTEM` — reverse of DAT dicts (lowercase DAT name → system)
+- `SYSTEM_TO_LAUNCHBOX` — reverse of LaunchBox map (system → first platform name)
+
+The generation script `tools/generate_systems_json.py` can regenerate the JSON from hardcoded dicts (kept as a maintenance tool).
+
+### Other lookup tables (still in code)
+- `MAME_INCLUDE_CATEGORIES` / `MAME_EXCLUDE_CATEGORIES` (~line 4885/4904): Arcade category filtering
 
 ### Title normalization pipeline
 `normalize_title()` lowercases, strips punctuation, converts Roman numerals to Arabic, then applies mappings from `data/title_mappings.json` (1,194 Japan→English mappings in 50 categories). This is how regional variants like "Rockman" and "Mega Man" get grouped together.
@@ -80,13 +90,16 @@ _spec = importlib.util.spec_from_file_location("retro_refiner", Path(__file__).p
 ```
 
 Test files:
-- `tests/test_selection.py` - Unit tests for ROM parsing, selection, filtering, config, playlists, transfers
+- `tests/test_selection.py` - 134 unit tests: ROM parsing, selection, filtering, config, playlists, transfers, systems.json validation
 - `tests/test_bandwidth.py` - Benchmark tool for download performance tuning
 - `tests/test_network_sources.py` - Functional tests for network source operations
 
+Maintenance tools:
+- `tools/generate_systems_json.py` - Regenerate `data/systems.json` from hardcoded dicts (migration tool)
+
 ## Common Modification Points
 
-- **New system**: Add to `FOLDER_ALIASES`, `EXTENSION_TO_SYSTEM`, and `LIBRETRO_DAT_SYSTEMS`/`REDUMP_DAT_SYSTEMS`
+- **New system**: Add entry to `data/systems.json` with `name` and relevant fields (`extensions`, `folder_aliases`, `dat_name`, etc.)
 - **New title mapping**: Add to `data/title_mappings.json` (lowercase, no punctuation, Arabic numerals)
 - **New filter pattern**: Add to `rerelease_patterns` or `compilation_patterns` in `parse_rom_filename()`
 - **New MAME category**: Edit `MAME_INCLUDE_CATEGORIES` / `MAME_EXCLUDE_CATEGORIES` sets
