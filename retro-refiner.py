@@ -3524,6 +3524,9 @@ include_unlicensed: false
 # Include unrated games after rated ones when using top-N filtering
 # include_unrated: false
 
+# Maximum total ROMs to select across all systems
+# limit: 500
+
 # -----------------------------------------------------------------------------
 # Metadata Filters
 # -----------------------------------------------------------------------------
@@ -3716,6 +3719,7 @@ def apply_config_to_args(args, config: dict):
         # Top-N filtering
         'top': 'top',
         'include_unrated': 'include_unrated',
+        'limit': 'limit',
     }
 
     for config_key, arg_name in config_map.items():
@@ -7092,6 +7096,8 @@ Pattern examples (--include / --exclude):
                         help='Keep only top N rated games per system, or top N%% (e.g., --top 50, --top 10%%)')
     parser.add_argument('--include-unrated', action='store_true',
                         help='Include unrated games after rated games when using --top')
+    parser.add_argument('--limit', type=int, default=None,
+                        help='Maximum total ROMs to select across all systems')
 
     # Output options
     parser.add_argument('--print', action='store_true', dest='print_roms',
@@ -7170,6 +7176,9 @@ Pattern examples (--include / --exclude):
                     parser.error(f"--top must be a positive number, got {top_str}")
         except ValueError:
             parser.error(f"--top must be a number or percentage (e.g., 50, 10%), got '{top_str}'")
+
+    if args.limit is not None and args.limit <= 0:
+        parser.error(f"--limit must be a positive number, got {args.limit}")
 
     # Resolve IA credentials from args or environment
     args.ia_access_key = args.ia_access_key or os.environ.get('IA_ACCESS_KEY')
@@ -8090,6 +8099,8 @@ Pattern examples (--include / --exclude):
 
     for system in sorted(detected.keys()):
         check_shutdown()
+        if args.limit is not None and total_selected >= args.limit:
+            break
         rom_files = detected[system]
 
         # Special handling for TeknoParrot
@@ -8128,6 +8139,11 @@ Pattern examples (--include / --exclude):
                             os.symlink(rom_path, dest_file)
                     selected.append(rom_path)
                     print(f"  {SYM_CHECK} {rom_path.name}")
+
+                if args.limit is not None:
+                    remaining = args.limit - total_selected
+                    if len(selected) > remaining:
+                        selected = selected[:remaining]
 
                 size_info = {'source_size': source_size, 'selected_size': selected_size}
                 system_stats['teknoparrot'] = size_info
@@ -8214,6 +8230,11 @@ Pattern examples (--include / --exclude):
                         print(f"TEKNOPARROT: Rating data matched {len(rated)} of {pre_count} games")
                         print(f"TEKNOPARROT: {top_label} selected ({len(selected)} games, {pre_count - len(selected)} below cutoff)")
 
+                if args.limit is not None and selected:
+                    remaining = args.limit - total_selected
+                    if len(selected) > remaining:
+                        selected = selected[:remaining]
+
                 system_stats['teknoparrot'] = size_info
                 total_source_size += size_info['source_size']
                 total_selected_size += size_info['selected_size']
@@ -8265,6 +8286,11 @@ Pattern examples (--include / --exclude):
                             os.symlink(rom_path, dest_file)
                     selected.append(rom_path)
                     print(f"  {SYM_CHECK} {rom_path.name}")
+
+                if args.limit is not None:
+                    remaining = args.limit - total_selected
+                    if len(selected) > remaining:
+                        selected = selected[:remaining]
 
                 size_info = {'source_size': source_size, 'selected_size': selected_size}
                 system_stats[orig_system] = size_info
@@ -8380,6 +8406,11 @@ Pattern examples (--include / --exclude):
                         print(f"{arcade_system}: Rating data matched {len(rated)} of {pre_count} games")
                         print(f"{arcade_system}: {top_label} selected ({len(selected)} games, {pre_count - len(selected)} below cutoff)")
 
+                if args.limit is not None and selected:
+                    remaining = args.limit - total_selected
+                    if len(selected) > remaining:
+                        selected = selected[:remaining]
+
                 system_stats[system] = size_info
                 total_source_size += size_info['source_size']
                 total_selected_size += size_info['selected_size']
@@ -8463,6 +8494,12 @@ Pattern examples (--include / --exclude):
                 ratings=ratings
             )
             selected, size_info = result
+
+            if args.limit is not None and selected:
+                remaining = args.limit - total_selected
+                if len(selected) > remaining:
+                    selected = selected[:remaining]
+
             system_stats[system] = size_info
             total_source_size += size_info['source_size']
             total_selected_size += size_info['selected_size']
@@ -8494,7 +8531,10 @@ Pattern examples (--include / --exclude):
 
     check_shutdown()
     print("=" * 60)
-    print(f"Total ROMs selected: {total_selected}")
+    if args.limit is not None:
+        print(f"Total ROMs selected: {total_selected} (limit: {args.limit})")
+    else:
+        print(f"Total ROMs selected: {total_selected}")
 
     # Print size summary if we have data
     if system_stats:
