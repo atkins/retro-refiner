@@ -7051,7 +7051,7 @@ Pattern examples (--include / --exclude):
     parser.add_argument('--update-dats', action='store_true',
                         help='Delete and re-download all DAT files (No-Intro, MAME, T-En), then exit')
     parser.add_argument('--clean', action='store_true',
-                        help='Delete cache, DAT files, and other generated data, then exit')
+                        help='Delete cache, DAT files, logs, playlists, and other generated data, then exit')
     parser.add_argument('--dat-dir', default=None,
                         help='Directory for all DAT files (default: <source>/dat_files/)')
     parser.add_argument('--cache-dir', default=None,
@@ -7242,7 +7242,7 @@ Pattern examples (--include / --exclude):
             dat_files = list(dat_dir.glob('**/*'))
             dat_files = [f for f in dat_files if f.is_file()]
             if dat_files:
-                Console.section(f"DAT Directory")
+                Console.section("DAT Directory")
                 Console.status("Path", str(dat_dir))
                 for f in dat_files:
                     size = f.stat().st_size
@@ -7263,7 +7263,7 @@ Pattern examples (--include / --exclude):
             cache_files = list(cache_dir.glob('**/*'))
             cache_files = [f for f in cache_files if f.is_file()]
             if cache_files:
-                Console.section(f"Cache Directory")
+                Console.section("Cache Directory")
                 Console.status("Path", str(cache_dir))
                 for f in cache_files:
                     size = f.stat().st_size
@@ -7278,6 +7278,29 @@ Pattern examples (--include / --exclude):
                 if cache_dir.exists() and not any(cache_dir.iterdir()):
                     cache_dir.rmdir()
                     Console.detail("Removed directory")
+
+        # Clean generated files from destination directory
+        dest_dir = Path(args.dest).resolve() if args.dest else base_dir / 'refined'
+        if dest_dir.exists():
+            generated_patterns = ['**/_selection_log.txt', '**/_verification_report.txt']
+            generated_files = []
+            for pattern in generated_patterns:
+                generated_files.extend(dest_dir.glob(pattern))
+            # Playlists and gamelists
+            generated_files.extend(dest_dir.glob('**/gamelist.xml'))
+            generated_files.extend(dest_dir.glob('**/*.m3u'))
+            generated_files.extend(dest_dir.glob('**/*.lpl'))
+
+            if generated_files:
+                Console.section("Generated Files in Destination")
+                Console.status("Path", str(dest_dir))
+                for f in generated_files:
+                    size = f.stat().st_size
+                    cleaned_size += size
+                    cleaned_count += 1
+                    f.unlink()
+                Console.success(f"Deleted {len(generated_files)} files "
+                                "(logs, reports, playlists, gamelists)")
 
         # Summary
         Console.header("CLEAN COMPLETE")
