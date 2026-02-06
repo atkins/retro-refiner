@@ -304,6 +304,125 @@ def load_title_mappings() -> Dict[str, str]:
     return flat_mappings
 
 
+# =============================================================================
+# System Data Loading (from data/systems.json)
+# =============================================================================
+
+# Module-level globals populated by load_system_data()
+KNOWN_SYSTEMS = []
+EXTENSION_TO_SYSTEM = {}
+FOLDER_ALIASES = {}
+LIBRETRO_DAT_SYSTEMS = {}
+REDUMP_DAT_SYSTEMS = {}
+TEN_DAT_SYSTEMS = {}
+LAUNCHBOX_PLATFORM_MAP = {}
+DAT_NAME_TO_SYSTEM = {}
+SYSTEM_TO_LAUNCHBOX = {}
+
+_system_data_cache = None
+
+
+def load_system_data():
+    """Load system definitions from data/systems.json and populate module globals.
+
+    Builds all lookup dicts from the canonical JSON file:
+      - KNOWN_SYSTEMS: list of all system codes
+      - EXTENSION_TO_SYSTEM: file extension -> system code
+      - FOLDER_ALIASES: folder name -> system code
+      - LIBRETRO_DAT_SYSTEMS: system -> No-Intro DAT name
+      - REDUMP_DAT_SYSTEMS: system -> Redump DAT name
+      - TEN_DAT_SYSTEMS: system -> T-En DAT prefix
+      - LAUNCHBOX_PLATFORM_MAP: LaunchBox platform name -> system code
+      - DAT_NAME_TO_SYSTEM: DAT name (lowercase) -> system code
+      - SYSTEM_TO_LAUNCHBOX: system code -> first LaunchBox platform name
+    """
+    global _system_data_cache
+    global KNOWN_SYSTEMS, EXTENSION_TO_SYSTEM, FOLDER_ALIASES
+    global LIBRETRO_DAT_SYSTEMS, REDUMP_DAT_SYSTEMS, TEN_DAT_SYSTEMS
+    global LAUNCHBOX_PLATFORM_MAP, DAT_NAME_TO_SYSTEM, SYSTEM_TO_LAUNCHBOX
+
+    if _system_data_cache is not None:
+        return _system_data_cache
+
+    systems_path = Path(__file__).parent / 'data' / 'systems.json'
+
+    try:
+        with open(systems_path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+    except (json.JSONDecodeError, IOError) as e:
+        print(f"Error: Could not load systems.json: {e}")
+        sys.exit(1)
+
+    systems = data.get('systems', {})
+
+    known = list(systems.keys())
+    ext_map = {}
+    alias_map = {}
+    dat_map = {}
+    redump_map = {}
+    ten_map = {}
+    lb_map = {}
+
+    for system_code, info in systems.items():
+        for ext in info.get('extensions', []):
+            ext_map[ext] = system_code
+
+        for alias in info.get('folder_aliases', []):
+            alias_map[alias] = system_code
+
+        dat_name = info.get('dat_name')
+        if dat_name:
+            dat_map[system_code] = dat_name
+
+        redump_name = info.get('redump_dat_name')
+        if redump_name:
+            redump_map[system_code] = redump_name
+
+        ten_prefix = info.get('ten_dat_prefix')
+        if ten_prefix:
+            ten_map[system_code] = ten_prefix
+
+        for lb_name in info.get('launchbox_platforms', []):
+            lb_map[lb_name] = system_code
+
+    # Reverse mappings
+    dat_name_to_sys = {v.lower(): k for k, v in dat_map.items()}
+    dat_name_to_sys.update({v.lower(): k for k, v in redump_map.items()})
+
+    sys_to_lb = {}
+    for lb_name, sys_code in lb_map.items():
+        if sys_code not in sys_to_lb:
+            sys_to_lb[sys_code] = lb_name
+
+    # Assign to module globals
+    KNOWN_SYSTEMS = known
+    EXTENSION_TO_SYSTEM = ext_map
+    FOLDER_ALIASES = alias_map
+    LIBRETRO_DAT_SYSTEMS = dat_map
+    REDUMP_DAT_SYSTEMS = redump_map
+    TEN_DAT_SYSTEMS = ten_map
+    LAUNCHBOX_PLATFORM_MAP = lb_map
+    DAT_NAME_TO_SYSTEM = dat_name_to_sys
+    SYSTEM_TO_LAUNCHBOX = sys_to_lb
+
+    _system_data_cache = {
+        'known_systems': known,
+        'extension_to_system': ext_map,
+        'folder_aliases': alias_map,
+        'libretro_dat_systems': dat_map,
+        'redump_dat_systems': redump_map,
+        'ten_dat_systems': ten_map,
+        'launchbox_platform_map': lb_map,
+        'dat_name_to_system': dat_name_to_sys,
+        'system_to_launchbox': sys_to_lb,
+    }
+    return _system_data_cache
+
+
+# Load system data eagerly at module level (needed everywhere)
+load_system_data()
+
+
 # Minimal YAML parser for config files (no external dependency)
 def parse_simple_yaml(content: str) -> dict:
     """
@@ -3759,315 +3878,6 @@ class DatRomEntry:
     parent_name: str  # Parent ROM name if clone
 
 
-# System name mappings for libretro-database (No-Intro DATs)
-LIBRETRO_DAT_SYSTEMS = {
-    # Nintendo - Consoles
-    'nes': 'Nintendo - Nintendo Entertainment System',
-    'fds': 'Nintendo - Family Computer Disk System',
-    'snes': 'Nintendo - Super Nintendo Entertainment System',
-    'n64': 'Nintendo - Nintendo 64',
-    'n64dd': 'Nintendo - Nintendo 64DD',
-    'gamecube': 'Nintendo - GameCube',
-    'wii': 'Nintendo - Wii',
-    'wiiu': 'Nintendo - Wii U',
-    # Nintendo - Handhelds
-    'gameboy': 'Nintendo - Game Boy',
-    'gameboy-color': 'Nintendo - Game Boy Color',
-    'gba': 'Nintendo - Game Boy Advance',
-    'nds': 'Nintendo - Nintendo DS',
-    '3ds': 'Nintendo - Nintendo 3DS',
-    'virtualboy': 'Nintendo - Virtual Boy',
-    'pokemini': 'Nintendo - Pokemon Mini',
-    # Sega
-    'genesis': 'Sega - Mega Drive - Genesis',
-    'mastersystem': 'Sega - Master System - Mark III',
-    'gamegear': 'Sega - Game Gear',
-    'sg1000': 'Sega - SG-1000',
-    'sega32x': 'Sega - 32X',
-    'segapico': 'Sega - PICO',
-    'saturn': 'Sega - Saturn',
-    'dreamcast': 'Sega - Dreamcast',
-    'segacd': 'Sega - Mega-CD - Sega CD',
-    # Sony
-    'psx': 'Sony - PlayStation',
-    'ps2': 'Sony - PlayStation 2',
-    'ps3': 'Sony - PlayStation 3',
-    'psp': 'Sony - PlayStation Portable',
-    'psvita': 'Sony - PlayStation Vita',
-    # NEC
-    'tg16': 'NEC - PC Engine - TurboGrafx 16',
-    'supergrafx': 'NEC - PC Engine SuperGrafx',
-    'tgcd': 'NEC - PC Engine CD - TurboGrafx-CD',
-    'pcfx': 'NEC - PC-FX',
-    'pc98': 'NEC - PC-98',
-    # SNK
-    'neogeo': 'SNK - Neo Geo',
-    'neogeocd': 'SNK - Neo Geo CD',
-    'ngp': 'SNK - Neo Geo Pocket',
-    'ngpc': 'SNK - Neo Geo Pocket Color',
-    # Atari
-    'atari2600': 'Atari - 2600',
-    'atari5200': 'Atari - 5200',
-    'atari7800': 'Atari - 7800',
-    'atari800': 'Atari - 8-bit Family',
-    'atarilynx': 'Atari - Lynx',
-    'atarijaguar': 'Atari - Jaguar',
-    'atarijaguarcd': 'Atari - Jaguar CD',
-    'atarist': 'Atari - ST',
-    # Microsoft
-    'xbox': 'Microsoft - Xbox',
-    'xbox360': 'Microsoft - Xbox 360',
-    # Other consoles
-    '3do': 'The 3DO Company - 3DO',
-    'colecovision': 'Coleco - ColecoVision',
-    'intellivision': 'Mattel - Intellivision',
-    'vectrex': 'GCE - Vectrex',
-    'wonderswan': 'Bandai - WonderSwan',
-    'wonderswan-color': 'Bandai - WonderSwan Color',
-    'odyssey2': 'Magnavox - Odyssey2',
-    'videopac': 'Philips - Videopac+',
-    'cdi': 'Philips - CD-i',
-    'channelf': 'Fairchild - Channel F',
-    'supervision': 'Watara - Supervision',
-    'arcadia': 'Emerson - Arcadia 2001',
-    'loopy': 'Casio - Loopy',
-    'pv1000': 'Casio - PV-1000',
-    'advision': 'Entex - Adventure Vision',
-    'superacan': 'Funtech - Super Acan',
-    'studio2': 'RCA - Studio II',
-    'gamecom': 'Tiger - Game.com',
-    'scv': 'Epoch - Super Cassette Vision',
-    # Nintendo add-ons
-    'satellaview': 'Nintendo - Satellaview',
-    'sufami': 'Nintendo - Sufami Turbo',
-    'dsi': 'Nintendo - Nintendo DSi',
-    'ereader': 'Nintendo - e-Reader',
-    # Sega add-ons/arcade
-    'beena': 'Sega - Beena',
-    'naomi': 'Sega - Naomi',
-    'naomi2': 'Sega - Naomi 2',
-    # Handhelds
-    'gp32': 'GamePark - GP32',
-    'gamemaster': 'Hartung - Game Master',
-    'pocketchallenge': 'Benesse - Pocket Challenge V2',
-    # Educational
-    'picno': 'Konami - Picno',
-    'leappad': 'LeapFrog - LeapPad',
-    'leapster': 'LeapFrog - Leapster Learning Game System',
-    'creativision': 'VTech - CreatiVision',
-    'vsmile': 'VTech - V.Smile',
-    # Computers
-    'msx': 'Microsoft - MSX',
-    'msx2': 'Microsoft - MSX2',
-    'zxspectrum': 'Sinclair - ZX Spectrum +3',
-    'zx81': 'Sinclair - ZX 81',
-    'c64': 'Commodore - 64',
-    'plus4': 'Commodore - Plus-4',
-    'vic20': 'Commodore - VIC-20',
-    'amiga': 'Commodore - Amiga',
-    'amigacd32': 'Commodore - CD32',
-    'cdtv': 'Commodore - CDTV',
-    'amstradcpc': 'Amstrad - CPC',
-    'sharp-x1': 'Sharp - X1',
-    'x68000': 'Sharp - X68000',
-    'enterprise': 'Enterprise - 128',
-    'tvcomputer': 'Videoton - TV-Computer',
-    # Mobile
-    'j2me': 'Mobile - J2ME',
-    'palmos': 'Mobile - Palm OS',
-    'symbian': 'Mobile - Symbian',
-    'zeebo': 'Mobile - Zeebo',
-}
-
-# Redump DAT names for CD/DVD-based systems
-REDUMP_DAT_SYSTEMS = {
-    # Sony
-    'psx': 'Sony - PlayStation',
-    'ps2': 'Sony - PlayStation 2',
-    'ps3': 'Sony - PlayStation 3',
-    'psp': 'Sony - PlayStation Portable',
-    'psvita': 'Sony - PlayStation Vita',
-    # Sega
-    'segacd': 'Sega - Mega-CD - Sega CD',
-    'saturn': 'Sega - Saturn',
-    'dreamcast': 'Sega - Dreamcast',
-    # NEC
-    'tgcd': 'NEC - PC Engine CD - TurboGrafx-CD',
-    'pcfx': 'NEC - PC-FX',
-    # SNK
-    'neogeocd': 'SNK - Neo Geo CD',
-    # Microsoft
-    'xbox': 'Microsoft - Xbox',
-    'xbox360': 'Microsoft - Xbox 360',
-    # Nintendo
-    'gamecube': 'Nintendo - GameCube',
-    'wii': 'Nintendo - Wii',
-    'wiiu': 'Nintendo - Wii U',
-    '3ds': 'Nintendo - Nintendo 3DS',
-    # Other
-    '3do': 'Panasonic - 3DO Interactive Multiplayer',
-    'cdi': 'Philips - CD-i',
-    'amigacd32': 'Commodore - Amiga CD32',
-    'cdtv': 'Commodore - CDTV',
-    'atarijaguarcd': 'Atari - Jaguar CD Interactive Multimedia System',
-    'fmtowns': 'Fujitsu - FM Towns series',
-    'pc98': 'NEC - PC-98 series',
-    'x68000': 'Sharp - X68000',
-}
-
-# Reverse mapping: No-Intro/Redump DAT name -> system name (for URL detection)
-DAT_NAME_TO_SYSTEM = {v.lower(): k for k, v in LIBRETRO_DAT_SYSTEMS.items()}
-# Add Redump names
-DAT_NAME_TO_SYSTEM.update({v.lower(): k for k, v in REDUMP_DAT_SYSTEMS.items()})
-
-# LaunchBox platform names to retro-refiner system codes
-LAUNCHBOX_PLATFORM_MAP = {
-    # Nintendo consoles
-    "Nintendo Entertainment System": "nes",
-    "Nintendo Famicom Disk System": "fds",
-    "Super Nintendo Entertainment System": "snes",
-    "Nintendo 64": "n64",
-    "Nintendo 64DD": "n64dd",
-    "Nintendo GameCube": "gamecube",
-    "Nintendo Wii": "wii",
-    "Nintendo Wii U": "wiiu",
-    "Nintendo Switch": "switch",
-    # Nintendo handhelds
-    "Nintendo Game Boy": "gameboy",
-    "Nintendo Game Boy Color": "gameboy-color",
-    "Nintendo Game Boy Advance": "gba",
-    "Nintendo DS": "nds",
-    "Nintendo DSi": "dsi",
-    "Nintendo 3DS": "3ds",
-    "Nintendo Virtual Boy": "virtualboy",
-    "Nintendo Pokemon Mini": "pokemini",
-    # Sega consoles
-    "Sega SG-1000": "sg1000",
-    "Sega Master System": "mastersystem",
-    "Sega Genesis": "genesis",
-    "Sega Mega Drive": "genesis",
-    "Sega CD": "segacd",
-    "Sega 32X": "sega32x",
-    "Sega Saturn": "saturn",
-    "Sega Dreamcast": "dreamcast",
-    # Sega handhelds
-    "Sega Game Gear": "gamegear",
-    # Sony
-    "Sony Playstation": "psx",
-    "Sony Playstation 2": "ps2",
-    "Sony Playstation 3": "ps3",
-    "Sony PSP": "psp",
-    "Sony Playstation Vita": "psvita",
-    # Microsoft
-    "Microsoft Xbox": "xbox",
-    "Microsoft Xbox 360": "xbox360",
-    # Atari
-    "Atari 2600": "atari2600",
-    "Atari 5200": "atari5200",
-    "Atari 7800": "atari7800",
-    "Atari Lynx": "atarilynx",
-    "Atari Jaguar": "atarijaguar",
-    "Atari Jaguar CD": "atarijaguarcd",
-    "Atari ST": "atarist",
-    # NEC
-    "NEC TurboGrafx-16": "tg16",
-    "NEC TurboGrafx-CD": "tgcd",
-    "NEC PC-FX": "pcfx",
-    "NEC SuperGrafx": "supergrafx",
-    "NEC PC-8801": "pc88",
-    "NEC PC-9801": "pc98",
-    # SNK
-    "SNK Neo Geo AES": "neogeo",
-    "SNK Neo Geo MVS": "neogeo",
-    "SNK Neo Geo CD": "neogeocd",
-    "SNK Neo Geo Pocket": "ngp",
-    "SNK Neo Geo Pocket Color": "ngpc",
-    # Other consoles
-    "3DO Interactive Multiplayer": "3do",
-    "Philips CD-i": "cdi",
-    "Mattel Intellivision": "intellivision",
-    "ColecoVision": "colecovision",
-    "GCE Vectrex": "vectrex",
-    "Magnavox Odyssey 2": "odyssey2",
-    "Bandai WonderSwan": "wonderswan",
-    "Bandai WonderSwan Color": "wonderswan-color",
-    # Arcade
-    "Arcade": "mame",
-    "MAME": "mame",
-    # Computers
-    "Commodore 64": "c64",
-    "Commodore Amiga": "amiga",
-    "Sinclair ZX Spectrum": "zxspectrum",
-    "MSX": "msx",
-    "MSX2": "msx2",
-    "Sharp X68000": "x68000",
-}
-
-# Reverse mapping for lookups
-SYSTEM_TO_LAUNCHBOX = {}
-for lb_name, system in LAUNCHBOX_PLATFORM_MAP.items():
-    if system not in SYSTEM_TO_LAUNCHBOX:
-        SYSTEM_TO_LAUNCHBOX[system] = lb_name
-
-# T-En (English Translation) DAT files from Archive.org
-# Maps system name to the folder name prefix used in Archive.org T-En DAT filenames
-# Format: "Nintendo - Famicom [T-En] Collection (DD-MM-YYYY).zip"
-# Names must EXACTLY match Archive.org filenames (case-sensitive, exact punctuation)
-TEN_DAT_SYSTEMS = {
-    # Nintendo - Consoles
-    'nes': 'Nintendo - Famicom',
-    'fds': 'Nintendo - Family Computer Disk System',
-    'snes': 'Nintendo - Super Famicom',
-    'n64': 'Nintendo - Nintendo 64',
-    'n64dd': 'Nintendo - Nintendo 64DD',
-    'gamecube': 'Nintendo - GameCube',
-    'wii': 'Nintendo - Wii',
-    # Nintendo - Handhelds
-    'gameboy': 'Nintendo - Game Boy',
-    'gameboy-color': 'Nintendo - Game Boy Color',
-    'gba': 'Nintendo - Game Boy Advance',
-    'nds': 'Nintendo - Nintendo DS',
-    'dsi': 'Nintendo - Nintendo DSi',
-    '3ds': 'Nintendo - Nintendo 3DS',
-    'virtualboy': 'Nintendo - Virtual Boy',
-    'pokemini': 'Nintendo - Pokemon Mini',
-    # Sega
-    'sg1000': 'Sega - SG-1000',
-    'mastersystem': 'Sega - Master System',
-    'genesis': 'Sega - Mega Drive',
-    'segacd': 'Sega - Mega CD',  # No hyphen in "Mega CD"
-    'gamegear': 'Sega - Game Gear',
-    'saturn': 'Sega - Saturn',
-    'dreamcast': 'Sega - Dreamcast',
-    # Sony
-    'psx': 'Sony - PlayStation',
-    'ps2': 'Sony - PlayStation 2',
-    'ps3': 'Sony - PlayStation 3',
-    'psp': 'Sony - PlayStation Portable',
-    # NEC
-    'tg16': 'NEC - PC Engine',
-    'tgcd': 'NEC - PC Engine CD',
-    'pcfx': 'NEC - PC-FX',
-    'pc88': 'NEC - PC-8801',
-    'pc98': 'NEC - PC-9801',
-    # SNK
-    'neogeocd': 'SNK - Neo Geo CD',
-    'ngpc': 'SNK - Neo Geo Pocket Color',  # Only Color version exists
-    # Microsoft
-    'msx': 'Microsoft - MSX',
-    'msx2': 'Microsoft - MSX2',
-    'xbox': 'Microsoft - XBOX',  # Uppercase XBOX
-    'xbox360': 'Microsoft - XBOX 360',  # Uppercase XBOX
-    # Bandai
-    'wonderswan': 'Bandai - WonderSwan',
-    'wonderswan-color': 'Bandai - WonderSwan Color',
-    # Other
-    'x68000': 'Sharp - X68000',
-    'sharp-x1': 'Sharp - X1',
-    'fmtowns': 'Fujitsu - FM-Towns',  # Hyphen in FM-Towns
-    '3do': 'Panasonic - 3DO Interactive Multiplayer',
-    'zeebo': 'Zeebo - Zeebo',
-}
 
 # Base URL for T-En DAT files
 TEN_DAT_BASE_URL = "https://archive.org/download/En-ROMs/DATs/"
@@ -6773,396 +6583,6 @@ def filter_mame_network_roms(rom_urls: List[str],
     return selected_urls, {'source_size': total_source_size, 'selected_size': selected_size}
 
 
-# File extension to system mapping for auto-detection
-EXTENSION_TO_SYSTEM = {
-    # Nintendo - Consoles
-    '.nes': 'nes',
-    '.fds': 'fds',
-    '.sfc': 'snes',
-    '.smc': 'snes',
-    '.gb': 'gameboy',
-    '.gbc': 'gameboy-color',
-    '.gba': 'gba',
-    '.n64': 'n64',
-    '.z64': 'n64',
-    '.v64': 'n64',
-    '.ndd': 'n64dd',
-    '.gcm': 'gamecube',
-    '.gcz': 'gamecube',
-    '.rvz': 'gamecube',
-    '.wbfs': 'wii',
-    '.wia': 'wii',
-    '.vb': 'virtualboy',
-    '.nds': 'nds',
-    '.dsi': 'nds',
-    '.3ds': '3ds',
-    '.cia': '3ds',
-    '.nsp': 'switch',
-    '.xci': 'switch',
-    '.min': 'pokemini',
-    # Sega - Consoles
-    '.md': 'genesis',
-    '.gen': 'genesis',
-    '.smd': 'genesis',
-    '.gg': 'gamegear',
-    '.sms': 'mastersystem',
-    '.sg': 'sg1000',
-    '.sc': 'sc3000',
-    '.32x': 'sega32x',
-    '.cue': 'segacd',  # Also used by other CD systems
-    '.gdi': 'dreamcast',
-    '.cdi': 'dreamcast',
-    '.chd': 'segacd',  # Generic CD format
-    '.pco': 'segapico',
-    # Sony
-    '.pbp': 'psp',
-    '.cso': 'psp',
-    '.iso': 'psx',  # Ambiguous - also used by others
-    # Atari - Consoles
-    '.a26': 'atari2600',
-    '.a52': 'atari5200',
-    '.a78': 'atari7800',
-    '.j64': 'atarijaguar',
-    '.jag': 'atarijaguar',
-    '.lnx': 'atarilynx',
-    # Atari - Computers
-    '.st': 'atarist',
-    '.stx': 'atarist',
-    '.xex': 'atari800',
-    '.atr': 'atari800',
-    '.a8': 'atari800',
-    '.xfd': 'atari800',
-    # NEC
-    '.pce': 'tg16',
-    '.sgx': 'tg16',
-    # SNK
-    '.neo': 'neogeo',
-    '.ngp': 'ngp',
-    '.ngc': 'ngpc',
-    # Other Consoles
-    '.col': 'colecovision',
-    '.int': 'intellivision',
-    '.vec': 'vectrex',
-    '.ws': 'wonderswan',
-    '.wsc': 'wonderswan-color',
-    '.o2': 'odyssey2',
-    '.bin': 'odyssey2',  # Also used by many systems
-    '.ch8': 'chip8',
-    '.3do': '3do',
-    '.fcf': 'channelf',
-    # Computers
-    '.mx1': 'msx',
-    '.mx2': 'msx2',
-    '.cas': 'msx',
-    '.dsk': 'amstradcpc',  # Also used by others
-    '.cdt': 'amstradcpc',
-    '.tzx': 'zxspectrum',
-    '.tap': 'zxspectrum',
-    '.z80': 'zxspectrum',
-    '.sna': 'zxspectrum',
-    '.d64': 'c64',
-    '.t64': 'c64',
-    '.prg': 'c64',
-    '.crt': 'c64',
-    '.g64': 'c64',
-    '.d81': 'c64',
-    '.adf': 'amiga',
-    '.adz': 'amiga',
-    '.ipf': 'amiga',
-    '.hdf': 'amiga',
-    '.lha': 'amiga',
-    '.vz': 'vtech',
-    '.rom': 'msx',
-    # Handhelds
-    '.sv': 'supervision',
-    '.mgw': 'gameandwatch',
-    # Arcade (folder-based mostly)
-    # .zip is too generic
-}
-
-# Known system folder names (for folder-based detection)
-KNOWN_SYSTEMS = [
-    # Nintendo
-    'nes', 'fds', 'snes', 'n64', 'n64dd', 'gamecube', 'wii', 'wiiu', 'switch',
-    'gameboy', 'gameboy-color', 'gba', 'virtualboy', 'nds', 'dsi', '3ds', 'pokemini',
-    'satellaview', 'sufami', 'ereader',
-    # Sega
-    'sg1000', 'sc3000', 'mastersystem', 'genesis', 'sega32x', 'segacd', 'saturn', 'dreamcast',
-    'gamegear', 'segapico', 'beena',
-    # Sony
-    'psx', 'ps2', 'ps3', 'psp', 'psvita',
-    # Microsoft
-    'xbox', 'xbox360',
-    # Atari
-    'atari2600', 'atari5200', 'atari7800', 'atarijaguar', 'atarijaguarcd', 'atarilynx',
-    'atari800', 'atari400', 'atarist',
-    # NEC
-    'tg16', 'tgcd', 'pcfx', 'supergrafx',
-    # SNK
-    'neogeo', 'neogeocdjapan', 'ngp', 'ngpc', 'neogeocd',
-    # Other Consoles
-    'colecovision', 'intellivision', 'vectrex', 'odyssey2', 'videopac', 'channelf',
-    '3do', 'cdi', 'actionmax', 'astrocade', 'supervision',
-    'loopy', 'pv1000', 'advision', 'superacan', 'studio2', 'gamecom',
-    # Bandai
-    'wonderswan', 'wonderswan-color',
-    # Handhelds
-    'gp32', 'gamemaster', 'pocketchallenge',
-    # Educational
-    'picno', 'leappad', 'leapster', 'creativision', 'vsmile',
-    # Computers
-    'msx', 'msx2', 'amstradcpc', 'zxspectrum', 'zx81',
-    'c64', 'c128', 'plus4', 'vic20', 'amiga', 'amigacd32', 'cdtv',
-    'atari800', 'atarist', 'x68000', 'pc88', 'pc98', 'sharp-x1',
-    'apple2', 'bbc', 'dragon32', 'electron', 'oric', 'samcoupe', 'ti994a',
-    'trs80', 'tandy', 'fm7', 'fmtowns', 'scv', 'enterprise', 'tvcomputer',
-    # Arcade
-    'mame', 'cps1', 'cps2', 'cps3', 'naomi', 'naomi2', 'atomiswave', 'model2', 'model3',
-    'fba', 'fbneo', 'daphne', 'teknoparrot',
-    # Mobile
-    'j2me', 'palmos', 'symbian', 'zeebo',
-    # Misc
-    'chip8', 'pico8', 'tic80', 'lowresnx', 'lutro', 'scummvm', 'dosbox',
-    'gameandwatch', 'arduboy', 'uzebox', 'vtech', 'gamate', 'megaduck',
-]
-
-# Normalize folder names to standard system names
-FOLDER_ALIASES = {
-    # Nintendo
-    'famicom': 'nes',
-    'fc': 'nes',
-    'nintendo': 'nes',
-    'famicom-disk-system': 'fds',
-    'famicon-disk-system': 'fds',
-    'supernes': 'snes',
-    'super-nes': 'snes',
-    'superfamicom': 'snes',
-    'super-famicom': 'snes',
-    'sfc': 'snes',
-    'super-nintendo': 'snes',
-    'gb': 'gameboy',
-    'game-boy': 'gameboy',
-    'gbc': 'gameboy-color',
-    'game-boy-color': 'gameboy-color',
-    'gbcolor': 'gameboy-color',
-    'game-boy-advance': 'gba',
-    'gameboy-advance': 'gba',
-    'gbadvance': 'gba',
-    'nintendo64': 'n64',
-    'nintendo-64': 'n64',
-    '64dd': 'n64dd',
-    'nintendo-64-dd': 'n64dd',
-    'gc': 'gamecube',
-    'ngc': 'gamecube',
-    'nintendo-gamecube': 'gamecube',
-    'nintendo-wii': 'wii',
-    'wii-u': 'wiiu',
-    'nintendo-switch': 'switch',
-    'virtual-boy': 'virtualboy',
-    'vboy': 'virtualboy',
-    'nintendo-ds': 'nds',
-    'ds': 'nds',
-    'nintendo-dsi': 'dsi',
-    'ndsi': 'dsi',
-    'nintendo-3ds': '3ds',
-    'new3ds': '3ds',
-    'pokemon-mini': 'pokemini',
-    # Sega
-    'megadrive': 'genesis',
-    'mega-drive': 'genesis',
-    'md': 'genesis',
-    'sega-genesis': 'genesis',
-    'sega-mega-drive': 'genesis',
-    'master-system': 'mastersystem',
-    'sms': 'mastersystem',
-    'sega-master-system': 'mastersystem',
-    'game-gear': 'gamegear',
-    'sega-game-gear': 'gamegear',
-    'sega-32x': 'sega32x',
-    '32x': 'sega32x',
-    'megacd': 'segacd',
-    'mega-cd': 'segacd',
-    'sega-cd': 'segacd',
-    'sega-saturn': 'saturn',
-    'ss': 'saturn',
-    'sega-dreamcast': 'dreamcast',
-    'dc': 'dreamcast',
-    'sega-sg-1000': 'sg1000',
-    'sega-sc-3000': 'sc3000',
-    'sega-pico': 'segapico',
-    'pico': 'segapico',
-    # Sony
-    'playstation': 'psx',
-    'ps1': 'psx',
-    'psone': 'psx',
-    'sony-playstation': 'psx',
-    'sony - playstation': 'psx',  # Redump naming
-    'playstation-2': 'ps2',
-    'playstation2': 'ps2',
-    'sony - playstation 2': 'ps2',  # Redump naming
-    'playstation-3': 'ps3',
-    'playstation3': 'ps3',
-    'sony - playstation 3': 'ps3',  # Redump naming
-    'playstation-portable': 'psp',
-    'sony - playstation portable': 'psp',  # Redump naming
-    'playstation-vita': 'psvita',
-    'sony - playstation vita': 'psvita',  # Redump naming
-    'vita': 'psvita',
-    # NEC
-    'turbografx16': 'tg16',
-    'turbografx-16': 'tg16',
-    'pcengine': 'tg16',
-    'pc-engine': 'tg16',
-    'pce': 'tg16',
-    'turbografx-cd': 'tgcd',
-    'pc-engine-cd': 'tgcd',
-    'pcecd': 'tgcd',
-    'pc-fx': 'pcfx',
-    'super-grafx': 'supergrafx',
-    # SNK
-    'neo-geo': 'neogeo',
-    'neogeo-aes': 'neogeo',
-    'neogeo-mvs': 'neogeo',
-    'neo-geo-cd': 'neogeocd',
-    'neo-geo-pocket': 'ngp',
-    'neogeo-pocket': 'ngp',
-    'neo-geo-pocket-color': 'ngpc',
-    'neogeo-pocket-color': 'ngpc',
-    # Atari
-    'atari-2600': 'atari2600',
-    'vcs': 'atari2600',
-    'atari-5200': 'atari5200',
-    'atari-7800': 'atari7800',
-    'atari-jaguar': 'atarijaguar',
-    'jaguar': 'atarijaguar',
-    'atari-jaguar-cd': 'atarijaguarcd',
-    'jaguarcd': 'atarijaguarcd',
-    'atari-lynx': 'atarilynx',
-    'lynx': 'atarilynx',
-    'atari-st': 'atarist',
-    'atari-ste': 'atarist',
-    'atari-800': 'atari800',
-    'atari-400': 'atari800',
-    'atari800xl': 'atari800',
-    'atari-xe': 'atari800',
-    # Computers
-    'amstrad-cpc': 'amstradcpc',
-    'cpc': 'amstradcpc',
-    'zx-spectrum': 'zxspectrum',
-    'spectrum': 'zxspectrum',
-    'sinclair': 'zxspectrum',
-    'zx-81': 'zx81',
-    'commodore-64': 'c64',
-    'commodore64': 'c64',
-    'commodore-128': 'c128',
-    'commodore128': 'c128',
-    'commodore-vic20': 'vic20',
-    'commodore-amiga': 'amiga',
-    'amiga-cd32': 'amigacd32',
-    'x68000': 'x68000',
-    'sharp-x68000': 'x68000',
-    'pc-88': 'pc88',
-    'nec-pc88': 'pc88',
-    'pc-98': 'pc98',
-    'nec-pc98': 'pc98',
-    'x1': 'sharp-x1',
-    'apple-ii': 'apple2',
-    'apple-iie': 'apple2',
-    'bbc-micro': 'bbc',
-    'acorn': 'bbc',
-    'ti-99-4a': 'ti994a',
-    'ti99': 'ti994a',
-    'trs-80': 'trs80',
-    'tandy-coco': 'tandy',
-    'coco': 'tandy',
-    'fm-towns': 'fmtowns',
-    'fujitsu-fm-towns': 'fmtowns',
-    'fm-7': 'fm7',
-    'epoch-scv': 'scv',
-    # Other
-    'bandai-wonderswan': 'wonderswan',
-    'bandai-wonderswan-color': 'wonderswan-color',
-    'wonderswancolor': 'wonderswan-color',
-    'wsc': 'wonderswan-color',
-    'channel-f': 'channelf',
-    'fairchild': 'channelf',
-    'fairchild-channel-f': 'channelf',
-    'magnavox-odyssey2': 'odyssey2',
-    'philips-videopac': 'videopac',
-    'videopac-plus': 'videopac',
-    'philips-cdi': 'cdi',
-    'philips-cd-i': 'cdi',
-    'panasonic-3do': '3do',
-    'bally-astrocade': 'astrocade',
-    'watara-supervision': 'supervision',
-    # Arcade
-    'arcade': 'mame',
-    'capcom-cps1': 'cps1',
-    'capcom-cps2': 'cps2',
-    'capcom-cps3': 'cps3',
-    'sega-naomi': 'naomi',
-    'sega-naomi2': 'naomi2',
-    'sega-naomi-2': 'naomi2',
-    'sega-model2': 'model2',
-    'sega-model3': 'model3',
-    'final-burn-alpha': 'fba',
-    'finalburn-neo': 'fbneo',
-    'tekno-parrot': 'teknoparrot',
-    'tp': 'teknoparrot',
-    # Fantasy/Modern
-    'pico-8': 'pico8',
-    'tic-80': 'tic80',
-    'game-and-watch': 'gameandwatch',
-    # Nintendo add-ons
-    'bs-x': 'satellaview',
-    'bsx': 'satellaview',
-    'nintendo-satellaview': 'satellaview',
-    'sufami-turbo': 'sufami',
-    'nintendo-sufami': 'sufami',
-    'e-reader': 'ereader',
-    'nintendo-e-reader': 'ereader',
-    # Sega
-    'sega-beena': 'beena',
-    # Obscure consoles
-    'casio-loopy': 'loopy',
-    'casio-pv1000': 'pv1000',
-    'casio-pv-1000': 'pv1000',
-    'entex-adventure-vision': 'advision',
-    'adventure-vision': 'advision',
-    'funtech-super-acan': 'superacan',
-    'super-acan': 'superacan',
-    'rca-studio-ii': 'studio2',
-    'rca-studio2': 'studio2',
-    'tiger-gamecom': 'gamecom',
-    'game-com': 'gamecom',
-    'super-cassette-vision': 'scv',
-    # Handhelds
-    'gamepark-gp32': 'gp32',
-    'hartung-game-master': 'gamemaster',
-    'benesse-pocket-challenge': 'pocketchallenge',
-    'pocket-challenge-v2': 'pocketchallenge',
-    # Educational
-    'konami-picno': 'picno',
-    'leapfrog-leappad': 'leappad',
-    'leapfrog-leapster': 'leapster',
-    'vtech-creativision': 'creativision',
-    'vtech-vsmile': 'vsmile',
-    'v-smile': 'vsmile',
-    # Computers
-    'commodore-plus4': 'plus4',
-    'commodore-plus-4': 'plus4',
-    'c16': 'plus4',
-    'enterprise-128': 'enterprise',
-    'enterprise128': 'enterprise',
-    'videoton-tvc': 'tvcomputer',
-    'videoton-tv-computer': 'tvcomputer',
-    # Mobile
-    'java-me': 'j2me',
-    'java-mobile': 'j2me',
-    'palm': 'palmos',
-}
-
-
 def detect_system_from_extension(filename: str) -> Optional[str]:
     """Detect system type from file extension."""
     # Check direct file extension
@@ -7206,13 +6626,10 @@ def scan_for_systems(source_dir: str, recursive: bool = False, max_depth: int = 
     source_path = Path(source_dir)
     systems = defaultdict(list)
 
-    ROM_EXTENSIONS = {'.zip', '.7z', '.rar', '.sfc', '.smc', '.nes',
-        '.gb', '.gbc', '.gba', '.n64', '.z64', '.v64', '.md', '.gen', '.sms', '.gg',
-        '.pce', '.col', '.a26', '.a52', '.a78', '.j64', '.jag', '.lnx', '.vb', '.ws',
-        '.wsc', '.mx1', '.mx2', '.32x', '.sg', '.vec', '.int', '.st', '.gcm',
-        '.iso', '.bin', '.cue', '.chd', '.cso', '.pbp', '.rvz', '.wbfs', '.nsp',
-        '.xci', '.3ds', '.cia', '.nds', '.dsi', '.fds', '.ngp', '.ngc',
-        '.wad', '.dol', '.gcz', '.tgc', '.vpk', '.pkg'}
+    # Build ROM extensions from loaded system data + archive/generic formats
+    archive_formats = {'.zip', '.7z', '.rar'}
+    generic_formats = {'.iso', '.bin', '.cue', '.chd', '.wad', '.dol', '.tgc', '.vpk', '.pkg'}
+    ROM_EXTENSIONS = set(EXTENSION_TO_SYSTEM.keys()) | archive_formats | generic_formats
 
     def scan_directory(dir_path: Path, current_depth: int, parent_system: str = None):
         """Recursively scan a directory for ROMs."""

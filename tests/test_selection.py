@@ -1293,6 +1293,103 @@ def test_system_detection():
 
 
 # =============================================================================
+# Systems JSON Validation Tests
+# =============================================================================
+
+LIBRETRO_DAT_SYSTEMS = _module.LIBRETRO_DAT_SYSTEMS
+REDUMP_DAT_SYSTEMS = _module.REDUMP_DAT_SYSTEMS
+TEN_DAT_SYSTEMS = _module.TEN_DAT_SYSTEMS
+LAUNCHBOX_PLATFORM_MAP = _module.LAUNCHBOX_PLATFORM_MAP
+DAT_NAME_TO_SYSTEM = _module.DAT_NAME_TO_SYSTEM
+SYSTEM_TO_LAUNCHBOX = _module.SYSTEM_TO_LAUNCHBOX
+
+
+def test_systems_json():
+    """Test that data/systems.json loads correctly and populates all dicts."""
+    print("\n" + "="*60)
+    print("SYSTEMS JSON VALIDATION TESTS")
+    print("="*60)
+
+    # Verify the JSON file exists and loads
+    systems_path = Path(__file__).parent.parent / 'data' / 'systems.json'
+    if systems_path.exists():
+        results.ok("systems.json file exists")
+    else:
+        results.fail("systems.json exists", "file exists", "file not found")
+        return
+
+    with open(systems_path, 'r', encoding='utf-8') as f:
+        data = json.load(f)
+
+    systems = data.get('systems', {})
+    if len(systems) >= 140:
+        results.ok(f"systems.json has {len(systems)} systems (>= 140)")
+    else:
+        results.fail("system count", ">= 140", len(systems))
+
+    # Spot-check NES entry
+    nes = systems.get('nes', {})
+    if '.nes' in nes.get('extensions', []):
+        results.ok("NES has .nes extension")
+    else:
+        results.fail("NES extensions", "contains .nes", nes.get('extensions'))
+
+    if 'famicom' in nes.get('folder_aliases', []):
+        results.ok("NES has 'famicom' folder alias")
+    else:
+        results.fail("NES folder_aliases", "contains famicom", nes.get('folder_aliases'))
+
+    if nes.get('dat_name') == 'Nintendo - Nintendo Entertainment System':
+        results.ok("NES dat_name correct")
+    else:
+        results.fail("NES dat_name", "Nintendo - Nintendo Entertainment System", nes.get('dat_name'))
+
+    # Spot-check genesis
+    genesis = systems.get('genesis', {})
+    expected_aliases = {'megadrive', 'mega-drive', 'sega-genesis', 'sega-mega-drive', 'md'}
+    actual_aliases = set(genesis.get('folder_aliases', []))
+    if expected_aliases.issubset(actual_aliases):
+        results.ok("Genesis has expected folder aliases")
+    else:
+        results.fail("Genesis aliases", expected_aliases, actual_aliases)
+
+    # Verify loaded dicts match expected counts
+    if len(LIBRETRO_DAT_SYSTEMS) >= 100:
+        results.ok(f"LIBRETRO_DAT_SYSTEMS has {len(LIBRETRO_DAT_SYSTEMS)} entries (>= 100)")
+    else:
+        results.fail("LIBRETRO_DAT_SYSTEMS count", ">= 100", len(LIBRETRO_DAT_SYSTEMS))
+
+    if len(REDUMP_DAT_SYSTEMS) >= 20:
+        results.ok(f"REDUMP_DAT_SYSTEMS has {len(REDUMP_DAT_SYSTEMS)} entries (>= 20)")
+    else:
+        results.fail("REDUMP_DAT_SYSTEMS count", ">= 20", len(REDUMP_DAT_SYSTEMS))
+
+    if len(TEN_DAT_SYSTEMS) >= 40:
+        results.ok(f"TEN_DAT_SYSTEMS has {len(TEN_DAT_SYSTEMS)} entries (>= 40)")
+    else:
+        results.fail("TEN_DAT_SYSTEMS count", ">= 40", len(TEN_DAT_SYSTEMS))
+
+    if len(LAUNCHBOX_PLATFORM_MAP) >= 60:
+        results.ok(f"LAUNCHBOX_PLATFORM_MAP has {len(LAUNCHBOX_PLATFORM_MAP)} entries (>= 60)")
+    else:
+        results.fail("LAUNCHBOX_PLATFORM_MAP count", ">= 60", len(LAUNCHBOX_PLATFORM_MAP))
+
+    # Verify DAT_NAME_TO_SYSTEM reverse mapping
+    if DAT_NAME_TO_SYSTEM.get('nintendo - nintendo entertainment system') == 'nes':
+        results.ok("DAT_NAME_TO_SYSTEM reverse mapping works")
+    else:
+        results.fail("DAT_NAME_TO_SYSTEM", "nes",
+                     DAT_NAME_TO_SYSTEM.get('nintendo - nintendo entertainment system'))
+
+    # Verify SYSTEM_TO_LAUNCHBOX reverse mapping
+    if SYSTEM_TO_LAUNCHBOX.get('nes') == 'Nintendo Entertainment System':
+        results.ok("SYSTEM_TO_LAUNCHBOX reverse mapping works")
+    else:
+        results.fail("SYSTEM_TO_LAUNCHBOX", "Nintendo Entertainment System",
+                     SYSTEM_TO_LAUNCHBOX.get('nes'))
+
+
+# =============================================================================
 # Playlist Generation Tests
 # =============================================================================
 
@@ -1481,6 +1578,7 @@ def main():
     test_apply_top_n_filter()
     test_resolve_top_n()
     test_system_detection()
+    test_systems_json()
     test_playlist_generation()
 
     # Run integration tests with real files
