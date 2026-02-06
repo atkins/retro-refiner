@@ -50,7 +50,7 @@ Everything lives in `retro-refiner.py` with no external dependencies. YAML parsi
 1. `main()` parses args, loads config, validates sources
 2. `scan_for_systems()` or `scan_network_source_urls()` discovers ROM files per system
 3. For each system: either `filter_roms_from_files()` (console ROMs), `filter_mame_roms()` (arcade), or `filter_teknoparrot_roms()` (TeknoParrot)
-4. Console ROM filtering: `parse_rom_filename()` → `RomInfo` → group by `normalize_title()` → `select_best_rom()` per group
+4. Console ROM filtering: `parse_rom_filename()` → `RomInfo` → group by `normalize_title()` → `select_best_rom()` per group → post-selection CRC/DAT enrichment (only selected ROMs)
 5. Transfer: copy/move/symlink/hardlink based on `--commit` mode
 
 ### Key dataclasses
@@ -70,6 +70,8 @@ All system definitions (144 systems) live in `data/systems.json`. At module load
 - `LAUNCHBOX_PLATFORM_MAP` — LaunchBox platform name → system code (67 platforms)
 - `DAT_NAME_TO_SYSTEM` — reverse of DAT dicts (lowercase DAT name → system)
 - `SYSTEM_TO_LAUNCHBOX` — reverse of LaunchBox map (system → first platform name)
+- `SORTED_DAT_NAMES` — `DAT_NAME_TO_SYSTEM` items pre-sorted by key length (longest first), used by `detect_system_from_path()`
+- `SORTED_ALIASES` — `FOLDER_ALIASES` items pre-sorted by key length (longest first), used by `detect_system_from_path()`
 
 The generation script `tools/generate_systems_json.py` can regenerate the JSON from hardcoded dicts (kept as a maintenance tool).
 
@@ -101,8 +103,19 @@ Maintenance tools:
 
 - **New system**: Add entry to `data/systems.json` with `name` and relevant fields (`extensions`, `folder_aliases`, `dat_name`, etc.)
 - **New title mapping**: Add to `data/title_mappings.json` (lowercase, no punctuation, Arabic numerals)
-- **New filter pattern**: Add to `rerelease_patterns` or `compilation_patterns` in `parse_rom_filename()`
+- **New filter pattern**: Add to `RERELEASE_PATTERNS` or `COMPILATION_PATTERNS` (pre-compiled `re.compile()` lists at module level)
 - **New MAME category**: Edit `MAME_INCLUDE_CATEGORIES` / `MAME_EXCLUDE_CATEGORIES` sets
+
+## Performance Patterns
+
+### Pre-compiled regex
+All regex patterns used in hot paths (`parse_rom_filename()`, `normalize_title()`) are pre-compiled at module level as `_RE_*` constants (e.g., `_RE_EXTENSION`, `_RE_BETA`, `_RE_REGION`). Pattern lists (`RERELEASE_PATTERNS`, `COMPILATION_PATTERNS`, `_HACK_PATTERNS`) are lists of compiled `re.compile()` objects. When adding new patterns, add them as `re.compile()` to the appropriate module-level list.
+
+### CRC caching
+`get_cached_crc()` wraps CRC calculation with a persistent JSON cache (`_crc_cache.json` in the dest directory). Cache entries are keyed by filepath and invalidated by mtime+size changes. The cache is loaded/saved in `filter_roms_from_files()` and cleaned by `--clean`.
+
+### Deferred CRC calculation
+CRC/DAT enrichment runs only on selected ROMs (post-selection pass in `filter_roms_from_files()`), not on all ROMs in the parsing loop. This reduces CRC I/O by ~3-5x since only 1 ROM per title group needs verification.
 
 ## Platform Notes
 
