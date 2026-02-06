@@ -4677,7 +4677,7 @@ def select_best_rom(roms: List[RomInfo], region_priority: List[str] = None,
         return None
 
     if verbose:
-        title = roms[0].title if roms else 'unknown'
+        title = roms[0].base_title if roms else 'unknown'
         filtered_count = len(roms) - len(base_filtered)
         if filtered_count:
             print(f"    [FILTER] '{title}': {len(roms)} total, {filtered_count} filtered, "
