@@ -3368,7 +3368,7 @@ def filter_network_roms(rom_urls: List[str], system: str,
                         break
             # If no regions matched, select best overall
             if not seen_regions:
-                best = select_best_rom(roms, region_priority)
+                best = select_best_rom(roms, region_priority, verbose=verbose)
                 if best and best.filename in url_map:
                     selected_urls.append(url_map[best.filename])
                     selected_roms.append(best)
@@ -3376,7 +3376,7 @@ def filter_network_roms(rom_urls: List[str], system: str,
                         print(f"  [SELECT] {best.filename} (fallback for '{title}')")
         else:
             # Select single best ROM
-            best = select_best_rom(roms, region_priority)
+            best = select_best_rom(roms, region_priority, verbose=verbose)
             if best and best.filename in url_map:
                 selected_urls.append(url_map[best.filename])
                 selected_roms.append(best)
@@ -4353,7 +4353,7 @@ def get_cached_crc(filepath: Path, crc_cache: dict) -> str:
 
 
 def verify_roms_against_dat(rom_files: List[Path], dat_entries: Dict[str, DatRomEntry],
-                            system: str) -> Tuple[List, List, List]:
+                            system: str, verbose: bool = False) -> Tuple[List, List, List]:
     """
     Verify ROM files against DAT entries.
     Returns (verified, unverified, bad) lists.
@@ -4373,12 +4373,18 @@ def verify_roms_against_dat(rom_files: List[Path], dat_entries: Dict[str, DatRom
 
         if crc and crc in dat_entries:
             verified.append((rom_path, dat_entries[crc]))
+            if verbose:
+                print(f"  [MATCH] {rom_path.name}: CRC {crc} -> {dat_entries[crc].name}")
         elif crc:
             # CRC calculated but not in DAT - might be unknown ROM
             unverified.append((rom_path, crc))
+            if verbose:
+                print(f"  [DAT] {rom_path.name}: CRC {crc} not in DAT")
         else:
             # Couldn't calculate CRC
             bad.append(rom_path)
+            if verbose:
+                print(f"  [DAT] {rom_path.name}: CRC calculation failed")
 
     return verified, unverified, bad
 
@@ -4630,7 +4636,8 @@ def normalize_title(title: str) -> str:
 
     return normalized
 
-def select_best_rom(roms: List[RomInfo], region_priority: List[str] = None) -> Optional[RomInfo]:
+def select_best_rom(roms: List[RomInfo], region_priority: List[str] = None,
+                    verbose: bool = False) -> Optional[RomInfo]:
     """Select the best ROM from a group of ROMs for the same game.
 
     Priority order:
@@ -4669,6 +4676,13 @@ def select_best_rom(roms: List[RomInfo], region_priority: List[str] = None) -> O
     if not base_filtered:
         return None
 
+    if verbose:
+        title = roms[0].title if roms else 'unknown'
+        filtered_count = len(roms) - len(base_filtered)
+        if filtered_count:
+            print(f"    [FILTER] '{title}': {len(roms)} total, {filtered_count} filtered, "
+                  f"{len(base_filtered)} candidates")
+
     # Separate into English and non-English pools
     english_roms = [r for r in base_filtered if r.is_english]
     foreign_roms = [r for r in base_filtered if not r.is_english]
@@ -4682,6 +4696,9 @@ def select_best_rom(roms: List[RomInfo], region_priority: List[str] = None) -> O
 
     if not candidates:
         return None
+
+    if verbose and english_roms and foreign_roms:
+        print(f"    [FILTER] '{title}': {len(english_roms)} English, {len(foreign_roms)} foreign")
 
     # Separate prototypes from regular releases
     protos = [r for r in candidates if r.is_proto]
@@ -4703,10 +4720,16 @@ def select_best_rom(roms: List[RomInfo], region_priority: List[str] = None) -> O
         # Prefer official English releases over fan translations
         non_hacked = [r for r in english_non_trans if not r.has_hacks]
         candidates = non_hacked if non_hacked else english_non_trans
+        if verbose and translations:
+            print(f"    [FILTER] '{title}': preferring official English over "
+                  f"{len(translations)} translation(s)")
     elif translations:
         # For non-English games, prefer translations over untranslated
         pure_trans = [r for r in translations if not r.has_hacks]
         candidates = pure_trans if pure_trans else translations
+        if verbose:
+            print(f"    [FILTER] '{title}': using translation "
+                  f"({len(translations)} available)")
     elif non_trans:
         # Fall back to untranslated if no translations available
         non_hacked = [r for r in non_trans if not r.has_hacks]
@@ -4725,7 +4748,11 @@ def select_best_rom(roms: List[RomInfo], region_priority: List[str] = None) -> O
 
     candidates.sort(key=sort_key)
 
-    return candidates[0] if candidates else None
+    result = candidates[0] if candidates else None
+    if verbose and result and len(candidates) > 1:
+        print(f"    [SELECT] '{title}': {result.filename} "
+              f"(region={result.region}, rev={result.revision})")
+    return result
 
 
 # =============================================================================
@@ -5305,7 +5332,8 @@ def get_mame_region_priority(region: str) -> int:
     return priorities.get(region, 10)
 
 
-def select_best_mame_clone(parent_name: str, clones: list, games: dict) -> MameGameInfo:
+def select_best_mame_clone(parent_name: str, clones: list, games: dict,
+                           verbose: bool = False) -> MameGameInfo:
     """Select the best clone based on region preference."""
     if not clones:
         return games.get(parent_name)
@@ -5320,12 +5348,17 @@ def select_best_mame_clone(parent_name: str, clones: list, games: dict) -> MameG
     # Sort by region priority
     candidates.sort(key=lambda g: get_mame_region_priority(g.region))
 
+    if verbose and len(candidates) > 1:
+        winner = candidates[0]
+        print(f"    [CLONE] {parent_name}: selected {winner.name} "
+              f"(region={winner.region}) from {len(candidates)} candidates")
+
     return candidates[0]
 
 
 def filter_mame_roms(source_dir: str, dest_dir: str, catver_path: str, dat_path: str,
                      copy_chds: bool = True, dry_run: bool = False, system_name: str = 'mame',
-                     include_adult: bool = True):
+                     include_adult: bool = True, verbose: bool = False):
     """Filter MAME/FBNeo ROMs based on category and region preferences."""
     label = system_name.upper()
 
@@ -5401,17 +5434,24 @@ def filter_mame_roms(source_dir: str, dest_dir: str, catver_path: str, dat_path:
         if not should_include:
             excluded_reasons[reason] += 1
             skipped_games.append((game.description, name, reason))
+            if verbose:
+                print(f"  [SKIP] {name}: {reason}")
             continue
 
         included_reasons[reason] += 1
 
         # Select best version based on region
-        best_rom = select_best_mame_clone(name, parent_clones.get(name, []), games)
+        best_rom = select_best_mame_clone(name, parent_clones.get(name, []), games,
+                                          verbose=verbose)
         if best_rom and best_rom.name in available_versions:
             selected_roms.append(best_rom)
+            if verbose:
+                print(f"  [SELECT] {best_rom.name}: {best_rom.description}")
         elif available_versions:
             # Fallback to first available
             selected_roms.append(games[available_versions[0]])
+            if verbose:
+                print(f"  [SELECT] {available_versions[0]}: fallback (best clone unavailable)")
 
     # Calculate selected size
     selected_size = 0
@@ -6086,7 +6126,8 @@ def get_teknoparrot_region_priority(region: str, region_priority: List[str] = No
 
 
 def select_best_teknoparrot_version(games: List[TeknoParrotGameInfo],
-                                    region_priority: List[str] = None) -> TeknoParrotGameInfo:
+                                    region_priority: List[str] = None,
+                                    verbose: bool = False) -> TeknoParrotGameInfo:
     """Select the best version from a group of TeknoParrot ROMs.
 
     Prioritizes by: version_tuple (descending), year (descending), region priority
@@ -6106,6 +6147,13 @@ def select_best_teknoparrot_version(games: List[TeknoParrotGameInfo],
         return (version_score, year_score, region_score)
 
     sorted_games = sorted(games, key=sort_key)
+
+    if verbose and len(sorted_games) > 1:
+        winner = sorted_games[0]
+        print(f"    [VERSION] {winner.description}: version={winner.version or 'N/A'}, "
+              f"year={winner.year or 'N/A'}, region={winner.region} "
+              f"(from {len(sorted_games)} candidates)")
+
     return sorted_games[0]
 
 
@@ -6142,7 +6190,8 @@ def filter_teknoparrot_roms(source_dir: str, dest_dir: str, dat_path: str = None
                              region_priority: List[str] = None,
                              keep_all_versions: bool = False,
                              include_patterns: List[str] = None,
-                             exclude_patterns: List[str] = None):
+                             exclude_patterns: List[str] = None,
+                             verbose: bool = False):
     """Filter TeknoParrot ROMs based on platform, version, and region preferences.
 
     Args:
@@ -6236,6 +6285,8 @@ def filter_teknoparrot_roms(source_dir: str, dest_dir: str, dat_path: str = None
                 excluded_reasons["Excluded by include pattern"] += 1
                 for g in games:
                     skipped_games.append((g.description, g.name, "Excluded by include pattern"))
+                if verbose:
+                    print(f"  [SKIP] {game_name}: excluded by include pattern")
                 continue
 
         if exclude_patterns:
@@ -6243,6 +6294,8 @@ def filter_teknoparrot_roms(source_dir: str, dest_dir: str, dat_path: str = None
                 excluded_reasons["Excluded by exclude pattern"] += 1
                 for g in games:
                     skipped_games.append((g.description, g.name, "Excluded by exclude pattern"))
+                if verbose:
+                    print(f"  [SKIP] {game_name}: excluded by exclude pattern")
                 continue
 
         # Filter by platform
@@ -6257,6 +6310,8 @@ def filter_teknoparrot_roms(source_dir: str, dest_dir: str, dat_path: str = None
             else:
                 excluded_reasons[reason] += 1
                 skipped_games.append((game.description, game.name, reason))
+                if verbose:
+                    print(f"  [SKIP] {game.name}: {reason}")
 
         if not valid_games:
             continue
@@ -6267,12 +6322,17 @@ def filter_teknoparrot_roms(source_dir: str, dest_dir: str, dat_path: str = None
             for game in valid_games:
                 selected_roms.append(game)
                 included_reasons[f"Platform: {game.platform}"] += 1
+                if verbose:
+                    print(f"  [SELECT] {game.name}: {game.description}")
         else:
             # Select best version
-            best = select_best_teknoparrot_version(valid_games, region_priority)
+            best = select_best_teknoparrot_version(valid_games, region_priority,
+                                                   verbose=verbose)
             if best:
                 selected_roms.append(best)
                 included_reasons[f"Platform: {best.platform}"] += 1
+                if verbose:
+                    print(f"  [SELECT] {best.name}: {best.description}")
 
                 # Log other versions as superseded
                 for game in valid_games:
@@ -6483,7 +6543,7 @@ def filter_teknoparrot_network_roms(rom_urls: List[str],
                         print(f"  [SELECT] {rom.filename} (version: {rom.version or 'N/A'})")
         else:
             # Select best version
-            best = select_best_teknoparrot_version(roms, region_priority)
+            best = select_best_teknoparrot_version(roms, region_priority, verbose=verbose)
             if best and best.filename in url_map:
                 selected_urls.append(url_map[best.filename])
                 selected_size += size_map.get(best.filename, 0)
@@ -6615,7 +6675,8 @@ def filter_mame_network_roms(rom_urls: List[str],
             continue
 
         # Find best version (parent or regional clone)
-        best_rom = select_best_mame_clone(rom_name, parent_clones.get(rom_name, []), games)
+        best_rom = select_best_mame_clone(rom_name, parent_clones.get(rom_name, []), games,
+                                          verbose=verbose)
         if not best_rom:
             best_rom = game
 
@@ -6687,7 +6748,8 @@ def detect_system_from_folder(folder_name: str) -> str:
     return name
 
 
-def scan_for_systems(source_dir: str, recursive: bool = False, max_depth: int = 3) -> dict:
+def scan_for_systems(source_dir: str, recursive: bool = False, max_depth: int = 3,
+                     verbose: bool = False) -> dict:
     """Scan source directory and detect available systems.
 
     Returns dict mapping system name to list of ROM files.
@@ -6697,6 +6759,7 @@ def scan_for_systems(source_dir: str, recursive: bool = False, max_depth: int = 
         source_dir: Path to scan for ROMs
         recursive: If True, scan subdirectories recursively (default: False)
         max_depth: Maximum directory depth to scan (only used if recursive=True)
+        verbose: If True, print detection details
     """
     source_path = Path(source_dir)
     systems = defaultdict(list)
@@ -6714,12 +6777,17 @@ def scan_for_systems(source_dir: str, recursive: bool = False, max_depth: int = 
         try:
             entries = list(dir_path.iterdir())
         except PermissionError:
+            if verbose:
+                print(f"  [SKIP] Permission denied: {dir_path}")
             return
 
         # Check if this directory name is a known system
         folder_system = detect_system_from_folder(dir_path.name)
         is_system_folder = folder_system in KNOWN_SYSTEMS
         active_system = folder_system if is_system_folder else parent_system
+
+        if verbose and is_system_folder:
+            print(f"  [DETECT] Folder '{dir_path.name}' -> system '{folder_system}'")
 
         # Collect ROMs in this directory
         for entry in entries:
@@ -6731,6 +6799,11 @@ def scan_for_systems(source_dir: str, recursive: bool = False, max_depth: int = 
                     detected = detect_system_from_extension(entry.name)
                     if detected:
                         systems[detected].append(entry)
+                        if verbose:
+                            print(f"  [DETECT] Extension '{entry.suffix}' -> "
+                                  f"system '{detected}': {entry.name}")
+                    elif verbose:
+                        print(f"  [SKIP] Unrecognized extension: {entry.name}")
 
         # Recurse into subdirectories if enabled
         if recursive:
@@ -6740,6 +6813,11 @@ def scan_for_systems(source_dir: str, recursive: bool = False, max_depth: int = 
 
     # Start scanning from the source directory
     scan_directory(source_path, 0, None)
+
+    if verbose and systems:
+        print(f"  [DETECT] Summary: {len(systems)} system(s) detected")
+        for sys_name, files in sorted(systems.items()):
+            print(f"    {sys_name}: {len(files)} file(s)")
 
     return dict(systems)
 
@@ -6860,20 +6938,20 @@ def filter_roms_from_files(rom_files: list, dest_dir: str, system: str, dry_run:
             for region in keep_regions:
                 region_roms = [r for r in roms if r.region.lower() == region.lower()]
                 if region_roms:
-                    best = select_best_rom(region_roms, region_priority)
+                    best = select_best_rom(region_roms, region_priority, verbose=verbose)
                     if best:
                         selected_roms.append(best)
                         if verbose:
                             print(f"  [SELECT] {best.filename} ({region} version of '{title}')")
             # If no regions matched, fall back to best overall
             if not any(r in selected_roms for r in roms):
-                best = select_best_rom(roms, region_priority)
+                best = select_best_rom(roms, region_priority, verbose=verbose)
                 if best:
                     selected_roms.append(best)
                     if verbose:
                         print(f"  [SELECT] {best.filename} (fallback for '{title}')")
         else:
-            best = select_best_rom(roms, region_priority)
+            best = select_best_rom(roms, region_priority, verbose=verbose)
             if best:
                 selected_roms.append(best)
                 if verbose:
@@ -7455,6 +7533,9 @@ Pattern examples (--include / --exclude):
     if config:
         print(f"Loaded config from: {config_path}")
         apply_config_to_args(args, config)
+        if args.verbose:
+            for key, value in config.items():
+                print(f"  [CONFIG] {key}: {value}")
 
     # Set default destination (refined/ subfolder where script is located)
     if args.dest is None:
@@ -7530,6 +7611,8 @@ Pattern examples (--include / --exclude):
     if args.year_from or args.year_to:
         year_range = f"{args.year_from or '...'}-{args.year_to or '...'}"
         options.append(f"years: {year_range}")
+    if args.verbose:
+        options.append("verbose")
     if options:
         print(f"Options: {', '.join(options)}")
 
@@ -7546,7 +7629,8 @@ Pattern examples (--include / --exclude):
             source_detected = scan_for_systems(
                 str(source_path),
                 recursive=args.recursive,
-                max_depth=args.max_depth
+                max_depth=args.max_depth,
+                verbose=args.verbose
             )
 
             if args.systems:
@@ -7573,7 +7657,8 @@ Pattern examples (--include / --exclude):
                     system_detected = scan_for_systems(
                         str(system_dir),
                         recursive=args.recursive,
-                        max_depth=args.max_depth
+                        max_depth=args.max_depth,
+                        verbose=args.verbose
                     )
                     # Get ROMs detected as this system or any sub-detected systems
                     rom_files = system_detected.get(system, [])
@@ -7665,6 +7750,12 @@ Pattern examples (--include / --exclude):
                     dat_entries = parse_dat_file(dat_path)
                     network_dat_entries[system] = dat_entries
                     print(f"  {system.upper()}: {len(dat_entries)} DAT entries loaded")
+                    if args.verbose:
+                        with open(dat_path, 'r', encoding='utf-8', errors='ignore') as df:
+                            first = df.readline().strip()
+                        fmt = "XML" if first.startswith('<?xml') or first.startswith('<') else "ClrMamePro"
+                        print(f"  [DAT] {system.upper()}: format={fmt}, entries={len(dat_entries)}, "
+                              f"path={dat_path}")
 
         # Download MAME data (catver.ini + DAT) for MAME/arcade network sources
         mame_network_systems = [s for s in all_network_urls.keys() if s in ('mame', 'fbneo', 'fba', 'arcade')]
@@ -7695,6 +7786,12 @@ Pattern examples (--include / --exclude):
                     else:
                         network_dat_entries[system] = ten_dat_entries
                     print(f"  {system.upper()}: {len(ten_dat_entries)} T-En DAT entries loaded (cached)")
+                    if args.verbose:
+                        with open(cached_dat_path, 'r', encoding='utf-8', errors='ignore') as df:
+                            first = df.readline().strip()
+                        fmt = "XML" if first.startswith('<?xml') or first.startswith('<') else "ClrMamePro"
+                        print(f"  [DAT] {system.upper()}: T-En format={fmt}, "
+                              f"entries={len(ten_dat_entries)}, path={cached_dat_path}")
                 elif ia_auth:
                     systems_to_download.append(system)
                 else:
@@ -7714,6 +7811,13 @@ Pattern examples (--include / --exclude):
                         else:
                             network_dat_entries[system] = ten_dat_entries
                         print(f"  {system.upper()}: {len(ten_dat_entries)} T-En DAT entries loaded")
+                        if args.verbose:
+                            with open(ten_dat_path, 'r', encoding='utf-8', errors='ignore') as df:
+                                first = df.readline().strip()
+                            fmt = "XML" if first.startswith('<?xml') or first.startswith('<') \
+                                else "ClrMamePro"
+                            print(f"  [DAT] {system.upper()}: T-En format={fmt}, "
+                                  f"entries={len(ten_dat_entries)}, path={ten_dat_path}")
 
     # Load ratings if --top is used (needed for both network and local filtering)
     ratings = {}
@@ -8202,7 +8306,8 @@ Pattern examples (--include / --exclude):
                     region_priority=region_priority,
                     keep_all_versions=args.tp_all_versions,
                     include_patterns=args.include,
-                    exclude_patterns=args.exclude
+                    exclude_patterns=args.exclude,
+                    verbose=args.verbose
                 )
                 selected, size_info = result
 
@@ -8378,7 +8483,8 @@ Pattern examples (--include / --exclude):
                     copy_chds=not args.no_chd,
                     dry_run=dry_run,
                     system_name=system,
-                    include_adult=not args.no_adult
+                    include_adult=not args.no_adult,
+                    verbose=args.verbose
                 )
                 selected, size_info = result
 
@@ -8436,9 +8542,17 @@ Pattern examples (--include / --exclude):
                         print(f"{system.upper()}: Loading DAT file...")
                         dat_entries = parse_dat_file(dat_path)
                         print(f"{system.upper()}: Loaded {len(dat_entries)} DAT entries")
+                        if args.verbose:
+                            with open(dat_path, 'r', encoding='utf-8', errors='ignore') as df:
+                                first = df.readline().strip()
+                            fmt = "XML" if first.startswith('<?xml') or first.startswith('<') \
+                                else "ClrMamePro"
+                            print(f"  [DAT] {system.upper()}: format={fmt}, "
+                                  f"entries={len(dat_entries)}, path={dat_path}")
 
             if verify and dat_entries:
-                verified, unverified, bad = verify_roms_against_dat(rom_files, dat_entries, system)
+                verified, unverified, bad = verify_roms_against_dat(rom_files, dat_entries, system,
+                                                                   verbose=args.verbose)
                 print(f"{system.upper()}: {len(verified)} verified, {len(unverified)} unknown, {len(bad)} bad")
 
                 # Write verification report
