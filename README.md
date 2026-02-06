@@ -136,7 +136,8 @@ Whether you're building a curated collection for a Raspberry Pi, populating a Mi
 - **Parallel downloads**: Configurable concurrent downloads with aria2c/curl support
 
 ### Verification & Accuracy
-- **DAT verification**: Validates ROMs against No-Intro/Redump checksums (CRC32)
+- **DAT verification**: Validates selected ROMs against No-Intro/Redump checksums (CRC32)
+- **CRC caching**: Persistent cache (`_crc_cache.json`) makes re-runs near-instant
 - **DAT-based selection**: Uses checksums to identify ROMs, not just filenames
 - **Selection logs**: Detailed logs showing exactly what was selected and why
 
@@ -571,7 +572,7 @@ Each system folder contains `_selection_log.txt` with:
 | `--dat-dir` | Directory for DAT files |
 | `--mame-version` | MAME version for downloads |
 | `--no-chd` | Skip CHD files for MAME |
-| `--clean` | Delete cache, DAT files, and generated data |
+| `--clean` | Delete cache, DAT files, CRC caches, and generated data |
 
 ### TeknoParrot Options
 | Option | Description |
@@ -638,6 +639,8 @@ By default, Retro-Refiner verifies ROMs against libretro No-Intro DAT files and 
 
 ### Verification (enabled by default)
 Checks ROM checksums (CRC32) against known good dumps:
+- CRC is calculated **only for selected ROMs** (post-selection), not the entire collection
+- Results are cached in `_crc_cache.json` — re-runs are near-instant for unchanged files
 - Generates `_verification_report.txt` in each system folder
 - Shows verified (known good), unknown (not in DAT), and bad (unreadable) ROMs
 
@@ -658,6 +661,8 @@ python retro-refiner.py --no-dat
 # Skip both (fastest, filename-only mode)
 python retro-refiner.py --no-verify --no-dat
 ```
+
+**Note:** Re-runs are fast even with verification enabled thanks to CRC caching. Use `--clean` to clear all cached data.
 
 ### Supported Systems for DAT
 DAT files are auto-downloaded from [libretro-database](https://github.com/libretro/libretro-database) for 100+ systems including:
