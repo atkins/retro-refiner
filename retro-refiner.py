@@ -318,6 +318,8 @@ TEN_DAT_SYSTEMS = {}
 LAUNCHBOX_PLATFORM_MAP = {}
 DAT_NAME_TO_SYSTEM = {}
 SYSTEM_TO_LAUNCHBOX = {}
+SORTED_DAT_NAMES = []
+SORTED_ALIASES = []
 
 _system_data_cache = None
 
@@ -340,6 +342,7 @@ def load_system_data():
     global KNOWN_SYSTEMS, EXTENSION_TO_SYSTEM, FOLDER_ALIASES
     global LIBRETRO_DAT_SYSTEMS, REDUMP_DAT_SYSTEMS, TEN_DAT_SYSTEMS
     global LAUNCHBOX_PLATFORM_MAP, DAT_NAME_TO_SYSTEM, SYSTEM_TO_LAUNCHBOX
+    global SORTED_DAT_NAMES, SORTED_ALIASES
 
     if _system_data_cache is not None:
         return _system_data_cache
@@ -404,6 +407,10 @@ def load_system_data():
     LAUNCHBOX_PLATFORM_MAP = lb_map
     DAT_NAME_TO_SYSTEM = dat_name_to_sys
     SYSTEM_TO_LAUNCHBOX = sys_to_lb
+
+    # Pre-sorted lists for detect_system_from_path() (longest first for greedy matching)
+    SORTED_DAT_NAMES = sorted(dat_name_to_sys.items(), key=lambda x: len(x[0]), reverse=True)
+    SORTED_ALIASES = sorted(alias_map.items(), key=lambda x: len(x[0]), reverse=True)
 
     _system_data_cache = {
         'known_systems': known,
@@ -4047,18 +4054,16 @@ def detect_system_from_path(path: str) -> Optional[str]:
 
         # Partial match: check if any DAT name is contained in the path part
         # This handles cases like "No-Intro/GCE - Vectrex" or "Redump/Sony - PlayStation"
-        # Sort by length (longest first) so "Game Boy Advance" matches before "Game Boy"
-        sorted_dat_names = sorted(DAT_NAME_TO_SYSTEM.items(), key=lambda x: len(x[0]), reverse=True)
-        for dat_name, system in sorted_dat_names:
+        # Uses pre-sorted list (longest first) so "Game Boy Advance" matches before "Game Boy"
+        for dat_name, system in SORTED_DAT_NAMES:
             if dat_name in part_lower:
                 return system
 
         # Partial match against folder aliases (handles "Nintendo - Super Famicom [T-En]" etc.)
         # Normalize by removing non-alphanumeric chars for matching
-        # Sort by length (longest first) to match "superfamicom" before "famicom"
+        # Uses pre-sorted list (longest first) to match "superfamicom" before "famicom"
         part_normalized = re.sub(r'[^a-z0-9]', '', part_lower)
-        sorted_aliases = sorted(FOLDER_ALIASES.items(), key=lambda x: len(x[0]), reverse=True)
-        for alias, system in sorted_aliases:
+        for alias, system in SORTED_ALIASES:
             alias_normalized = re.sub(r'[^a-z0-9]', '', alias)
             if len(alias_normalized) >= 4 and alias_normalized in part_normalized:
                 return system
@@ -4301,6 +4306,48 @@ def calculate_crc32_from_zip(zip_path: Path) -> str:
     return None
 
 
+def load_crc_cache(cache_path: Path) -> dict:
+    """Load CRC cache from JSON. Returns {filepath_str: {"crc": ..., "mtime": ..., "size": ...}}."""
+    if cache_path.exists():
+        try:
+            with open(cache_path, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except (json.JSONDecodeError, IOError):
+            pass
+    return {}
+
+
+def save_crc_cache(cache_path: Path, cache: dict):
+    """Save CRC cache to JSON."""
+    try:
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(cache_path, 'w', encoding='utf-8') as f:
+            json.dump(cache, f)
+    except IOError:
+        pass
+
+
+def get_cached_crc(filepath: Path, crc_cache: dict) -> str:
+    """Get CRC from cache or calculate and cache it. Uses mtime+size to invalidate."""
+    key = str(filepath)
+    stat = filepath.stat()
+    mtime = stat.st_mtime
+    size = stat.st_size
+
+    cached = crc_cache.get(key)
+    if cached and cached.get('mtime') == mtime and cached.get('size') == size:
+        return cached['crc']
+
+    if filepath.suffix.lower() == '.zip':
+        crc = calculate_crc32_from_zip(filepath)
+    else:
+        crc = calculate_crc32(filepath)
+
+    if crc:
+        crc_cache[key] = {'crc': crc, 'mtime': mtime, 'size': size}
+    return crc
+
+
 def verify_roms_against_dat(rom_files: List[Path], dat_entries: Dict[str, DatRomEntry],
                             system: str) -> Tuple[List, List, List]:
     """
@@ -4333,7 +4380,7 @@ def verify_roms_against_dat(rom_files: List[Path], dat_entries: Dict[str, DatRom
 
 
 # Patterns for detecting re-releases (Virtual Console, mini consoles, collections, etc.)
-RERELEASE_PATTERNS = [
+RERELEASE_PATTERNS = [re.compile(p) for p in [
     r'Virtual Console', r'GameCube\)', r'\(LodgeNet\)',
     r'\(Arcade\)', r'Sega Channel', r'Switch Online',
     r'Classic Mini', r'Retro-Bit', r'Evercade',
@@ -4350,10 +4397,10 @@ RERELEASE_PATTERNS = [
     r'Genesis Mini', r'Mega Drive Mini',  # Sega mini consoles
     r'Contra Anniversary Collection', r'Konami Collector',  # Konami collections
     r'Arcade Legends',  # Arcade re-releases
-]
+]]
 
 # Patterns for detecting compilations/multi-game carts
-COMPILATION_PATTERNS = [
+COMPILATION_PATTERNS = [re.compile(p) for p in [
     r'\d+.in.1\b', r'\d+ Super Jogos', r'^\d+-Pak',  # X-in-1, X in 1
     r'Compilation',
     r'\+ .+ \+',  # Multiple games combined like "SMB + Duck Hunt + Track Meet"
@@ -4362,6 +4409,47 @@ COMPILATION_PATTERNS = [
     r'^2.in.1 Game Pack', r'^Combo Pack', r'^2 Game Pack',
     r'Classics\)', r'Competition Cartridge',  # DK Classics, Competition carts
     r'Twin Pack',
+]]
+
+# Pre-compiled hack detection patterns
+_HACK_PATTERNS = [re.compile(p, re.IGNORECASE) for p in [
+    r'\[Hack by',      # General hacks
+    r'\[Add by',       # Addendum patches
+    r'Edition\]',      # Special editions (Namingway, Woolsey, etc.)
+    r'\[FastROM',      # FastROM hacks
+    r'\[Bugfix',       # Bug fix patches
+    r'patch\]',        # Various patches
+    r'\[Retranslated\]',  # Retranslation patches (beyond original translation)
+    r'GBA Script',     # Script ports from other versions
+]]
+
+# Pre-compiled patterns used in parse_rom_filename()
+_RE_EXTENSION = re.compile(
+    r'\.(zip|7z|rar|sfc|smc|nes|n64|z64|v64|md|gen|bin|gb|gbc|gba|nds|gcm|iso|cue|pce|col'
+    r'|a26|a52|a78|jag|lnx|st|int|gg|sms|sg|32x|vb|ws|wsc|rom|mx1|mx2)$', re.IGNORECASE)
+_RE_BETA = re.compile(r'\(Beta[^)]*\)')
+_RE_PROTO = re.compile(r'\(Proto[^)]*\)')
+_RE_MULTI_GAME = re.compile(r'\+ .+ \(')
+_RE_NUMBERING = re.compile(r'\b(\d) & (\d)\b')
+_RE_TRANSLATION = re.compile(r'\[T-En[^\]]*\]')
+_RE_REGION = re.compile(r'\(([^)]+)\)')
+_RE_ENGLISH_TAG = re.compile(r'\([^)]*\bEn\b[^)]*\)')
+_RE_REVISION = re.compile(r'\(Rev\s*([A-Z0-9]+)\)')
+_RE_VERSION = re.compile(r'\(v(\d+)\.(\d+)\)')
+_RE_BRACKETS = re.compile(r'\[[^\]]+\]')
+_RE_PARENS = re.compile(r'\s*\([^)]+\)')
+_RE_WHITESPACE = re.compile(r'\s+')
+_RE_YEAR = re.compile(r'\((\d{4})\)')
+
+# Pre-compiled patterns used in normalize_title()
+_RE_ARTICLE_COMMA = re.compile(r',\s*(the|a|an)\s*')
+_RE_ARTICLE_START = re.compile(r'^(the|a|an)\s+')
+_RE_PUNCTUATION = re.compile(r'[:\-\'.,]')
+_RE_ROMAN_NUMERALS = [
+    (re.compile(r'\bviii\b'), '8'), (re.compile(r'\bvii\b'), '7'),
+    (re.compile(r'\bvi\b'), '6'), (re.compile(r'\biv\b'), '4'),
+    (re.compile(r'\bv\b'), '5'), (re.compile(r'\biii\b'), '3'),
+    (re.compile(r'\bii\b'), '2'), (re.compile(r'\bi\b'), '1'),
 ]
 
 
@@ -4369,7 +4457,7 @@ def parse_rom_filename(filename: str) -> RomInfo:
     """Parse a ROM filename and extract metadata."""
 
     # Remove file extension (covers all common ROM formats)
-    name = re.sub(r'\.(zip|7z|rar|sfc|smc|nes|n64|z64|v64|md|gen|bin|gb|gbc|gba|nds|gcm|iso|cue|pce|col|a26|a52|a78|jag|lnx|st|int|gg|sms|sg|32x|vb|ws|wsc|rom|mx1|mx2)$', '', filename, flags=re.IGNORECASE)
+    name = _RE_EXTENSION.sub('', filename)
 
     # Check for BIOS
     is_bios = name.startswith('[BIOS]') or '(BIOS)' in name
@@ -4386,24 +4474,24 @@ def parse_rom_filename(filename: str) -> RomInfo:
     is_unlicensed = '(Unl)' in name
 
     # Check for beta/demo/promo/sample/proto
-    is_beta = bool(re.search(r'\(Beta[^)]*\)', name))
+    is_beta = bool(_RE_BETA.search(name))
     is_demo = '(Demo)' in name or '(Kiosk)' in name or 'Caravan' in name or 'Taikenban' in name
     is_promo = '(Promo)' in name or '(Movie Promo)' in name or 'Present Campaign' in name or 'Senyou Cartridge' in name or 'Hot Mario Campaign' in name
     is_sample = '(Sample)' in name
-    is_proto = '(Proto)' in name or bool(re.search(r'\(Proto[^)]*\)', name))
+    is_proto = '(Proto)' in name or bool(_RE_PROTO.search(name))
 
     # Check for re-releases (Virtual Console, mini consoles, collections, etc.)
-    is_rerelease = any(re.search(p, name) for p in RERELEASE_PATTERNS)
+    is_rerelease = any(p.search(name) for p in RERELEASE_PATTERNS)
 
     # Check for compilations/collections (multi-game carts)
-    is_compilation = any(re.search(p, name) for p in COMPILATION_PATTERNS)
+    is_compilation = any(p.search(name) for p in COMPILATION_PATTERNS)
 
     # Special handling for multi-game carts that should be excluded
-    if re.search(r'\+ .+ \(', name) and not 'All-Stars' in name:
+    if _RE_MULTI_GAME.search(name) and 'All-Stars' not in name:
         # Like "Super Mario Bros. + Duck Hunt (USA)"
         is_compilation = True
     # Games with "Game 1 & 2" or "Game 3 & 4" pattern (numbered sequels combined)
-    if re.search(r'\b(\d) & (\d)\b', name):
+    if _RE_NUMBERING.search(name):
         is_compilation = True
 
     # Check for lock-on combinations (Sonic & Knuckles + other games)
@@ -4412,25 +4500,13 @@ def parse_rom_filename(filename: str) -> RomInfo:
     )
 
     # Check for translations
-    translation_match = re.search(r'\[T-En[^\]]*\]', name)
-    is_translation = bool(translation_match)
+    is_translation = bool(_RE_TRANSLATION.search(name))
 
     # Check for hacks (but not translation-related patches)
-    # These are modifications beyond just translation
-    hack_patterns = [
-        r'\[Hack by',      # General hacks
-        r'\[Add by',       # Addendum patches
-        r'Edition\]',      # Special editions (Namingway, Woolsey, etc.)
-        r'\[FastROM',      # FastROM hacks
-        r'\[Bugfix',       # Bug fix patches
-        r'patch\]',        # Various patches
-        r'\[Retranslated\]',  # Retranslation patches (beyond original translation)
-        r'GBA Script',     # Script ports from other versions
-    ]
-    has_hacks = any(re.search(p, name, re.IGNORECASE) for p in hack_patterns)
+    has_hacks = any(p.search(name) for p in _HACK_PATTERNS)
 
     # Extract region - handle multi-region releases like "(Japan, USA)" or "(USA, Europe)"
-    region_match = re.search(r'\(([^)]+)\)', name)
+    region_match = _RE_REGION.search(name)
     region = "Unknown"
     if region_match:
         region_str = region_match.group(1)
@@ -4448,7 +4524,7 @@ def parse_rom_filename(filename: str) -> RomInfo:
 
     # Check for explicit language tags like "(En)" or "(En,Fr,De)" or "(Japan) (En)"
     # Look for standalone (En) or language list containing En
-    if re.search(r'\(En\)', name) or re.search(r'\([^)]*\bEn\b[^)]*\)', name):
+    if _RE_ENGLISH_TAG.search(name):
         is_english = True
 
     # Region-based English detection
@@ -4461,7 +4537,7 @@ def parse_rom_filename(filename: str) -> RomInfo:
 
     # Extract revision number
     revision = 0
-    rev_match = re.search(r'\(Rev\s*([A-Z0-9]+)\)', name)
+    rev_match = _RE_REVISION.search(name)
     if rev_match:
         rev_str = rev_match.group(1)
         if rev_str.isdigit():
@@ -4471,19 +4547,19 @@ def parse_rom_filename(filename: str) -> RomInfo:
             revision = ord(rev_str[0].upper()) - ord('A') + 1
 
     # Also check for version numbers
-    ver_match = re.search(r'\(v(\d+)\.(\d+)\)', name)
+    ver_match = _RE_VERSION.search(name)
     if ver_match:
         revision = max(revision, int(ver_match.group(1)) * 100 + int(ver_match.group(2)))
 
     # Extract base title (remove all tags)
     base_title = name
     # Remove square bracket tags first
-    base_title = re.sub(r'\[[^\]]+\]', '', base_title)
+    base_title = _RE_BRACKETS.sub('', base_title)
     # Remove parenthetical tags
-    base_title = re.sub(r'\s*\([^)]+\)', '', base_title)
+    base_title = _RE_PARENS.sub('', base_title)
     # Clean up
     base_title = base_title.strip()
-    base_title = re.sub(r'\s+', ' ', base_title)
+    base_title = _RE_WHITESPACE.sub(' ', base_title)
 
     # Check for homebrew indicators
     homebrew_indicators = ['(Aftermarket)', '(Homebrew)', 'Homebrew']
@@ -4491,7 +4567,7 @@ def parse_rom_filename(filename: str) -> RomInfo:
 
     # Extract year if present (look for 4-digit year in parentheses, e.g. "(1990)")
     year = 0
-    year_match = re.search(r'\((\d{4})\)', name)
+    year_match = _RE_YEAR.search(name)
     if year_match:
         potential_year = int(year_match.group(1))
         # Sanity check: year should be between 1970 and 2030
@@ -4528,23 +4604,18 @@ def normalize_title(title: str) -> str:
 
     # Remove common articles and punctuation differences
     # Handle "Title, The" pattern (common in ROM naming)
-    normalized = re.sub(r',\s*(the|a|an)\s*', ' ', normalized)
-    normalized = re.sub(r'^(the|a|an)\s+', '', normalized)
+    normalized = _RE_ARTICLE_COMMA.sub(' ', normalized)
+    normalized = _RE_ARTICLE_START.sub('', normalized)
 
     # Normalize punctuation (remove colons, hyphens, apostrophes, periods, commas)
-    normalized = re.sub(r'[:\-\'.,]', ' ', normalized)
-    normalized = re.sub(r'\s+', ' ', normalized)
+    normalized = _RE_PUNCTUATION.sub(' ', normalized)
+    normalized = _RE_WHITESPACE.sub(' ', normalized)
     normalized = normalized.strip()
 
     # Normalize roman numerals to arabic (but be careful not to break words)
     # Only convert when they appear as standalone words (game numbers)
-    roman_map = [
-        (r'\bviii\b', '8'), (r'\bvii\b', '7'), (r'\bvi\b', '6'),
-        (r'\biv\b', '4'), (r'\bv\b', '5'), (r'\biii\b', '3'),
-        (r'\bii\b', '2'), (r'\bi\b', '1'),
-    ]
-    for pattern, replacement in roman_map:
-        normalized = re.sub(pattern, replacement, normalized)
+    for pattern, replacement in _RE_ROMAN_NUMERALS:
+        normalized = pattern.sub(replacement, normalized)
 
     # Load title mappings from external JSON file
     # This allows easier maintenance and automated updates
@@ -6702,6 +6773,10 @@ def filter_roms_from_files(rom_files: list, dest_dir: str, system: str, dry_run:
     crc_to_dat = dat_entries or {}
     dat_matched = 0
 
+    # Load persistent CRC cache
+    crc_cache_path = dest_path / '_crc_cache.json'
+    crc_cache = load_crc_cache(crc_cache_path) if crc_to_dat else {}
+
     # Parse all ROMs
     all_roms = []
     file_map = {}  # Map filename to full path
@@ -6753,23 +6828,6 @@ def filter_roms_from_files(rom_files: list, dest_dir: str, system: str, dry_run:
                     print(f"  [SKIP] {filename}: year {rom_info.year} > {year_to}")
                 continue
 
-        # Try to enhance with DAT metadata
-        if crc_to_dat:
-            crc = None
-            if filepath.suffix.lower() == '.zip':
-                crc = calculate_crc32_from_zip(filepath)
-            else:
-                crc = calculate_crc32(filepath)
-
-            if crc and crc in crc_to_dat:
-                dat_entry = crc_to_dat[crc]
-                # Override region from DAT if available
-                if dat_entry.region != 'Unknown':
-                    rom_info.region = dat_entry.region
-                # Note: Don't override base_title with dat_entry.name as it includes
-                # region/extension (e.g., "Game (USA).nes") which breaks grouping
-                dat_matched += 1
-
         all_roms.append(rom_info)
         file_map[filename] = filepath
         file_size = get_file_size(filepath)
@@ -6779,8 +6837,6 @@ def filter_roms_from_files(rom_files: list, dest_dir: str, system: str, dry_run:
     print(f"\n{system.upper()}: Found {len(all_roms)} total ROMs ({format_size(total_source_size)})")
     if filtered_by_pattern:
         print(f"{system.upper()}: {filtered_by_pattern} filtered by include/exclude patterns")
-    if dat_entries:
-        print(f"{system.upper()}: {dat_matched} ROMs matched to DAT entries")
 
     # Group by normalized title
     grouped = defaultdict(list)
@@ -6824,6 +6880,22 @@ def filter_roms_from_files(rom_files: list, dest_dir: str, system: str, dry_run:
                 skipped_games.append((title, sample))
                 if verbose:
                     print(f"  [SKIP] No suitable ROM for '{title}' (sample: {sample})")
+
+    # Post-selection DAT enrichment (CRC only calculated for selected ROMs)
+    if crc_to_dat:
+        for rom in selected_roms:
+            filepath = file_map.get(rom.filename)
+            if not filepath:
+                continue
+            crc = get_cached_crc(filepath, crc_cache)
+            if crc and crc in crc_to_dat:
+                dat_entry = crc_to_dat[crc]
+                if dat_entry.region != 'Unknown':
+                    rom.region = dat_entry.region
+                dat_matched += 1
+        save_crc_cache(crc_cache_path, crc_cache)
+    if dat_entries:
+        print(f"{system.upper()}: {dat_matched} selected ROMs matched to DAT entries")
 
     # Apply top-N filter if requested
     if top_n and ratings:
@@ -7282,7 +7354,8 @@ Pattern examples (--include / --exclude):
         # Clean generated files from destination directory
         dest_dir = Path(args.dest).resolve() if args.dest else base_dir / 'refined'
         if dest_dir.exists():
-            generated_patterns = ['**/_selection_log.txt', '**/_verification_report.txt']
+            generated_patterns = ['**/_selection_log.txt', '**/_verification_report.txt',
+                                   '**/_crc_cache.json']
             generated_files = []
             for pattern in generated_patterns:
                 generated_files.extend(dest_dir.glob(pattern))
