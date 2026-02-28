@@ -1480,7 +1480,8 @@
     "powerpuff girls il terribile mojo jojo": "powerpuff girls bad mojo jojo",
     "powerpuff girls l affreux mojo jojo": "powerpuff girls bad mojo jojo",
     "powerpuff girls panique a townsville": "powerpuff girls paint the townsville green",
-    "yu gi oh! duel des tenebres": "yu gi oh! dark duel stories"
+    "yu gi oh! duel des tenebres": "yu gi oh! dark duel stories",
+    "toejam & earl in panik auf funkotron": "toejam & earl in panic on funkotron"
   },
   "regional_snes": {
     "super baseball 2020": "2020 super baseball",
@@ -1568,5 +1569,33 @@
     "5 rally championship edition": "5 rally edition 99",
     "woody woodpecker no go! go! racing": "woody woodpecker racing",
     "yu gi oh! duel monsters 2 dark duel stories": "yu gi oh! dark duel stories"
+  },
+  "regional_genesis": {
+    "2020 nen super baseball": "2020 super baseball",
+    "nba playoffs bulls vs blazers": "bulls versus blazers and the nba playoffs",
+    "nba pro basketball bulls vs lakers and the nba playoffs": "bulls vs lakers and the nba playoffs",
+    "chameleon kid": "kid chameleon",
+    "chuck rock 2": "chuck rock 2 son of chuck",
+    "dune 2 the battle for arrakis": "dune the battle for arrakis",
+    "empire of steel": "steel empire",
+    "f 117 stealth operation night storm": "f 117 night storm",
+    "general chaos daikonsen": "general chaos",
+    "grandslam the tennis tournament 92": "grandslam the tennis tournament",
+    "james pond 2": "james pond 2 codename robocod",
+    "nfl sports talk football 93 starring joe montana": "joe montana 2 sports talk football",
+    "john madden football pro football": "john madden football",
+    "jordan vs bird one on one": "jordan vs bird",
+    "ka ge ki": "ka ge ki fists of steel",
+    "midway presents arcade s greatest hits": "williams arcade s greatest hits",
+    "nba live nong gu 95": "nba live 95",
+    "toki no keishousha phantasy star 3": "phantasy star 3",
+    "shining and the darkness": "shining in the darkness",
+    "shining force 2 inishie no fuuin": "shining force 2",
+    "spider man vs the kingpin": "spider man",
+    "splatterhouse part 2": "splatterhouse 2",
+    "splatterhouse part 3": "splatterhouse 3",
+    "tecmo world cup 92": "tecmo world cup",
+    "thunder force 2 md": "thunder force 2",
+    "wonder boy 5 monster world 3": "wonder boy in monster world"
   }
 }
