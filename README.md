@@ -10,10 +10,7 @@ Grab a refined ROM set from Myrient in one command:
 
 ```bash
 # Game Boy Advance (No-Intro + English translations, best of each game)
-python retro-refiner.py \
-  -s "https://myrient.erista.me/files/No-Intro/Nintendo%20-%20Game%20Boy%20Advance/" \
-  -s "https://myrient.erista.me/files/T-En%20Collection/Nintendo%20-%20Game%20Boy%20Advance%20%5BT-En%5D%20Collection/" \
-  --commit
+python retro-refiner.py -s "https://myrient.erista.me/files/No-Intro/Nintendo%20-%20Game%20Boy%20Advance/" -s "https://myrient.erista.me/files/T-En%20Collection/Nintendo%20-%20Game%20Boy%20Advance%20%5BT-En%5D%20Collection/" --commit
 ```
 
 That's it. The script combines both sources, picks the best English version of each game (official release or fan translation), and downloads only what you need.
@@ -23,80 +20,53 @@ That's it. The script combines both sources, picks the best English version of e
 
 **NES**
 ```bash
-python retro-refiner.py \
-  -s "https://myrient.erista.me/files/No-Intro/Nintendo%20-%20Nintendo%20Entertainment%20System%20(Headered)/" \
-  -s "https://myrient.erista.me/files/T-En%20Collection/Nintendo%20-%20Famicom%20%5BT-En%5D%20Collection/" \
-  --commit
+python retro-refiner.py -s "https://myrient.erista.me/files/No-Intro/Nintendo%20-%20Nintendo%20Entertainment%20System%20(Headered)/" -s "https://myrient.erista.me/files/T-En%20Collection/Nintendo%20-%20Famicom%20%5BT-En%5D%20Collection/" --commit
 ```
 
 **SNES**
 ```bash
-python retro-refiner.py \
-  -s "https://myrient.erista.me/files/No-Intro/Nintendo%20-%20Super%20Nintendo%20Entertainment%20System/" \
-  -s "https://myrient.erista.me/files/T-En%20Collection/Nintendo%20-%20Super%20Famicom%20%5BT-En%5D%20Collection/" \
-  --commit
+python retro-refiner.py -s "https://myrient.erista.me/files/No-Intro/Nintendo%20-%20Super%20Nintendo%20Entertainment%20System/" -s "https://myrient.erista.me/files/T-En%20Collection/Nintendo%20-%20Super%20Famicom%20%5BT-En%5D%20Collection/" --commit
 ```
 
 **Game Boy**
 ```bash
-python retro-refiner.py \
-  -s "https://myrient.erista.me/files/No-Intro/Nintendo%20-%20Game%20Boy/" \
-  -s "https://myrient.erista.me/files/T-En%20Collection/Nintendo%20-%20Game%20Boy%20%5BT-En%5D%20Collection/" \
-  --commit
+python retro-refiner.py -s "https://myrient.erista.me/files/No-Intro/Nintendo%20-%20Game%20Boy/" -s "https://myrient.erista.me/files/T-En%20Collection/Nintendo%20-%20Game%20Boy%20%5BT-En%5D%20Collection/" --commit
 ```
 
 **Game Boy Color**
 ```bash
-python retro-refiner.py \
-  -s "https://myrient.erista.me/files/No-Intro/Nintendo%20-%20Game%20Boy%20Color/" \
-  -s "https://myrient.erista.me/files/T-En%20Collection/Nintendo%20-%20Game%20Boy%20Color%20%5BT-En%5D%20Collection/" \
-  --commit
+python retro-refiner.py -s "https://myrient.erista.me/files/No-Intro/Nintendo%20-%20Game%20Boy%20Color/" -s "https://myrient.erista.me/files/T-En%20Collection/Nintendo%20-%20Game%20Boy%20Color%20%5BT-En%5D%20Collection/" --commit
 ```
 
 **Nintendo DS**
 ```bash
-python retro-refiner.py \
-  -s "https://myrient.erista.me/files/No-Intro/Nintendo%20-%20Nintendo%20DS%20(Decrypted)/" \
-  -s "https://myrient.erista.me/files/T-En%20Collection/Nintendo%20-%20Nintendo%20DS%20%5BT-En%5D%20Collection/" \
-  --commit
+python retro-refiner.py -s "https://myrient.erista.me/files/No-Intro/Nintendo%20-%20Nintendo%20DS%20(Decrypted)/" -s "https://myrient.erista.me/files/T-En%20Collection/Nintendo%20-%20Nintendo%20DS%20%5BT-En%5D%20Collection/" --commit
 ```
 
 **Sega Genesis / Mega Drive**
 ```bash
-python retro-refiner.py \
-  -s "https://myrient.erista.me/files/No-Intro/Sega%20-%20Mega%20Drive%20-%20Genesis/" \
-  -s "https://myrient.erista.me/files/T-En%20Collection/Sega%20-%20Mega%20Drive%20%5BT-En%5D%20Collection/" \
-  --commit
+python retro-refiner.py -s "https://myrient.erista.me/files/No-Intro/Sega%20-%20Mega%20Drive%20-%20Genesis/" -s "https://myrient.erista.me/files/T-En%20Collection/Sega%20-%20Mega%20Drive%20%5BT-En%5D%20Collection/" --commit
 ```
 
 **PlayStation**
 ```bash
-python retro-refiner.py \
-  -s "https://myrient.erista.me/files/Redump/Sony%20-%20PlayStation/" \
-  -s "https://myrient.erista.me/files/T-En%20Collection/Sony%20-%20PlayStation%20%5BT-En%5D%20Collection/" \
-  --commit
+python retro-refiner.py -s "https://myrient.erista.me/files/Redump/Sony%20-%20PlayStation/" -s "https://myrient.erista.me/files/T-En%20Collection/Sony%20-%20PlayStation%20%5BT-En%5D%20Collection/" --commit
 ```
 
 **TeknoParrot (Modern Arcade)**
 ```bash
-python retro-refiner.py \
-  -s "https://myrient.erista.me/files/TeknoParrot/" \
-  --systems teknoparrot --commit
+python retro-refiner.py -s "https://myrient.erista.me/files/TeknoParrot/" --systems teknoparrot --commit
 ```
 
 **FinalBurn Neo (Arcade)**
 ```bash
-python retro-refiner.py \
-  -s "https://myrient.erista.me/files/FinalBurn%20Neo/arcade/" \
-  --systems fbneo --commit
+python retro-refiner.py -s "https://myrient.erista.me/files/FinalBurn%20Neo/arcade/" --systems fbneo --commit
 ```
 
 **FinalBurn Neo (All Systems)**
 ```bash
 # Scan all FBNeo systems with recursive scanning
-python retro-refiner.py \
-  -s "https://myrient.erista.me/files/FinalBurn%20Neo/" \
-  -r --commit
+python retro-refiner.py -s "https://myrient.erista.me/files/FinalBurn%20Neo/" -r --commit
 ```
 
 </details>
@@ -173,10 +143,7 @@ python retro-refiner.py -s /path/to/roms --commit
 ### Download from Myrient
 ```bash
 # GBA: No-Intro + fan translations, best English version of each game
-python retro-refiner.py \
-  -s "https://myrient.erista.me/files/No-Intro/Nintendo%20-%20Game%20Boy%20Advance/" \
-  -s "https://myrient.erista.me/files/T-En%20Collection/Nintendo%20-%20Game%20Boy%20Advance%20%5BT-En%5D%20Collection/" \
-  --parallel 8 --commit
+python retro-refiner.py -s "https://myrient.erista.me/files/No-Intro/Nintendo%20-%20Game%20Boy%20Advance/" -s "https://myrient.erista.me/files/T-En%20Collection/Nintendo%20-%20Game%20Boy%20Advance%20%5BT-En%5D%20Collection/" --parallel 8 --commit
 ```
 
 ### Download from Archive.org
@@ -187,15 +154,10 @@ Archive.org requires authentication. Get your credentials at https://archive.org
 # Set credentials via environment (safer, no keys in shell history)
 export IA_ACCESS_KEY=your_access_key
 export IA_SECRET_KEY=your_secret_key
-python retro-refiner.py \
-  -s "https://archive.org/download/sega_saturn/" \
-  --parallel 4 --commit
+python retro-refiner.py -s "https://archive.org/download/sega_saturn/" --parallel 4 --commit
 
 # Or pass credentials directly
-python retro-refiner.py \
-  -s "https://archive.org/download/sega_saturn/" \
-  --ia-access-key YOUR_KEY --ia-secret-key YOUR_SECRET \
-  --parallel 4 --commit
+python retro-refiner.py -s "https://archive.org/download/sega_saturn/" --ia-access-key YOUR_KEY --ia-secret-key YOUR_SECRET --parallel 4 --commit
 ```
 
 ### Space-Saving with Symlinks
@@ -207,8 +169,7 @@ python retro-refiner.py -s /Games/archive -d /Games/refined --link --commit
 ### Build a Curated Collection
 ```bash
 # Only Mario, Zelda, and Metroid games
-python retro-refiner.py -s /path/to/roms \
-  --include "*Mario*" --include "*Zelda*" --include "*Metroid*" --commit
+python retro-refiner.py -s /path/to/roms --include "*Mario*" --include "*Zelda*" --include "*Metroid*" --commit
 
 # Retro-only (pre-2000) with playlists
 python retro-refiner.py -s /path/to/roms --year-to 1999 --playlists --commit
@@ -374,20 +335,13 @@ Examples:
 ### Usage
 ```bash
 # Download all TeknoParrot games (latest version of each)
-python retro-refiner.py \
-  -s "https://myrient.erista.me/files/TeknoParrot/" \
-  --systems teknoparrot --commit
+python retro-refiner.py -s "https://myrient.erista.me/files/TeknoParrot/" --systems teknoparrot --commit
 
 # Filter by hardware platform
-python retro-refiner.py \
-  -s "https://myrient.erista.me/files/TeknoParrot/" \
-  --systems teknoparrot \
-  --tp-include-platforms "Sega Nu,Sega RingEdge,Taito Type X2" --commit
+python retro-refiner.py -s "https://myrient.erista.me/files/TeknoParrot/" --systems teknoparrot --tp-include-platforms "Sega Nu,Sega RingEdge,Taito Type X2" --commit
 
 # Keep all versions (don't deduplicate Ver.1/Ver.2)
-python retro-refiner.py \
-  -s "https://myrient.erista.me/files/TeknoParrot/" \
-  --systems teknoparrot --tp-all-versions --commit
+python retro-refiner.py -s "https://myrient.erista.me/files/TeknoParrot/" --systems teknoparrot --tp-all-versions --commit
 ```
 
 ### TeknoParrot Options
