@@ -828,7 +828,9 @@
     "wizardry 3 knight of diamonds": "wizardry 3",
     "yu gi oh monster capsule gb": "yu gi oh monster capsule gb",
     "yu gi oh duel monsters 4 battle of great duelist kaiba deck": "yu gi oh duel monsters 4",
-    "zoids shirogane no juukishin liger zero": "zoids liger zero"
+    "zoids shirogane no juukishin liger zero": "zoids liger zero",
+    "network boukenki bugsite alpha version": "bugsite alpha version",
+    "network boukenki bugsite beta version": "bugsite beta version"
   },
   "translations_n64": {
     "custom robo": "custom robo",
@@ -1473,7 +1475,12 @@
     "quiere ser millonario": "who wants to be a millionaire",
     "lothar matthaeus super soccer": "super soccer",
     "blanco world class rugby": "world class rugby",
-    "monde perdu le jurassic park": "jurassic park"
+    "monde perdu le jurassic park": "jurassic park",
+    "captain buzz lightyear star command": "buzz lightyear of star command",
+    "powerpuff girls il terribile mojo jojo": "powerpuff girls bad mojo jojo",
+    "powerpuff girls l affreux mojo jojo": "powerpuff girls bad mojo jojo",
+    "powerpuff girls panique a townsville": "powerpuff girls paint the townsville green",
+    "yu gi oh! duel des tenebres": "yu gi oh! dark duel stories"
   },
   "regional_snes": {
     "super baseball 2020": "2020 super baseball",
@@ -1545,5 +1552,21 @@
     "ultima ushinawareta runes 2": "ultima runes of virtue 2",
     "world beach volley 1992 gb cup": "world beach volley 1991 gb cup",
     "xenon 2 megablast": "xenon 2"
+  },
+  "regional_gbc": {
+    "batman of the future return of the joker": "batman beyond return of the joker",
+    "bugs bunny in crazy castle 4": "bugs bunny crazy castle 4",
+    "taito memorial chase h q secret police": "chase h q secret police",
+    "deja vu 1 & 2": "deja vu 1 & 2 the casebooks of ace harding",
+    "international track & field summer games": "espn international track & field",
+    "gex 3 deep cover gecko": "gex 3 deep pocket gecko",
+    "monster farm battle card gb": "monster rancher battle card gb",
+    "ms pac man special colour edition": "ms pac man special color edition",
+    "pac man special colour edition": "pac man special color edition",
+    "rayman 2 forever": "rayman 2",
+    "space invaders x": "space invaders",
+    "5 rally championship edition": "5 rally edition 99",
+    "woody woodpecker no go! go! racing": "woody woodpecker racing",
+    "yu gi oh! duel monsters 2 dark duel stories": "yu gi oh! dark duel stories"
   }
 }
