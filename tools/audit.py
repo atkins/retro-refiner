@@ -75,8 +75,8 @@ def parse_selection_log(log_path):
         if len(lines) < 3:
             continue
 
-        # Line 0: filename (possibly with rating suffix)
-        filename = re.sub(r'\s*\[.*$', '', lines[0].strip())
+        # Line 0: filename (possibly with rating suffix like [★3.50 (42 votes)])
+        filename = re.sub(r'\s*\[★[^\]]*\]$', '', lines[0].strip())
 
         # Line 1: "  Title: ..."
         title_match = re.match(r'\s*Title:\s*(.*)', lines[1])
@@ -133,16 +133,25 @@ def check_ten_japan_duplicates(entries):
         elif entry['region'] == 'Japan' and not entry['is_translation']:
             japan_roms.append(entry)
 
+    # Common Japanese/English words that don't indicate the same game
+    stop_words = {
+        'no', 'de', 'ga', 'wo', 'ni', 'wa', 'to', 'na', 'e',
+        'the', 'of', 'and', 'a', 'in', 'for', 'on', 'at', 'is', 'it',
+        'game', 'games', 'advance', 'vol', 'volume', 'vs',
+    }
+
     # Pre-compute normalized titles and word sets
     ten_data = []
     for t in translations:
         norm = normalize_title(entry_base_title(t))
-        ten_data.append((t, norm, set(norm.split())))
+        words = set(norm.split()) - stop_words
+        ten_data.append((t, norm, words))
 
     jp_data = []
     for j in japan_roms:
         norm = normalize_title(j['title'])
-        jp_data.append((j, norm, set(norm.split())))
+        words = set(norm.split()) - stop_words
+        jp_data.append((j, norm, words))
 
     results = []
     for t_entry, t_norm, t_words in ten_data:
@@ -153,7 +162,13 @@ def check_ten_japan_duplicates(entries):
 
             common = t_words & j_words
             shorter_len = min(len(t_words), len(j_words))
-            if shorter_len > 0 and len(common) >= 2 and len(common) >= shorter_len * 0.5:
+            longer_len = max(len(t_words), len(j_words))
+            shorter_overlap = len(common) / shorter_len if shorter_len else 0
+            longer_overlap = len(common) / longer_len if longer_len else 0
+            if (shorter_len >= 2
+                    and len(common) >= 2
+                    and shorter_overlap >= 0.75
+                    and longer_overlap >= 0.60):
                 results.append((t_entry, j_entry, common))
 
     return results
@@ -322,6 +337,29 @@ def check_non_english_localizations(entries):
     return results
 
 
+def check_missing_roms(entries, sys_dir):
+    """Compare selection log against actual files on disk.
+
+    Returns (missing, unexpected) where:
+        missing = filenames in log but not on disk
+        unexpected = filenames on disk but not in log
+    """
+    log_filenames = {e['filename'] for e in entries}
+
+    # Scan directory for ROM files (exclude metadata files)
+    metadata_files = {'_selection_log.txt', '_crc_cache.json',
+                      '_verification_report.txt', 'gamelist.xml'}
+    disk_filenames = set()
+    for f in sys_dir.iterdir():
+        if f.is_file() and f.name not in metadata_files and not f.suffix == '.lpl':
+            disk_filenames.add(f.name)
+
+    missing = sorted(log_filenames - disk_filenames)
+    unexpected = sorted(disk_filenames - log_filenames)
+
+    return missing, unexpected
+
+
 def check_missing_games(entries, dat_path):
     """Cross-reference selected ROMs against a DAT file.
 
@@ -375,10 +413,12 @@ def check_missing_games(entries, dat_path):
 # ---------------------------------------------------------------------------
 
 def print_report(system, entries, exact_dups, ten_japan_dups, regional_dups,
-                 leaked, non_english, missing, dat_path):
+                 leaked, non_english, missing_roms, unexpected_files,
+                 missing_dat, dat_path):
     """Print a formatted audit report to stdout."""
     total_issues = (len(exact_dups) + len(ten_japan_dups) + len(regional_dups)
-                    + len(leaked) + len(non_english) + len(missing))
+                    + len(leaked) + len(non_english) + len(missing_roms)
+                    + len(unexpected_files) + len(missing_dat))
 
     # Header
     print()
@@ -480,19 +520,40 @@ def print_report(system, entries, exact_dups, ten_japan_dups, regional_dups,
     else:
         print("  None")
 
-    # Check 6: Missing games (DAT cross-reference)
+    # Check 6: Missing ROMs (log vs disk)
+    print()
+    print('-' * 62)
+    print(f"6. MISSING ROMS ({len(missing_roms)} in log but not on disk"
+          f", {len(unexpected_files)} on disk but not in log)")
+    print('-' * 62)
+    if missing_roms:
+        print("  In selection log but not on disk:")
+        for name in missing_roms[:30]:
+            print(f"    - {name}")
+        if len(missing_roms) > 30:
+            print(f"    ... and {len(missing_roms) - 30} more")
+    if unexpected_files:
+        print("  On disk but not in selection log:")
+        for name in unexpected_files[:30]:
+            print(f"    + {name}")
+        if len(unexpected_files) > 30:
+            print(f"    ... and {len(unexpected_files) - 30} more")
+    if not missing_roms and not unexpected_files:
+        print("  None")
+
+    # Check 7: Missing games (DAT cross-reference)
     print()
     print('-' * 62)
     if dat_path:
-        print(f"6. MISSING GAMES FROM DAT ({len(missing)} found)")
+        print(f"7. MISSING GAMES FROM DAT ({len(missing_dat)} found)")
     else:
-        print("6. MISSING GAMES FROM DAT (skipped, no --dat provided)")
+        print("7. MISSING GAMES FROM DAT (skipped, no --dat provided)")
     print('-' * 62)
-    if dat_path and missing:
-        for name in missing[:50]:  # Cap display at 50
+    if dat_path and missing_dat:
+        for name in missing_dat[:50]:  # Cap display at 50
             print(f"  {name}")
-        if len(missing) > 50:
-            print(f"  ... and {len(missing) - 50} more")
+        if len(missing_dat) > 50:
+            print(f"  ... and {len(missing_dat) - 50} more")
     elif dat_path:
         print("  None")
 
@@ -569,19 +630,22 @@ def main():
         regional_dups = check_regional_duplicates(entries)
         leaked = check_leaked_filters(entries)
         non_english = check_non_english_localizations(entries)
+        missing_roms, unexpected_files = check_missing_roms(entries, sys_dir)
 
-        missing = []
+        missing_dat = []
         dat_path = args.dat
         if dat_path:
-            missing = check_missing_games(entries, dat_path)
+            missing_dat = check_missing_games(entries, dat_path)
 
         # Print report
         print_report(system, entries, exact_dups, ten_japan_dups, regional_dups,
-                     leaked, non_english, missing, dat_path)
+                     leaked, non_english, missing_roms, unexpected_files,
+                     missing_dat, dat_path)
 
         # Accumulate grand totals
         total_issues = (len(exact_dups) + len(ten_japan_dups) + len(regional_dups)
-                        + len(leaked) + len(non_english) + len(missing))
+                        + len(leaked) + len(non_english) + len(missing_roms)
+                        + len(unexpected_files) + len(missing_dat))
         removable = (sum(len(g) - 1 for _, g in exact_dups)
                      + len(ten_japan_dups) + len(leaked) + len(non_english))
         grand_total_issues += total_issues

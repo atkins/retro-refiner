@@ -4419,6 +4419,7 @@ COMPILATION_PATTERNS = [re.compile(p) for p in [
     r'^2.in.1 Game Pack', r'^Combo Pack', r'^2 Game Pack',
     r'Classics\)', r'Competition Cartridge',  # DK Classics, Competition carts
     r'Twin Pack',
+    r'Super Pack', r'^Double Game!',
 ]]
 
 # Pre-compiled hack detection patterns
@@ -4485,7 +4486,9 @@ def parse_rom_filename(filename: str) -> RomInfo:
 
     # Check for beta/demo/promo/sample/proto
     is_beta = bool(_RE_BETA.search(name))
-    is_demo = '(Demo)' in name or '(Kiosk)' in name or 'Caravan' in name or 'Taikenban' in name
+    is_demo = ('(Demo)' in name or '(Kiosk)' in name or 'Caravan' in name or 'Taikenban' in name
+               or '(Test Program)' in name or '(Program)' in name or '(Tech Demo)' in name
+               or '(SDK' in name)
     is_promo = '(Promo)' in name or '(Movie Promo)' in name or 'Present Campaign' in name or 'Senyou Cartridge' in name or 'Hot Mario Campaign' in name
     is_sample = '(Sample)' in name
     is_proto = '(Proto)' in name or bool(_RE_PROTO.search(name))

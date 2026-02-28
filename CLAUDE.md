@@ -51,7 +51,8 @@ Everything lives in `retro-refiner.py` with no external dependencies. YAML parsi
 2. `scan_for_systems()` or `scan_network_source_urls()` discovers ROM files per system
 3. For each system: either `filter_roms_from_files()` (console ROMs), `filter_mame_roms()` (arcade), or `filter_teknoparrot_roms()` (TeknoParrot)
 4. Console ROM filtering: `parse_rom_filename()` → `RomInfo` → group by `normalize_title()` → `select_best_rom()` per group → post-selection CRC/DAT enrichment (only selected ROMs)
-5. Transfer: copy/move/symlink/hardlink based on `--commit` mode
+5. `--limit` enforcement: after each system's selection, truncate if total exceeds the cap; skip remaining systems once limit is reached
+6. Transfer: copy/move/symlink/hardlink based on `--commit` mode
 
 ### Key dataclasses
 - `RomInfo` (line ~3840): Parsed ROM metadata (title, region, language, revision, flags like is_beta/is_proto/is_translation)
