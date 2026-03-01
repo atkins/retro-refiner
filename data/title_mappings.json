@@ -1481,7 +1481,10 @@
     "powerpuff girls l affreux mojo jojo": "powerpuff girls bad mojo jojo",
     "powerpuff girls panique a townsville": "powerpuff girls paint the townsville green",
     "yu gi oh! duel des tenebres": "yu gi oh! dark duel stories",
-    "toejam & earl in panik auf funkotron": "toejam & earl in panic on funkotron"
+    "toejam & earl in panik auf funkotron": "toejam & earl in panic on funkotron",
+    "racing simulation 2": "monaco grand prix racing simulation 2",
+    "toy story 2 captain buzz lightyear auf rettungsmission!": "toy story 2 buzz lightyear to the rescue!",
+    "toy story 2 buzz l eclair a la rescousse!": "toy story 2 buzz lightyear to the rescue!"
   },
   "regional_snes": {
     "super baseball 2020": "2020 super baseball",
@@ -1597,5 +1600,19 @@
     "tecmo world cup 92": "tecmo world cup",
     "thunder force 2 md": "thunder force 2",
     "wonder boy 5 monster world 3": "wonder boy in monster world"
+  },
+  "regional_n64": {
+    "banjo to kazooie no daibouken": "banjo kazooie",
+    "daffy duck starring as duck dodgers": "duck dodgers starring daffy duck",
+    "fifa 64": "fifa soccer 64",
+    "fifa road to world cup 98 world cup e no michi": "fifa road to world cup 98",
+    "star wars shutsugeki! rogue chuutai": "star wars rogue squadron",
+    "tony hawk s skateboarding": "tony hawk s pro skater",
+    "transformers beast wars metals 64": "transformers beast wars transmetals",
+    "twisted edge snowboarding": "twisted edge extreme snowboarding",
+    "king hill 64 extreme snowboarding": "twisted edge extreme snowboarding",
+    "yoshi story": "yoshi s story",
+    "pga european tour golf": "pga european tour",
+    "nhl pro 99": "nhl 99"
   }
 }
