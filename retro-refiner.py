@@ -4488,7 +4488,8 @@ def parse_rom_filename(filename: str) -> RomInfo:
     is_beta = bool(_RE_BETA.search(name))
     is_demo = ('(Demo)' in name or '(Kiosk)' in name or 'Caravan' in name or 'Taikenban' in name
                or '(Test Program)' in name or '(Program)' in name or '(Tech Demo)' in name
-               or '(SDK' in name or 'Diagnostic' in name or 'Development Card' in name)
+               or '(SDK' in name or 'Diagnostic' in name or 'Development Card' in name
+               or 'Atari PAM' in name)
     is_promo = '(Promo)' in name or '(Movie Promo)' in name or 'Present Campaign' in name or 'Senyou Cartridge' in name or 'Hot Mario Campaign' in name
     is_sample = '(Sample)' in name
     is_proto = '(Proto)' in name or bool(_RE_PROTO.search(name))
