@@ -1635,5 +1635,10 @@
     "mickey mouse densetsu no oukoku legend of illusion": "legend of illusion starring mickey mouse",
     "vampire master of darkness": "master of darkness",
     "nomo hideo no world series baseball": "world series baseball"
+  },
+  "regional_atari2600": {
+    "championship soccer ~ soccer": "championship soccer",
+    "street racer ~ speedway 2": "street racer speedway 2",
+    "dan kitchen s tomcat the f 14 fighter simulator": "tomcat the f 14 fighter simulator"
   }
 }
