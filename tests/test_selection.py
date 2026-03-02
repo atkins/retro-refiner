@@ -1252,6 +1252,183 @@ def test_resolve_top_n():
         results.fail("Percentage filter returns highest rated", ['Game C', 'Game A'], titles)
 
 
+def test_apply_size_budget():
+    """Test size budget truncation logic."""
+    print("\n" + "="*60)
+    print("SIZE BUDGET TESTS")
+    print("="*60)
+
+    try:
+        apply_size_budget = _module.apply_size_budget
+        parse_size_string = _module.parse_size_string
+    except AttributeError:
+        print("  [SKIP] apply_size_budget not yet implemented")
+        return
+
+    # Create sample ROMs
+    roms = [
+        RomInfo(filename="Game A (USA).zip", base_title="Game A", region="USA",
+                revision=0, is_english=True, is_translation=False,
+                is_beta=False, is_demo=False, is_promo=False, is_sample=False,
+                is_proto=False, is_bios=False, is_pirate=False, is_unlicensed=False,
+                is_homebrew=False, is_rerelease=False, is_compilation=False, is_lock_on=False),
+        RomInfo(filename="Game B (USA).zip", base_title="Game B", region="USA",
+                revision=0, is_english=True, is_translation=False,
+                is_beta=False, is_demo=False, is_promo=False, is_sample=False,
+                is_proto=False, is_bios=False, is_pirate=False, is_unlicensed=False,
+                is_homebrew=False, is_rerelease=False, is_compilation=False, is_lock_on=False),
+        RomInfo(filename="Game C (USA).zip", base_title="Game C", region="USA",
+                revision=0, is_english=True, is_translation=False,
+                is_beta=False, is_demo=False, is_promo=False, is_sample=False,
+                is_proto=False, is_bios=False, is_pirate=False, is_unlicensed=False,
+                is_homebrew=False, is_rerelease=False, is_compilation=False, is_lock_on=False),
+        RomInfo(filename="Game D (USA).zip", base_title="Game D", region="USA",
+                revision=0, is_english=True, is_translation=False,
+                is_beta=False, is_demo=False, is_promo=False, is_sample=False,
+                is_proto=False, is_bios=False, is_pirate=False, is_unlicensed=False,
+                is_homebrew=False, is_rerelease=False, is_compilation=False, is_lock_on=False),
+    ]
+
+    sizes = {
+        "Game A (USA).zip": 100 * 1024 * 1024,   # 100 MB
+        "Game B (USA).zip": 200 * 1024 * 1024,   # 200 MB
+        "Game C (USA).zip": 50 * 1024 * 1024,    # 50 MB
+        "Game D (USA).zip": 150 * 1024 * 1024,   # 150 MB
+    }
+
+    # Test 1: Budget fits all items
+    kept, used = apply_size_budget(roms, sizes, 1024 * 1024 * 1024,
+                                   name_fn=lambda r: r.filename)
+    if len(kept) == 4:
+        results.ok("Size budget fits all (1 GB budget, 500 MB items)")
+    else:
+        results.fail("Size budget fits all", 4, len(kept))
+
+    # Test 2: Budget too small for all, no ratings (default order)
+    kept, used = apply_size_budget(roms, sizes, 300 * 1024 * 1024,
+                                   name_fn=lambda r: r.filename)
+    if used <= 300 * 1024 * 1024:
+        results.ok("Size budget respected (300 MB limit)")
+    else:
+        results.fail("Size budget respected", f"<= 300 MB", f"{used / (1024*1024):.0f} MB")
+
+    # Test 3: With ratings, higher-rated games are prioritized
+    ratings = {
+        'game a': {'rating': 2.0, 'votes': 10},
+        'game b': {'rating': 4.5, 'votes': 100},
+        'game c': {'rating': 4.8, 'votes': 200},
+        'game d': {'rating': 3.0, 'votes': 50},
+    }
+    # Budget: 300 MB. With rating sort: C(50MB,4.8), B(200MB,4.5), D(150MB,3.0), A(100MB,2.0)
+    # Greedy: C(50) -> B(250) -> D won't fit(400) -> A fits(350)? No, 350 > 300. So C+B = 250MB
+    kept, used = apply_size_budget(roms, sizes, 300 * 1024 * 1024,
+                                   ratings=ratings, name_fn=lambda r: r.filename,
+                                   rating_name_fn=lambda r: r.base_title)
+    titles = [r.base_title for r in kept]
+    # C (50MB) fits, B (200MB) fits (250 total), D (150MB) won't fit (400), A (100MB) fits (350)? 350 > 300? yes, skip
+    # So we get C and B
+    if 'Game C' in titles and 'Game B' in titles:
+        results.ok("Size budget prioritizes highest-rated ROMs")
+    else:
+        results.fail("Size budget prioritizes highest-rated ROMs",
+                    "Game C and Game B in result", titles)
+
+    # Test 4: Greedy skip - large item skipped, smaller ones fill
+    # Budget: 200 MB. Rated order: C(50), B(200), D(150), A(100)
+    # C(50) fits -> B(200) won't fit(250) -> D(150) fits(200) -> A(100) won't fit(300)
+    kept, used = apply_size_budget(roms, sizes, 200 * 1024 * 1024,
+                                   ratings=ratings, name_fn=lambda r: r.filename,
+                                   rating_name_fn=lambda r: r.base_title)
+    titles = [r.base_title for r in kept]
+    if 'Game C' in titles and 'Game D' in titles and len(kept) == 2:
+        results.ok("Size budget skips large items, fills with smaller")
+    else:
+        results.fail("Size budget skips large items", "Game C and Game D", titles)
+
+    # Test 5: Zero budget returns empty
+    kept, used = apply_size_budget(roms, sizes, 0, name_fn=lambda r: r.filename)
+    if len(kept) == 0 and used == 0:
+        results.ok("Zero budget returns empty list")
+    else:
+        results.fail("Zero budget returns empty", "([], 0)", f"({len(kept)}, {used})")
+
+    # Test 6: Empty items list
+    kept, used = apply_size_budget([], sizes, 1024 * 1024 * 1024)
+    if len(kept) == 0 and used == 0:
+        results.ok("Empty items returns empty list")
+    else:
+        results.fail("Empty items returns empty", "([], 0)", f"({len(kept)}, {used})")
+
+
+def test_parse_size_arg():
+    """Test parse_size_string with common CLI formats."""
+    print("\n" + "="*60)
+    print("SIZE ARGUMENT PARSING TESTS")
+    print("="*60)
+
+    parse_size_string = _module.parse_size_string
+
+    # Test basic formats
+    result = parse_size_string("10G")
+    expected = 10 * 1024 * 1024 * 1024
+    if result == expected:
+        results.ok("parse_size_string('10G')")
+    else:
+        results.fail("parse_size_string('10G')", expected, result)
+
+    result = parse_size_string("500M")
+    expected = 500 * 1024 * 1024
+    if result == expected:
+        results.ok("parse_size_string('500M')")
+    else:
+        results.fail("parse_size_string('500M')", expected, result)
+
+    result = parse_size_string("1024K")
+    expected = 1024 * 1024
+    if result == expected:
+        results.ok("parse_size_string('1024K')")
+    else:
+        results.fail("parse_size_string('1024K')", expected, result)
+
+    # Test with decimal
+    result = parse_size_string("1.5G")
+    expected = int(1.5 * 1024 * 1024 * 1024)
+    if result == expected:
+        results.ok("parse_size_string('1.5G')")
+    else:
+        results.fail("parse_size_string('1.5G')", expected, result)
+
+    # Test case insensitivity
+    result = parse_size_string("10g")
+    expected = 10 * 1024 * 1024 * 1024
+    if result == expected:
+        results.ok("parse_size_string('10g') case insensitive")
+    else:
+        results.fail("parse_size_string('10g')", expected, result)
+
+    # Test with unit suffix
+    result = parse_size_string("500MB")
+    expected = 500 * 1024 * 1024
+    if result == expected:
+        results.ok("parse_size_string('500MB')")
+    else:
+        results.fail("parse_size_string('500MB')", expected, result)
+
+    # Test raw number
+    result = parse_size_string("1048576")
+    if result == 1048576:
+        results.ok("parse_size_string('1048576') raw bytes")
+    else:
+        results.fail("parse_size_string('1048576')", 1048576, result)
+
+    # Test invalid
+    result = parse_size_string("")
+    if result == 0:
+        results.ok("parse_size_string('') returns 0")
+    else:
+        results.fail("parse_size_string('')", 0, result)
+
+
 def test_system_detection():
     """Test system detection from folders and extensions."""
     print("\n" + "="*60)
@@ -1577,6 +1754,8 @@ def main():
     test_build_ratings_cache()
     test_apply_top_n_filter()
     test_resolve_top_n()
+    test_apply_size_budget()
+    test_parse_size_arg()
     test_system_detection()
     test_systems_json()
     test_playlist_generation()

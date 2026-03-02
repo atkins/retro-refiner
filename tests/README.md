@@ -14,6 +14,8 @@ Unit and integration tests for Retro-Refiner's core functionality.
 - HTML parsing for directory listings
 - Pattern matching (include/exclude filters)
 - Network ROM filtering
+- Size budget truncation and rating prioritization
+- Size string parsing (`10G`, `500M`, etc.)
 - System detection (folder aliases, extensions)
 - Playlist generation (M3U, gamelist.xml)
 

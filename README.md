@@ -178,6 +178,18 @@ python retro-refiner.py -s /path/to/roms --year-to 1999 --playlists --commit
 python retro-refiner.py -s /path/to/roms --region-priority "Japan,USA,Europe" --commit
 ```
 
+### Build a Size-Constrained Collection
+```bash
+# Fit the best-rated ROMs into a 10 GB budget
+python retro-refiner.py -s /path/to/roms --size 10G --commit
+
+# Top 50 rated games per system
+python retro-refiner.py -s /path/to/roms --top 50 --commit
+
+# Cap at 500 ROMs total across all systems
+python retro-refiner.py -s /path/to/roms --limit 500 --commit
+```
+
 ### More Options
 ```bash
 python retro-refiner.py --systems nes snes genesis gba  # Specific systems only
@@ -491,6 +503,14 @@ Each system folder contains `_selection_log.txt` with:
 | `--include-unlicensed` | Include unlicensed ROMs |
 | `--year-from` | Filter by year (minimum) |
 | `--year-to` | Filter by year (maximum) |
+
+### Rating & Budget
+| Option | Description |
+|--------|-------------|
+| `--top` | Keep only top N rated games per system, or top N% (e.g., `--top 50`, `--top 10%`) |
+| `--include-unrated` | Include unrated games after rated ones when using `--top` |
+| `--limit` | Maximum total ROMs to select across all systems |
+| `--size` | Maximum total size budget across all systems (e.g., `--size 10G`, `--size 500M`) |
 
 ### Export Options
 | Option | Description |

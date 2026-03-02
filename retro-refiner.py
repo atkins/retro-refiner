@@ -3527,6 +3527,9 @@ include_unlicensed: false
 # Maximum total ROMs to select across all systems
 # limit: 500
 
+# Maximum total size budget across all systems (e.g., 10G, 500M, 1.5T)
+# size: 10G
+
 # -----------------------------------------------------------------------------
 # Metadata Filters
 # -----------------------------------------------------------------------------
@@ -3720,6 +3723,7 @@ def apply_config_to_args(args, config: dict):
         'top': 'top',
         'include_unrated': 'include_unrated',
         'limit': 'limit',
+        'size': 'size',
     }
 
     for config_key, arg_name in config_map.items():
@@ -3728,8 +3732,8 @@ def apply_config_to_args(args, config: dict):
             # Only apply config if CLI didn't set it
             if current_value is None or current_value == False or current_value == []:
                 value = config[config_key]
-                # Convert top to string for consistency (YAML may parse "10" as int)
-                if config_key == 'top' and value is not None:
+                # Convert top/size to string for consistency (YAML may parse "10" as int)
+                if config_key in ('top', 'size') and value is not None:
                     value = str(value)
                 setattr(args, arg_name, value)
 
@@ -5552,7 +5556,8 @@ def filter_mame_roms(source_dir: str, dest_dir: str, catver_path: str, dat_path:
     if not dry_run:
         print(f"{label}: Selection log written to {log_path}")
 
-    return selected_roms, {'source_size': total_source_size, 'selected_size': selected_size}
+    return selected_roms, {'source_size': total_source_size, 'selected_size': selected_size,
+                           'rom_sizes': rom_sizes, 'chd_sizes': chd_sizes}
 
 
 # =============================================================================
@@ -6031,6 +6036,62 @@ def apply_top_n_filter(roms: List[RomInfo], ratings: dict, top_n,
     return result
 
 
+def apply_size_budget(items, item_sizes, budget, ratings=None,
+                      name_fn=None, rating_name_fn=None):
+    """Truncate items to fit within a size budget, prioritized by rating.
+
+    Args:
+        items: list of selected items (RomInfo, MameGameInfo, etc.)
+        item_sizes: dict mapping item identifier -> size in bytes
+        budget: remaining size budget in bytes
+        ratings: optional ratings dict for sorting {normalized_title: {rating, votes}}
+        name_fn: function to extract size key from an item (for item_sizes lookup)
+        rating_name_fn: function to extract rating key from an item (for ratings lookup);
+                        if None, uses name_fn result
+
+    Returns:
+        (kept_items, total_size_used)
+    """
+    if not items:
+        return [], 0
+
+    if budget <= 0:
+        return [], 0
+
+    # Build (item, size, sort_key) tuples
+    entries = []
+    for item in items:
+        size_key = name_fn(item) if name_fn else item
+        size = item_sizes.get(size_key, 0)
+        rating_val = 0.0
+        votes_val = 0
+        if ratings:
+            if rating_name_fn:
+                rating_key = rating_name_fn(item)
+            else:
+                rating_key = str(size_key)
+            normalized = normalize_title(rating_key)
+            entry = ratings.get(normalized)
+            if entry:
+                rating_val = entry['rating']
+                votes_val = entry['votes']
+        entries.append((item, size, rating_val, votes_val))
+
+    # Sort by rating descending (highest first), then votes descending
+    if ratings:
+        entries.sort(key=lambda x: (-x[2], -x[3]))
+
+    # Greedily fill budget
+    kept = []
+    used = 0
+    for item, size, _, _ in entries:
+        if used + size <= budget:
+            kept.append(item)
+            used += size
+
+    return kept, used
+
+
 def parse_teknoparrot_dat(dat_path: str) -> dict:
     """Parse TeknoParrot DAT file and return game info dict.
 
@@ -6446,7 +6507,8 @@ def filter_teknoparrot_roms(source_dir: str, dest_dir: str, dat_path: str = None
     if not dry_run:
         print(f"{label}: Selection log written to {log_path}")
 
-    return selected_roms, {'source_size': total_source_size, 'selected_size': selected_size}
+    return selected_roms, {'source_size': total_source_size, 'selected_size': selected_size,
+                           'rom_sizes': rom_sizes, 'chd_sizes': chd_sizes}
 
 
 def filter_teknoparrot_network_roms(rom_urls: List[str],
@@ -7016,7 +7078,8 @@ def filter_roms_from_files(rom_files: list, dest_dir: str, system: str, dry_run:
         print(f"{system.upper()}: Size reduction: {format_size(size_saved)} saved ({reduction_pct:.1f}%)")
 
     if dry_run:
-        return selected_roms, {'source_size': total_source_size, 'selected_size': selected_size}
+        return selected_roms, {'source_size': total_source_size, 'selected_size': selected_size,
+                               'rom_sizes': size_map}
 
     # Create destination directory (clear existing files first for non-flat)
     if not flat_output:
@@ -7081,7 +7144,8 @@ def filter_roms_from_files(rom_files: list, dest_dir: str, system: str, dry_run:
 
     print(f"{system.upper()}: Selection log written to {log_path}")
 
-    return selected_roms, {'source_size': total_source_size, 'selected_size': selected_size}
+    return selected_roms, {'source_size': total_source_size, 'selected_size': selected_size,
+                           'rom_sizes': size_map}
 
 
 def main():
@@ -7180,6 +7244,8 @@ Pattern examples (--include / --exclude):
                         help='Include unrated games after rated games when using --top')
     parser.add_argument('--limit', type=int, default=None,
                         help='Maximum total ROMs to select across all systems')
+    parser.add_argument('--size', type=str, default=None,
+                        help='Maximum total size budget across all systems (e.g., 10G, 500M)')
 
     # Output options
     parser.add_argument('--print', action='store_true', dest='print_roms',
@@ -7261,6 +7327,13 @@ Pattern examples (--include / --exclude):
 
     if args.limit is not None and args.limit <= 0:
         parser.error(f"--limit must be a positive number, got {args.limit}")
+
+    # Parse --size argument
+    args.size_bytes = None
+    if args.size is not None:
+        args.size_bytes = parse_size_string(args.size)
+        if args.size_bytes <= 0:
+            parser.error(f"--size must be a valid positive size (e.g., 10G, 500M), got '{args.size}'")
 
     # Resolve IA credentials from args or environment
     args.ia_access_key = args.ia_access_key or os.environ.get('IA_ACCESS_KEY')
@@ -7823,9 +7896,9 @@ Pattern examples (--include / --exclude):
                             print(f"  [DAT] {system.upper()}: T-En format={fmt}, "
                                   f"entries={len(ten_dat_entries)}, path={ten_dat_path}")
 
-    # Load ratings if --top is used (needed for both network and local filtering)
+    # Load ratings if --top or --size is used (needed for both network and local filtering)
     ratings = {}
-    if args.top:
+    if args.top or args.size_bytes is not None:
         Console.section("Loading Rating Data")
         dat_dir_ratings = Path(args.dat_dir) if args.dat_dir else Path(__file__).parent / 'dat_files'
 
@@ -7834,17 +7907,26 @@ Pattern examples (--include / --exclude):
         if not lb_xml.exists():
             Console.warning("LaunchBox data not found. Downloading...")
             if not download_launchbox_data(dat_dir_ratings):
-                Console.error("Failed to download LaunchBox data. --top requires rating data.")
-                Console.info("Run with --update-dats to download, or remove --top flag.")
-                sys.exit(1)
+                if args.top:
+                    Console.error("Failed to download LaunchBox data. --top requires rating data.")
+                    Console.info("Run with --update-dats to download, or remove --top flag.")
+                    sys.exit(1)
+                else:
+                    Console.warning("Rating data unavailable. --size will use default order.")
 
-        ratings = load_ratings_cache(dat_dir_ratings)
         if not ratings:
-            Console.error("Failed to load ratings cache.")
-            sys.exit(1)
+            ratings = load_ratings_cache(dat_dir_ratings)
+        if not ratings:
+            if args.top:
+                Console.error("Failed to load ratings cache.")
+                sys.exit(1)
+            else:
+                Console.warning("Rating data unavailable. --size will use default order.")
+                ratings = {}
 
-        total_rated = sum(len(games) for games in ratings.values())
-        Console.success(f"Loaded ratings for {total_rated} games across {len(ratings)} systems")
+        if ratings:
+            total_rated = sum(len(games) for games in ratings.values())
+            Console.success(f"Loaded ratings for {total_rated} games across {len(ratings)} systems")
         print()
 
     # Step 2: Filter combined URL pool per system (select best ROM across ALL sources)
@@ -8204,10 +8286,13 @@ Pattern examples (--include / --exclude):
     total_source_size = 0
     total_selected_size = 0
     system_stats = {}  # Track stats per system
+    remaining_size_budget = args.size_bytes  # None if --size not used
 
     for system in sorted(detected.keys()):
         check_shutdown()
         if args.limit is not None and total_selected >= args.limit:
+            break
+        if remaining_size_budget is not None and remaining_size_budget <= 0:
             break
         rom_files = detected[system]
 
@@ -8253,11 +8338,20 @@ Pattern examples (--include / --exclude):
                     if len(selected) > remaining:
                         selected = selected[:remaining]
 
+                # Apply size budget
+                if remaining_size_budget is not None and selected:
+                    net_sizes = {p: p.stat().st_size for p in selected if p.exists()}
+                    selected, budget_used = apply_size_budget(
+                        selected, net_sizes, remaining_size_budget)
+                    selected_size = budget_used
+
                 size_info = {'source_size': source_size, 'selected_size': selected_size}
                 system_stats['teknoparrot'] = size_info
                 total_source_size += source_size
                 total_selected_size += selected_size
                 total_selected += len(selected)
+                if remaining_size_budget is not None:
+                    remaining_size_budget -= selected_size
                 print(f"TEKNOPARROT: Selected {len(selected)} ROMs ({format_size(selected_size)})")
                 print()
             else:
@@ -8344,6 +8438,21 @@ Pattern examples (--include / --exclude):
                     if len(selected) > remaining:
                         selected = selected[:remaining]
 
+                # Apply size budget for local TeknoParrot
+                if remaining_size_budget is not None and selected:
+                    tp_rom_sizes = size_info.get('rom_sizes', {})
+                    tp_chd_sizes = size_info.get('chd_sizes', {})
+                    combined_sizes = {g.name: tp_rom_sizes.get(g.name, 0) + tp_chd_sizes.get(g.name, 0)
+                                      for g in selected}
+                    mame_ratings = ratings.get('mame', {}) if ratings else {}
+                    selected, budget_used = apply_size_budget(
+                        selected, combined_sizes, remaining_size_budget,
+                        ratings=mame_ratings, name_fn=lambda g: g.name,
+                        rating_name_fn=lambda g: g.base_title)
+                    remaining_size_budget -= budget_used
+                    size_info = dict(size_info)
+                    size_info['selected_size'] = budget_used
+
                 system_stats['teknoparrot'] = size_info
                 total_source_size += size_info['source_size']
                 total_selected_size += size_info['selected_size']
@@ -8401,11 +8510,20 @@ Pattern examples (--include / --exclude):
                     if len(selected) > remaining:
                         selected = selected[:remaining]
 
+                # Apply size budget
+                if remaining_size_budget is not None and selected:
+                    net_sizes = {p: p.stat().st_size for p in selected if p.exists()}
+                    selected, budget_used = apply_size_budget(
+                        selected, net_sizes, remaining_size_budget)
+                    selected_size = budget_used
+
                 size_info = {'source_size': source_size, 'selected_size': selected_size}
                 system_stats[orig_system] = size_info
                 total_source_size += source_size
                 total_selected_size += selected_size
                 total_selected += len(selected)
+                if remaining_size_budget is not None:
+                    remaining_size_budget -= selected_size
                 print(f"{arcade_system}: Selected {len(selected)} ROMs ({format_size(selected_size)})")
                 print()
             else:
@@ -8521,6 +8639,21 @@ Pattern examples (--include / --exclude):
                     if len(selected) > remaining:
                         selected = selected[:remaining]
 
+                # Apply size budget for local MAME
+                if remaining_size_budget is not None and selected:
+                    mame_rom_sizes = size_info.get('rom_sizes', {})
+                    mame_chd_sizes = size_info.get('chd_sizes', {})
+                    combined_sizes = {g.name: mame_rom_sizes.get(g.name, 0) + mame_chd_sizes.get(g.name, 0)
+                                      for g in selected}
+                    mame_ratings = ratings.get('mame', {}) if ratings else {}
+                    selected, budget_used = apply_size_budget(
+                        selected, combined_sizes, remaining_size_budget,
+                        ratings=mame_ratings, name_fn=lambda g: g.name,
+                        rating_name_fn=lambda g: g.description)
+                    remaining_size_budget -= budget_used
+                    size_info = dict(size_info)
+                    size_info['selected_size'] = budget_used
+
                 system_stats[system] = size_info
                 total_source_size += size_info['source_size']
                 total_selected_size += size_info['selected_size']
@@ -8618,6 +8751,18 @@ Pattern examples (--include / --exclude):
                 if len(selected) > remaining:
                     selected = selected[:remaining]
 
+            # Apply size budget for console ROMs
+            if remaining_size_budget is not None and selected:
+                rom_sizes_map = size_info.get('rom_sizes', {})
+                system_ratings = ratings.get(system, {}) if ratings else {}
+                selected, budget_used = apply_size_budget(
+                    selected, rom_sizes_map, remaining_size_budget,
+                    ratings=system_ratings, name_fn=lambda r: r.filename,
+                    rating_name_fn=lambda r: r.base_title)
+                remaining_size_budget -= budget_used
+                size_info = dict(size_info)
+                size_info['selected_size'] = budget_used
+
             system_stats[system] = size_info
             total_source_size += size_info['source_size']
             total_selected_size += size_info['selected_size']
@@ -8653,6 +8798,8 @@ Pattern examples (--include / --exclude):
         print(f"Total ROMs selected: {total_selected} (limit: {args.limit})")
     else:
         print(f"Total ROMs selected: {total_selected}")
+    if args.size_bytes is not None:
+        print(f"Total selected size: {format_size(total_selected_size)} (budget: {format_size(args.size_bytes)})")
 
     # Print size summary if we have data
     if system_stats:
