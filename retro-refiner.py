@@ -153,14 +153,14 @@ class Console:
         """Print a major section header."""
         width = 65
         print()
-        print(f"{Style.GREEN}{Style.BOLD}{'═' * width}{Style.RESET}")
+        print(f"{Style.GREEN}{Style.BOLD}{SYM_HLINE * width}{Style.RESET}")
         print(f"{Style.BRIGHT_GREEN}{Style.BOLD}{text.center(width)}{Style.RESET}")
-        print(f"{Style.GREEN}{Style.BOLD}{'═' * width}{Style.RESET}")
+        print(f"{Style.GREEN}{Style.BOLD}{SYM_HLINE * width}{Style.RESET}")
 
     @staticmethod
     def section(text: str):
         """Print a section divider."""
-        print(f"\n{Style.GREEN}{Style.BOLD}─── {text} {'─' * (55 - len(text))}{Style.RESET}")
+        print(f"\n{Style.GREEN}{Style.BOLD}{SYM_HLINE*3} {text} {SYM_HLINE * (55 - len(text))}{Style.RESET}")
 
     @staticmethod
     def subsection(text: str):
@@ -224,11 +224,11 @@ class Console:
     def summary(stats: dict):
         """Print a summary box with statistics."""
         print()
-        print(f"  {Style.DIM}┌{'─' * 50}┐{Style.RESET}")
+        print(f"  {Style.DIM}+{SYM_HLINE * 50}+{Style.RESET}")
         for key, value in stats.items():
             line = f"  {key}: {value}"
-            print(f"  {Style.DIM}│{Style.RESET} {line:<48} {Style.DIM}│{Style.RESET}")
-        print(f"  {Style.DIM}└{'─' * 50}┘{Style.RESET}")
+            print(f"  {Style.DIM}|{Style.RESET} {line:<48} {Style.DIM}|{Style.RESET}")
+        print(f"  {Style.DIM}+{SYM_HLINE * 50}+{Style.RESET}")
 
     @staticmethod
     def table_row(cols: list, widths: list = None):
@@ -7935,10 +7935,13 @@ Pattern examples (--include / --exclude):
     total_network_source_size = 0
     total_network_selected_size = 0
     network_system_stats = {}
+    remaining_size_budget = args.size_bytes  # None if --size not used
 
     for system, urls in all_network_urls.items():
         if not urls:
             continue
+        if remaining_size_budget is not None and remaining_size_budget <= 0:
+            break
 
         print(f"\n{system.upper()}: Filtering {len(urls)} remote ROMs from {len(network_sources)} source(s)...")
 
@@ -8045,6 +8048,38 @@ Pattern examples (--include / --exclude):
                     # Recalculate size info
                     selected_size = sum(all_url_sizes.get(url, 0) for url in filtered_urls)
                     size_info = {'source_size': size_info['source_size'], 'selected_size': selected_size}
+
+        # Apply size budget to network-filtered URLs
+        if remaining_size_budget is not None and filtered_urls:
+            url_size_map = {url: all_url_sizes.get(url, 0) for url in filtered_urls}
+            # Determine ratings for this system
+            if ratings:
+                arcade_systems = ('teknoparrot', 'mame', 'fbneo', 'fba', 'arcade')
+                net_system_ratings = ratings.get('mame' if system in arcade_systems else system, {})
+            else:
+                net_system_ratings = {}
+
+            def _url_rating_name(url):
+                fname = get_filename_from_url(url)
+                if system == 'teknoparrot':
+                    tp_info = parse_teknoparrot_filename(fname)
+                    return tp_info.base_title if tp_info else Path(fname).stem
+                rom_info = parse_rom_filename(fname)
+                return rom_info.base_title
+
+            filtered_urls, budget_used = apply_size_budget(
+                filtered_urls, url_size_map, remaining_size_budget,
+                ratings=net_system_ratings,
+                name_fn=lambda url: url,
+                rating_name_fn=_url_rating_name)
+            remaining_size_budget -= budget_used
+            selected_size = budget_used
+            pre_budget = size_info['selected_size']
+            size_info = {'source_size': size_info['source_size'], 'selected_size': selected_size}
+            if budget_used < pre_budget:
+                print(f"{system.upper()}: Size budget applied: {len(filtered_urls)} ROMs "
+                      f"({format_size(selected_size)}, budget remaining: "
+                      f"{format_size(remaining_size_budget)})")
 
         if filtered_urls:
             network_downloads[system] = filtered_urls
@@ -8253,7 +8288,15 @@ Pattern examples (--include / --exclude):
 
     if not detected:
         if dry_run:
-            print("\nNo ROM files found. No files changed (dry run).")
+            if total_network_files > 0:
+                # Network-only dry run: selections already displayed above
+                print(f"\nDry run complete. {total_network_files} ROMs selected "
+                      f"({format_size(total_network_selected_size)}) from network source(s).")
+                if args.size_bytes is not None:
+                    print(f"Size budget: {format_size(args.size_bytes)}")
+                print("Use --commit to download and transfer files.")
+            else:
+                print("\nNo ROM files found. No files changed (dry run).")
             sys.exit(0)
         else:
             print("\n" + "=" * 60)
@@ -8286,7 +8329,7 @@ Pattern examples (--include / --exclude):
     total_source_size = 0
     total_selected_size = 0
     system_stats = {}  # Track stats per system
-    remaining_size_budget = args.size_bytes  # None if --size not used
+    # remaining_size_budget carries over from network phase (initialized before network loop)
 
     for system in sorted(detected.keys()):
         check_shutdown()
