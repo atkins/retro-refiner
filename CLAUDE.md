@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Retro-Refiner is a zero-dependency Python script (~8,400 lines in a single file `retro-refiner.py`) that filters ROM collections to select the best English version of each game. It supports 144 systems, local and network sources, and multiple arcade formats (MAME, FBNeo, TeknoParrot).
+Retro-Refiner is a zero-dependency Python script (~8,900 lines in a single file `retro-refiner.py`) that filters ROM collections to select the best English version of each game. It supports 144 systems, local and network sources, and multiple arcade formats (MAME, FBNeo, TeknoParrot).
 
 ## Commands
 
@@ -37,28 +37,28 @@ Everything lives in `retro-refiner.py` with no external dependencies. YAML parsi
 
 1. **Console Output Styling** (~lines 93-305) - `Style`, `Console`, `ProgressBar`, `ScanProgressBar` classes, plus `load_title_mappings()`
 2. **System Data Loading** (~lines 307-420) - `load_system_data()` reads `data/systems.json` and populates all system lookup dicts at module load
-3. **YAML Parser & Shutdown** (~lines 420-788) - `parse_simple_yaml()`, graceful shutdown handling
-4. **Network Source Support** (~lines 788-3420) - URL parsing, HTML link extraction, connection pooling (`ConnectionPool`), download tools (aria2c/curl/urllib), `DownloadUI` (curses-based download progress), batch downloading, network source scanning
-5. **Configuration** (~lines 3420-3860) - Default config template, `load_config()`, `apply_config_to_args()`, transfer/playlist/gamelist functions
-6. **Libretro DAT File Support** (~lines 3863-4655) - `RomInfo`/`DatRomEntry` dataclasses, T-En translation DAT support, DAT parsing (Logiqx XML + ClrMamePro formats), ROM verification, `parse_rom_filename()`, `normalize_title()`, `select_best_rom()`
-7. **MAME Arcade Filtering** (~lines 4656-5440) - `MameGameInfo`/`TeknoParrotGameInfo` dataclasses, catver.ini parsing, category include/exclude sets, clone selection, `filter_mame_roms()`
-8. **TeknoParrot Filtering** (~lines 5440-5640) - Version parsing, platform filtering, deduplication
-9. **LaunchBox Data** (~lines 5642-5920) - Rating downloads, XML parsing with `XMLPullParser` for progress tracking, top-N filtering
-10. **Main Flow** (~lines 5920-end) - System detection helpers, `scan_for_systems()`, `filter_roms_from_files()`, `main()`
+3. **YAML Parser & Shutdown** (~lines 420-795) - `parse_simple_yaml()`, graceful shutdown handling
+4. **Network Source Support** (~lines 795-3430) - URL parsing, HTML link extraction, connection pooling (`ConnectionPool`), download tools (aria2c/curl/urllib), `DownloadUI` (curses-based download progress), batch downloading, network source scanning
+5. **Configuration** (~lines 3430-3878) - Default config template, `load_config()`, `apply_config_to_args()`, transfer/playlist/gamelist functions
+6. **Libretro DAT File Support** (~lines 3878-4766) - `RomInfo`/`DatRomEntry` dataclasses, T-En translation DAT support, DAT parsing (Logiqx XML + ClrMamePro formats), ROM verification, `parse_rom_filename()`, `normalize_title()`, `select_best_rom()`
+7. **MAME Arcade Filtering** (~lines 4766-5563) - `MameGameInfo`/`TeknoParrotGameInfo` dataclasses, catver.ini parsing, category include/exclude sets, clone selection, `filter_mame_roms()`
+8. **TeknoParrot Filtering** (~lines 5563-5766) - Version parsing, platform filtering, deduplication
+9. **LaunchBox Data & Budget** (~lines 5766-6090) - Rating downloads, XML parsing with `XMLPullParser` for progress tracking, `apply_top_n_filter()`, `apply_size_budget()`
+10. **Main Flow** (~lines 6090-end) - System detection helpers, `scan_for_systems()`, `filter_roms_from_files()`, `main()`
 
 ### Key data flow
 1. `main()` parses args, loads config, validates sources
 2. `scan_for_systems()` or `scan_network_source_urls()` discovers ROM files per system
 3. For each system: either `filter_roms_from_files()` (console ROMs), `filter_mame_roms()` (arcade), or `filter_teknoparrot_roms()` (TeknoParrot)
 4. Console ROM filtering: `parse_rom_filename()` → `RomInfo` → group by `normalize_title()` → `select_best_rom()` per group → post-selection CRC/DAT enrichment (only selected ROMs)
-5. `--limit` enforcement: after each system's selection, truncate if total exceeds the cap; skip remaining systems once limit is reached
+5. Budget enforcement (`--top`, `--limit`, `--size`): applied in both the network pre-filtering loop and the local processing loop. `remaining_size_budget` is initialized before the network loop and carries over to the local loop. `apply_size_budget()` uses greedy knapsack: sort by rating desc, then fill budget skipping items too large
 6. Transfer: copy/move/symlink/hardlink based on `--commit` mode
 
 ### Key dataclasses
-- `RomInfo` (line ~3840): Parsed ROM metadata (title, region, language, revision, flags like is_beta/is_proto/is_translation)
-- `DatRomEntry` (line ~3868): DAT file entry (name, description, CRC32, region, size)
-- `MameGameInfo` (line ~4844): MAME game with parent/clone relationships
-- `TeknoParrotGameInfo` (line ~4861): TeknoParrot game with version/platform info
+- `RomInfo` (line ~3855): Parsed ROM metadata (title, region, language, revision, flags like is_beta/is_proto/is_translation)
+- `DatRomEntry` (line ~3883): DAT file entry (name, description, CRC32, region, size)
+- `MameGameInfo` (line ~4860): MAME game with parent/clone relationships
+- `TeknoParrotGameInfo` (line ~4877): TeknoParrot game with version/platform info
 
 ### System data (`data/systems.json`)
 All system definitions (144 systems) live in `data/systems.json`. At module load, `load_system_data()` reads this file and populates module-level globals:
@@ -77,7 +77,7 @@ All system definitions (144 systems) live in `data/systems.json`. At module load
 The generation script `tools/generate_systems_json.py` can regenerate the JSON from hardcoded dicts (kept as a maintenance tool).
 
 ### Other lookup tables (still in code)
-- `MAME_INCLUDE_CATEGORIES` / `MAME_EXCLUDE_CATEGORIES` (~line 4885/4904): Arcade category filtering
+- `MAME_INCLUDE_CATEGORIES` / `MAME_EXCLUDE_CATEGORIES` (~line 4900/4920): Arcade category filtering
 
 ### Title normalization pipeline
 `normalize_title()` lowercases, strips punctuation, converts Roman numerals to Arabic, then applies mappings from `data/title_mappings.json` (1,194 Japan→English mappings in 50 categories). This is how regional variants like "Rockman" and "Mega Man" get grouped together.
@@ -93,7 +93,7 @@ _spec = importlib.util.spec_from_file_location("retro_refiner", Path(__file__).p
 ```
 
 Test files:
-- `tests/test_selection.py` - 134 unit tests: ROM parsing, selection, filtering, config, playlists, transfers, systems.json validation
+- `tests/test_selection.py` - 148 unit tests: ROM parsing, selection, filtering, config, playlists, transfers, size budget, systems.json validation
 - `tests/test_bandwidth.py` - Benchmark tool for download performance tuning
 - `tests/test_network_sources.py` - Functional tests for network source operations
 
