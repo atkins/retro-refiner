@@ -7137,7 +7137,8 @@ def filter_roms_from_files(rom_files: list, dest_dir: str, system: str, dry_run:
 
         # Post-selection DAT enrichment (CRC only calculated for selected ROMs)
         if crc_to_dat:
-            for rom in selected_roms:
+            for rom in tqdm(selected_roms, desc=f"{system.upper()} Verifying",
+                            unit="ROM", leave=False):
                 filepath = file_map.get(rom.filename)
                 if not filepath:
                     continue
