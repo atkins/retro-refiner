@@ -178,6 +178,27 @@ def test_rom_parsing():
     else:
         results.fail("Demo detection", "is_demo=True", f"is_demo={rom.is_demo}")
 
+    # Test trade demo detection
+    rom = parse_rom_filename("Shin Megami Tensei - Persona 3 FES (USA) (Trade Demo).zip")
+    if rom.is_demo:
+        results.ok("Trade demo detection")
+    else:
+        results.fail("Trade demo detection", "is_demo=True", f"is_demo={rom.is_demo}")
+
+    # Test boot disc detection
+    rom = parse_rom_filename("Super Bender Boot Disc (USA).zip")
+    if rom.is_demo:
+        results.ok("Boot disc detection")
+    else:
+        results.fail("Boot disc detection", "is_demo=True", f"is_demo={rom.is_demo}")
+
+    # Test manufacturing inspection disc detection (Kensa)
+    rom = parse_rom_filename("PlayStation Seizou Kensa-you Disc 3 CD-ROM US-ban Ver1.1 (USA).zip")
+    if rom.is_demo:
+        results.ok("Manufacturing inspection disc detection (Kensa)")
+    else:
+        results.fail("Manufacturing inspection disc detection", "is_demo=True", f"is_demo={rom.is_demo}")
+
     # Test sample detection
     rom = parse_rom_filename("Game (USA) (Sample).zip")
     if rom.is_sample:
