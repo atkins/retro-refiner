@@ -2315,12 +2315,19 @@ class DownloadUI:
                 _time.sleep(0.1)
 
             # Wait for aria2c to finish, checking for shutdown request
+            # aria2c with --enable-rpc stays running after downloads complete,
+            # so we also check RPC stats to detect when all work is done
             while True:
                 try:
                     if self.subprocess is None or self.subprocess.poll() is not None:
                         break
                     if self.shutdown_requested:
                         break
+                    if self.rpc_available:
+                        stat = self.rpc.get_global_stat()
+                        if stat and int(stat.get('numActive', 1)) == 0 \
+                                and int(stat.get('numWaiting', 1)) == 0:
+                            break
                 except Exception:
                     break
                 _time.sleep(0.1)
@@ -3244,7 +3251,9 @@ def filter_network_roms(rom_urls: List[str], system: str,
                         dat_entries: Dict[str, 'DatRomEntry'] = None,
                         top_n: int = None,
                         include_unrated: bool = False,
-                        ratings: dict = None) -> Tuple[List[str], Dict[str, int]]:
+                        ratings: dict = None,
+                        no_filter: bool = False,
+                        english_only: bool = False) -> Tuple[List[str], Dict[str, int]]:
     """
     Filter network ROM URLs based on filename parsing and optional DAT metadata.
     When dat_entries is provided, uses DAT game names for better title normalization.
@@ -3273,44 +3282,46 @@ def filter_network_roms(rom_urls: List[str], system: str,
     for url in rom_urls:
         filename = get_filename_from_url(url)
 
-        # Apply include/exclude patterns
-        if include_patterns and not matches_patterns(filename, include_patterns):
-            filtered_by_pattern += 1
-            if verbose:
-                print(f"  [SKIP] {filename}: doesn't match include patterns")
-            continue
-        if exclude_patterns and matches_patterns(filename, exclude_patterns):
-            filtered_by_pattern += 1
-            if verbose:
-                print(f"  [SKIP] {filename}: matches exclude pattern")
-            continue
+        if not no_filter:
+            # Apply include/exclude patterns
+            if include_patterns and not matches_patterns(filename, include_patterns):
+                filtered_by_pattern += 1
+                if verbose:
+                    print(f"  [SKIP] {filename}: doesn't match include patterns")
+                continue
+            if exclude_patterns and matches_patterns(filename, exclude_patterns):
+                filtered_by_pattern += 1
+                if verbose:
+                    print(f"  [SKIP] {filename}: matches exclude pattern")
+                continue
 
         rom_info = parse_rom_filename(filename)
 
-        # Filter by proto/beta/unlicensed unless explicitly included
-        if rom_info.is_proto and exclude_protos:
-            if verbose:
-                print(f"  [SKIP] {filename}: prototype")
-            continue
-        if rom_info.is_beta and not include_betas:
-            if verbose:
-                print(f"  [SKIP] {filename}: beta")
-            continue
-        if rom_info.is_unlicensed and not include_unlicensed:
-            if verbose:
-                print(f"  [SKIP] {filename}: unlicensed")
-            continue
+        if not no_filter:
+            # Filter by proto/beta/unlicensed unless explicitly included
+            if rom_info.is_proto and exclude_protos:
+                if verbose:
+                    print(f"  [SKIP] {filename}: prototype")
+                continue
+            if rom_info.is_beta and not include_betas:
+                if verbose:
+                    print(f"  [SKIP] {filename}: beta")
+                continue
+            if rom_info.is_unlicensed and not include_unlicensed:
+                if verbose:
+                    print(f"  [SKIP] {filename}: unlicensed")
+                continue
 
-        # Filter by year if specified
-        if rom_info.year > 0:
-            if year_from and rom_info.year < year_from:
-                if verbose:
-                    print(f"  [SKIP] {filename}: year {rom_info.year} < {year_from}")
-                continue
-            if year_to and rom_info.year > year_to:
-                if verbose:
-                    print(f"  [SKIP] {filename}: year {rom_info.year} > {year_to}")
-                continue
+            # Filter by year if specified
+            if rom_info.year > 0:
+                if year_from and rom_info.year < year_from:
+                    if verbose:
+                        print(f"  [SKIP] {filename}: year {rom_info.year} < {year_from}")
+                    continue
+                if year_to and rom_info.year > year_to:
+                    if verbose:
+                        print(f"  [SKIP] {filename}: year {rom_info.year} > {year_to}")
+                    continue
 
         all_roms.append(rom_info)
         url_map[filename] = url
@@ -3325,91 +3336,112 @@ def filter_network_roms(rom_urls: List[str], system: str,
     if filtered_by_pattern:
         print(f"{system.upper()}: {filtered_by_pattern} filtered by include/exclude patterns")
 
-    # Group by normalized title (using DAT names when available for better matching)
-    grouped = defaultdict(list)
-    dat_matches = 0
-    for rom in all_roms:
-        # Try to get better title from DAT if available
-        rom_base = Path(rom.filename).stem.lower()
-        if rom_base in dat_name_lookup:
-            # Use DAT game name for grouping (more accurate than filename parsing)
-            dat_name = dat_name_lookup[rom_base]
-            # Parse DAT name to get base title without region/tags
-            dat_rom_info = parse_rom_filename(dat_name + '.zip')
-            normalized = normalize_title(dat_rom_info.base_title)
-            dat_matches += 1
-        else:
-            normalized = normalize_title(rom.base_title)
-        grouped[normalized].append(rom)
-
-    if dat_entries and dat_matches > 0:
-        print(f"{system.upper()}: {len(grouped)} unique game titles ({dat_matches} matched via DAT)")
+    if no_filter:
+        # --all mode: select every URL without grouping or 1G1R selection
+        selected_urls = [url_map[rom.filename] for rom in all_roms if rom.filename in url_map]
+        print(f"{system.upper()}: --all mode, selecting all {len(selected_urls)} ROMs")
     else:
-        print(f"{system.upper()}: {len(grouped)} unique game titles")
+        # Group by normalized title (using DAT names when available for better matching)
+        grouped = defaultdict(list)
+        dat_matches = 0
+        for rom in all_roms:
+            # Try to get better title from DAT if available
+            rom_base = Path(rom.filename).stem.lower()
+            if rom_base in dat_name_lookup:
+                # Use DAT game name for grouping (more accurate than filename parsing)
+                dat_name = dat_name_lookup[rom_base]
+                # Parse DAT name to get base title without region/tags
+                dat_rom_info = parse_rom_filename(dat_name + '.zip')
+                normalized = normalize_title(dat_rom_info.base_title)
+                dat_matches += 1
+            else:
+                normalized = normalize_title(rom.base_title)
+            grouped[normalized].append(rom)
 
-    # Select best ROM from each group
-    selected_urls = []
-    selected_roms = []  # Track RomInfo for top-N filtering
-    for title, roms in grouped.items():
-        if keep_regions:
-            # Keep one ROM per specified region
-            seen_regions = set()
-            for region in keep_regions:
-                for rom in sorted(roms, key=lambda r: (
-                    r.is_translation, r.is_hack, -r.revision
-                )):
-                    if rom.region == region and region not in seen_regions:
-                        if rom.filename in url_map:
-                            selected_urls.append(url_map[rom.filename])
-                            selected_roms.append(rom)
-                            seen_regions.add(region)
-                            if verbose:
-                                print(f"  [SELECT] {rom.filename} ({region} version of '{title}')")
-                        break
-            # If no regions matched, select best overall
-            if not seen_regions:
+        if dat_entries and dat_matches > 0:
+            print(f"{system.upper()}: {len(grouped)} unique game titles ({dat_matches} matched via DAT)")
+        else:
+            print(f"{system.upper()}: {len(grouped)} unique game titles")
+
+        # Select best ROM from each group
+        selected_urls = []
+        selected_roms = []  # Track RomInfo for top-N filtering
+        for title, roms in grouped.items():
+            if keep_regions:
+                # Keep one ROM per specified region
+                seen_regions = set()
+                for region in keep_regions:
+                    for rom in sorted(roms, key=lambda r: (
+                        r.is_translation, r.has_hacks, -r.revision
+                    )):
+                        if rom.region == region and region not in seen_regions:
+                            if rom.filename in url_map:
+                                selected_urls.append(url_map[rom.filename])
+                                selected_roms.append(rom)
+                                seen_regions.add(region)
+                                if verbose:
+                                    print(f"  [SELECT] {rom.filename} ({region} version of '{title}')")
+                            break
+                # If no regions matched, select best overall
+                if not seen_regions:
+                    best = select_best_rom(roms, region_priority, verbose=verbose)
+                    if best and best.filename in url_map:
+                        selected_urls.append(url_map[best.filename])
+                        selected_roms.append(best)
+                        if verbose:
+                            print(f"  [SELECT] {best.filename} (fallback for '{title}')")
+            else:
+                # Select single best ROM
                 best = select_best_rom(roms, region_priority, verbose=verbose)
                 if best and best.filename in url_map:
                     selected_urls.append(url_map[best.filename])
                     selected_roms.append(best)
                     if verbose:
-                        print(f"  [SELECT] {best.filename} (fallback for '{title}')")
-        else:
-            # Select single best ROM
-            best = select_best_rom(roms, region_priority, verbose=verbose)
-            if best and best.filename in url_map:
-                selected_urls.append(url_map[best.filename])
-                selected_roms.append(best)
-                if verbose:
-                    print(f"  [SELECT] {best.filename} (best of {len(roms)} for '{title}')")
+                        print(f"  [SELECT] {best.filename} (best of {len(roms)} for '{title}')")
 
-    # Apply top-N filter if requested
-    if top_n and ratings:
-        system_ratings = ratings.get(system, {})
-        pre_filter_count = len(selected_roms)
+        # Apply english-only filter if requested
+        if english_only:
+            pre_english = len(selected_roms)
+            english_pairs = [(url, rom) for url, rom in zip(selected_urls, selected_roms)
+                             if rom.is_english]
+            if english_pairs:
+                selected_urls, selected_roms = zip(*english_pairs)
+                selected_urls = list(selected_urls)
+                selected_roms = list(selected_roms)
+            else:
+                selected_urls = []
+                selected_roms = []
+            excluded = pre_english - len(selected_roms)
+            if excluded:
+                print(f"{system.upper()}: Excluded {excluded} non-English ROMs")
 
-        rated_count = sum(1 for r in selected_roms
-                        if normalize_title(r.base_title) in system_ratings)
+        # Apply top-N filter if requested
+        if top_n and ratings:
+            system_ratings = ratings.get(system, {})
+            pre_filter_count = len(selected_roms)
 
-        print(f"{system.upper()}: Rating data matched {rated_count} of {pre_filter_count} games")
+            rated_count = sum(1 for r in selected_roms
+                            if normalize_title(r.base_title) in system_ratings)
 
-        filtered_roms = apply_top_n_filter(
-            selected_roms, system_ratings, top_n, include_unrated
-        )
+            print(f"{system.upper()}: Rating data matched {rated_count} of {pre_filter_count} games")
 
-        # Rebuild selected_urls from filtered ROMs
-        filtered_filenames = {r.filename for r in filtered_roms}
-        selected_urls = [url for url in selected_urls
-                        if get_filename_from_url(url) in filtered_filenames]
+            filtered_roms = apply_top_n_filter(
+                selected_roms, system_ratings, top_n, include_unrated
+            )
 
-        filtered_out = pre_filter_count - len(filtered_roms)
-        top_label = format_top_label(top_n)
-        actual_kept = len(filtered_roms)
-        if include_unrated:
-            print(f"{system.upper()}: {top_label} selected ({actual_kept} games, {filtered_out} below cutoff)")
-        else:
-            unrated_excluded = pre_filter_count - rated_count
-            print(f"{system.upper()}: {top_label} selected ({actual_kept} games, {filtered_out} below cutoff, {unrated_excluded} unrated excluded)")
+            # Rebuild selected_urls from filtered ROMs
+            filtered_filenames = {r.filename for r in filtered_roms}
+            selected_urls = [url for url in selected_urls
+                            if get_filename_from_url(url) in filtered_filenames]
+
+            filtered_out = pre_filter_count - len(filtered_roms)
+            top_label = format_top_label(top_n)
+            actual_kept = len(filtered_roms)
+            if include_unrated:
+                print(f"{system.upper()}: {top_label} selected ({actual_kept} games, {filtered_out} below cutoff)")
+            else:
+                unrated_excluded = pre_filter_count - rated_count
+                print(f"{system.upper()}: {top_label} selected ({actual_kept} games, {filtered_out} below cutoff, {unrated_excluded} unrated excluded)")
 
     # Calculate selected size
     selected_size = sum(size_map.get(get_filename_from_url(url), 0) for url in selected_urls)
@@ -3514,6 +3546,9 @@ include_betas: false
 # Include unlicensed/pirate ROMs (normally excluded)
 include_unlicensed: false
 
+# Only keep ROMs playable in English (official + fan translations)
+english_only: false
+
 # -----------------------------------------------------------------------------
 # Top-N Filtering (keep only highest-rated games)
 # -----------------------------------------------------------------------------
@@ -3543,6 +3578,13 @@ include_unlicensed: false
 
 # -----------------------------------------------------------------------------
 # Selection Mode
+# -----------------------------------------------------------------------------
+
+# Skip all filtering and select every ROM (overrides 1G1R selection)
+# Cannot be combined with --top, --limit, --size, --exclude-protos,
+# --include, --exclude, --year-from, --year-to, or --genres
+# all: false
+
 # -----------------------------------------------------------------------------
 # DAT File Options
 # -----------------------------------------------------------------------------
@@ -3687,6 +3729,7 @@ def apply_config_to_args(args, config: dict):
         'exclude_protos': 'exclude_protos',
         'include_betas': 'include_betas',
         'include_unlicensed': 'include_unlicensed',
+        'english_only': 'english_only',
         'genres': 'genres',
         'year_from': 'year_from',
         'year_to': 'year_to',
@@ -3724,6 +3767,8 @@ def apply_config_to_args(args, config: dict):
         'include_unrated': 'include_unrated',
         'limit': 'limit',
         'size': 'size',
+        # All mode
+        'all': 'all',
     }
 
     for config_key, arg_name in config_map.items():
@@ -5366,7 +5411,8 @@ def select_best_mame_clone(parent_name: str, clones: list, games: dict,
 
 def filter_mame_roms(source_dir: str, dest_dir: str, catver_path: str, dat_path: str,
                      copy_chds: bool = True, dry_run: bool = False, system_name: str = 'mame',
-                     include_adult: bool = True, verbose: bool = False):
+                     include_adult: bool = True, verbose: bool = False,
+                     no_filter: bool = False):
     """Filter MAME/FBNeo ROMs based on category and region preferences."""
     label = system_name.upper()
 
@@ -5419,47 +5465,65 @@ def filter_mame_roms(source_dir: str, dest_dir: str, catver_path: str, dat_path:
     included_reasons = defaultdict(int)
     excluded_reasons = defaultdict(int)
 
-    # Process each parent game
-    for name, game in games.items():
-        if not game.is_parent:
-            continue  # Process clones through their parent
+    if no_filter:
+        # --all mode: select every available ROM without category or clone filtering
+        for rom_name in available_roms:
+            game = games.get(rom_name)
+            if game:
+                selected_roms.append(game)
+            else:
+                # ROM not in DAT — create a minimal game info
+                game = MameGameInfo(name=rom_name, description=rom_name,
+                                    year='', manufacturer='', category='',
+                                    is_parent=True, parent_name='',
+                                    is_bios=False, is_device=False,
+                                    has_chd=rom_name in available_chds,
+                                    chd_names=available_chds.get(rom_name, []),
+                                    region='Unknown')
+                selected_roms.append(game)
+        print(f"\n{label}: --all mode, selecting all {len(selected_roms)} ROMs")
+    else:
+        # Process each parent game
+        for name, game in games.items():
+            if not game.is_parent:
+                continue  # Process clones through their parent
 
-        # Check if we have this ROM or any of its clones
-        available_versions = []
-        if name in available_roms:
-            available_versions.append(name)
-        for clone in parent_clones.get(name, []):
-            if clone in available_roms:
-                available_versions.append(clone)
+            # Check if we have this ROM or any of its clones
+            available_versions = []
+            if name in available_roms:
+                available_versions.append(name)
+            for clone in parent_clones.get(name, []):
+                if clone in available_roms:
+                    available_versions.append(clone)
 
-        if not available_versions:
-            continue  # No ROMs available for this game
+            if not available_versions:
+                continue  # No ROMs available for this game
 
-        # Check if the game should be included
-        # Use parent's category for decision, but select best regional version
-        should_include, reason = should_include_mame_game(game, game.category, include_adult)
+            # Check if the game should be included
+            # Use parent's category for decision, but select best regional version
+            should_include, reason = should_include_mame_game(game, game.category, include_adult)
 
-        if not should_include:
-            excluded_reasons[reason] += 1
-            skipped_games.append((game.description, name, reason))
-            if verbose:
-                print(f"  [SKIP] {name}: {reason}")
-            continue
+            if not should_include:
+                excluded_reasons[reason] += 1
+                skipped_games.append((game.description, name, reason))
+                if verbose:
+                    print(f"  [SKIP] {name}: {reason}")
+                continue
 
-        included_reasons[reason] += 1
+            included_reasons[reason] += 1
 
-        # Select best version based on region
-        best_rom = select_best_mame_clone(name, parent_clones.get(name, []), games,
-                                          verbose=verbose)
-        if best_rom and best_rom.name in available_versions:
-            selected_roms.append(best_rom)
-            if verbose:
-                print(f"  [SELECT] {best_rom.name}: {best_rom.description}")
-        elif available_versions:
-            # Fallback to first available
-            selected_roms.append(games[available_versions[0]])
-            if verbose:
-                print(f"  [SELECT] {available_versions[0]}: fallback (best clone unavailable)")
+            # Select best version based on region
+            best_rom = select_best_mame_clone(name, parent_clones.get(name, []), games,
+                                              verbose=verbose)
+            if best_rom and best_rom.name in available_versions:
+                selected_roms.append(best_rom)
+                if verbose:
+                    print(f"  [SELECT] {best_rom.name}: {best_rom.description}")
+            elif available_versions:
+                # Fallback to first available
+                selected_roms.append(games[available_versions[0]])
+                if verbose:
+                    print(f"  [SELECT] {available_versions[0]}: fallback (best clone unavailable)")
 
     # Calculate selected size
     selected_size = 0
@@ -6256,7 +6320,8 @@ def filter_teknoparrot_roms(source_dir: str, dest_dir: str, dat_path: str = None
                              keep_all_versions: bool = False,
                              include_patterns: List[str] = None,
                              exclude_patterns: List[str] = None,
-                             verbose: bool = False):
+                             verbose: bool = False,
+                             no_filter: bool = False):
     """Filter TeknoParrot ROMs based on platform, version, and region preferences.
 
     Args:
@@ -6336,74 +6401,81 @@ def filter_teknoparrot_roms(source_dir: str, dest_dir: str, dat_path: str = None
     included_reasons = defaultdict(int)
     excluded_reasons = defaultdict(int)
 
-    # Use default platforms if not specified
-    effective_include = include_platforms or TEKNOPARROT_INCLUDE_PLATFORMS
-    effective_exclude = exclude_platforms or TEKNOPARROT_EXCLUDE_PLATFORMS
-
-    for _normalized_title, games in title_groups.items():
-        # Check include/exclude patterns
-        sample_game = games[0]
-        game_name = sample_game.base_title
-
-        if include_patterns:
-            if not matches_patterns(game_name, include_patterns):
-                excluded_reasons["Excluded by include pattern"] += 1
-                for g in games:
-                    skipped_games.append((g.description, g.name, "Excluded by include pattern"))
-                if verbose:
-                    print(f"  [SKIP] {game_name}: excluded by include pattern")
-                continue
-
-        if exclude_patterns:
-            if matches_patterns(game_name, exclude_patterns):
-                excluded_reasons["Excluded by exclude pattern"] += 1
-                for g in games:
-                    skipped_games.append((g.description, g.name, "Excluded by exclude pattern"))
-                if verbose:
-                    print(f"  [SKIP] {game_name}: excluded by exclude pattern")
-                continue
-
-        # Filter by platform
-        valid_games = []
-        for game in games:
-            should_include, reason = should_include_teknoparrot_game(
-                game, effective_include if include_platforms or not TEKNOPARROT_INCLUDE_PLATFORMS else None,
-                effective_exclude
-            )
-            if should_include:
-                valid_games.append(game)
-            else:
-                excluded_reasons[reason] += 1
-                skipped_games.append((game.description, game.name, reason))
-                if verbose:
-                    print(f"  [SKIP] {game.name}: {reason}")
-
-        if not valid_games:
-            continue
-
-        # Select best version(s)
-        if keep_all_versions:
-            # Keep all valid versions
-            for game in valid_games:
+    if no_filter:
+        # --all mode: select every ROM without platform or version filtering
+        for _normalized_title, games in title_groups.items():
+            for game in games:
                 selected_roms.append(game)
-                included_reasons[f"Platform: {game.platform}"] += 1
-                if verbose:
-                    print(f"  [SELECT] {game.name}: {game.description}")
-        else:
-            # Select best version
-            best = select_best_teknoparrot_version(valid_games, region_priority,
-                                                   verbose=verbose)
-            if best:
-                selected_roms.append(best)
-                included_reasons[f"Platform: {best.platform}"] += 1
-                if verbose:
-                    print(f"  [SELECT] {best.name}: {best.description}")
+        print(f"\n{label}: --all mode, selecting all {len(selected_roms)} ROMs")
+    else:
+        # Use default platforms if not specified
+        effective_include = include_platforms or TEKNOPARROT_INCLUDE_PLATFORMS
+        effective_exclude = exclude_platforms or TEKNOPARROT_EXCLUDE_PLATFORMS
 
-                # Log other versions as superseded
+        for _normalized_title, games in title_groups.items():
+            # Check include/exclude patterns
+            sample_game = games[0]
+            game_name = sample_game.base_title
+
+            if include_patterns:
+                if not matches_patterns(game_name, include_patterns):
+                    excluded_reasons["Excluded by include pattern"] += 1
+                    for g in games:
+                        skipped_games.append((g.description, g.name, "Excluded by include pattern"))
+                    if verbose:
+                        print(f"  [SKIP] {game_name}: excluded by include pattern")
+                    continue
+
+            if exclude_patterns:
+                if matches_patterns(game_name, exclude_patterns):
+                    excluded_reasons["Excluded by exclude pattern"] += 1
+                    for g in games:
+                        skipped_games.append((g.description, g.name, "Excluded by exclude pattern"))
+                    if verbose:
+                        print(f"  [SKIP] {game_name}: excluded by exclude pattern")
+                    continue
+
+            # Filter by platform
+            valid_games = []
+            for game in games:
+                should_include, reason = should_include_teknoparrot_game(
+                    game, effective_include if include_platforms or not TEKNOPARROT_INCLUDE_PLATFORMS else None,
+                    effective_exclude
+                )
+                if should_include:
+                    valid_games.append(game)
+                else:
+                    excluded_reasons[reason] += 1
+                    skipped_games.append((game.description, game.name, reason))
+                    if verbose:
+                        print(f"  [SKIP] {game.name}: {reason}")
+
+            if not valid_games:
+                continue
+
+            # Select best version(s)
+            if keep_all_versions:
+                # Keep all valid versions
                 for game in valid_games:
-                    if game != best:
-                        skipped_games.append((game.description, game.name,
-                                              f"Superseded by {best.version or 'newer version'}"))
+                    selected_roms.append(game)
+                    included_reasons[f"Platform: {game.platform}"] += 1
+                    if verbose:
+                        print(f"  [SELECT] {game.name}: {game.description}")
+            else:
+                # Select best version
+                best = select_best_teknoparrot_version(valid_games, region_priority,
+                                                       verbose=verbose)
+                if best:
+                    selected_roms.append(best)
+                    included_reasons[f"Platform: {best.platform}"] += 1
+                    if verbose:
+                        print(f"  [SELECT] {best.name}: {best.description}")
+
+                    # Log other versions as superseded
+                    for game in valid_games:
+                        if game != best:
+                            skipped_games.append((game.description, game.name,
+                                                  f"Superseded by {best.version or 'newer version'}"))
 
     # Calculate selected size
     selected_size = 0
@@ -6519,7 +6591,8 @@ def filter_teknoparrot_network_roms(rom_urls: List[str],
                                     include_patterns: List[str] = None,
                                     exclude_patterns: List[str] = None,
                                     url_sizes: Dict[str, int] = None,
-                                    verbose: bool = False) -> Tuple[List[str], Dict[str, int]]:
+                                    verbose: bool = False,
+                                    no_filter: bool = False) -> Tuple[List[str], Dict[str, int]]:
     """
     Filter TeknoParrot network ROM URLs with TeknoParrot-specific logic.
     Applies version deduplication, platform filtering, and region priority.
@@ -6546,17 +6619,18 @@ def filter_teknoparrot_network_roms(rom_urls: List[str],
         file_size = url_sizes.get(url, 0)
         total_source_size += file_size
 
-        # Apply include/exclude patterns
-        if include_patterns and not matches_patterns(filename, include_patterns):
-            filtered_by_pattern += 1
-            if verbose:
-                print(f"  [SKIP] {filename}: doesn't match include patterns")
-            continue
-        if exclude_patterns and matches_patterns(filename, exclude_patterns):
-            filtered_by_pattern += 1
-            if verbose:
-                print(f"  [SKIP] {filename}: matches exclude pattern")
-            continue
+        if not no_filter:
+            # Apply include/exclude patterns
+            if include_patterns and not matches_patterns(filename, include_patterns):
+                filtered_by_pattern += 1
+                if verbose:
+                    print(f"  [SKIP] {filename}: doesn't match include patterns")
+                continue
+            if exclude_patterns and matches_patterns(filename, exclude_patterns):
+                filtered_by_pattern += 1
+                if verbose:
+                    print(f"  [SKIP] {filename}: matches exclude pattern")
+                continue
 
         # Parse TeknoParrot filename
         rom_info = parse_teknoparrot_filename(filename)
@@ -6566,15 +6640,16 @@ def filter_teknoparrot_network_roms(rom_urls: List[str],
                 print(f"  [SKIP] {filename}: not a TeknoParrot ROM")
             continue
 
-        # Apply platform filtering
-        should_include, reason = should_include_teknoparrot_game(
-            rom_info, effective_include, effective_exclude
-        )
-        if not should_include:
-            filtered_by_platform += 1
-            if verbose:
-                print(f"  [SKIP] {filename}: {reason}")
-            continue
+        if not no_filter:
+            # Apply platform filtering
+            should_include, reason = should_include_teknoparrot_game(
+                rom_info, effective_include, effective_exclude
+            )
+            if not should_include:
+                filtered_by_platform += 1
+                if verbose:
+                    print(f"  [SKIP] {filename}: {reason}")
+                continue
 
         all_roms.append(rom_info)
         url_map[filename] = url
@@ -6586,35 +6661,41 @@ def filter_teknoparrot_network_roms(rom_urls: List[str],
     if filtered_by_platform:
         print(f"{label}: {filtered_by_platform} filtered by platform")
 
-    # Group by normalized title
-    grouped = defaultdict(list)
-    for rom in all_roms:
-        normalized = normalize_teknoparrot_title(rom.base_title)
-        grouped[normalized].append(rom)
+    if no_filter:
+        # --all mode: select every URL without grouping or version dedup
+        selected_urls = [url_map[rom.filename] for rom in all_roms if rom.filename in url_map]
+        selected_size = sum(size_map.get(rom.filename, 0) for rom in all_roms if rom.filename in url_map)
+        print(f"{label}: --all mode, selecting all {len(selected_urls)} ROMs")
+    else:
+        # Group by normalized title
+        grouped = defaultdict(list)
+        for rom in all_roms:
+            normalized = normalize_teknoparrot_title(rom.base_title)
+            grouped[normalized].append(rom)
 
-    print(f"{label}: {len(grouped)} unique game titles")
+        print(f"{label}: {len(grouped)} unique game titles")
 
-    # Select best version from each group
-    selected_urls = []
-    selected_size = 0
+        # Select best version from each group
+        selected_urls = []
+        selected_size = 0
 
-    for title, roms in grouped.items():
-        if keep_all_versions:
-            # Keep all versions
-            for rom in roms:
-                if rom.filename in url_map:
-                    selected_urls.append(url_map[rom.filename])
-                    selected_size += size_map.get(rom.filename, 0)
+        for title, roms in grouped.items():
+            if keep_all_versions:
+                # Keep all versions
+                for rom in roms:
+                    if rom.filename in url_map:
+                        selected_urls.append(url_map[rom.filename])
+                        selected_size += size_map.get(rom.filename, 0)
+                        if verbose:
+                            print(f"  [SELECT] {rom.filename} (version: {rom.version or 'N/A'})")
+            else:
+                # Select best version
+                best = select_best_teknoparrot_version(roms, region_priority, verbose=verbose)
+                if best and best.filename in url_map:
+                    selected_urls.append(url_map[best.filename])
+                    selected_size += size_map.get(best.filename, 0)
                     if verbose:
-                        print(f"  [SELECT] {rom.filename} (version: {rom.version or 'N/A'})")
-        else:
-            # Select best version
-            best = select_best_teknoparrot_version(roms, region_priority, verbose=verbose)
-            if best and best.filename in url_map:
-                selected_urls.append(url_map[best.filename])
-                selected_size += size_map.get(best.filename, 0)
-                if verbose:
-                    print(f"  [SELECT] {best.filename} (best of {len(roms)} for '{title}')")
+                        print(f"  [SELECT] {best.filename} (best of {len(roms)} for '{title}')")
 
     print(f"{label}: Selected {len(selected_urls)} ROMs to download ({format_size(selected_size)})")
     if total_source_size > 0:
@@ -6632,7 +6713,8 @@ def filter_mame_network_roms(rom_urls: List[str],
                               exclude_patterns: List[str] = None,
                               include_adult: bool = True,
                               url_sizes: Dict[str, int] = None,
-                              verbose: bool = False) -> Tuple[List[str], dict]:
+                              verbose: bool = False,
+                              no_filter: bool = False) -> Tuple[List[str], dict]:
     """
     Filter MAME/FBNeo ROMs from network sources using category filtering.
 
@@ -6683,99 +6765,106 @@ def filter_mame_network_roms(rom_urls: List[str],
     included_count = 0
     excluded_counts = defaultdict(int)
 
-    # Track processed games to avoid duplicates
-    processed = set()
+    if no_filter:
+        # --all mode: select every URL without category or clone filtering
+        selected_urls = list(url_map.values())
+        selected_size = sum(size_map.values())
+        included_count = len(selected_urls)
+        print(f"{label}: --all mode, selecting all {len(selected_urls)} ROMs ({format_size(selected_size)})")
+    else:
+        # Track processed games to avoid duplicates
+        processed = set()
 
-    for filename, url in url_map.items():
-        # Extract ROM name from filename
-        rom_name = filename.rsplit('.', 1)[0] if '.' in filename else filename
+        for filename, url in url_map.items():
+            # Extract ROM name from filename
+            rom_name = filename.rsplit('.', 1)[0] if '.' in filename else filename
 
-        # Skip if already processed (via parent/clone relationship)
-        if rom_name in processed:
-            continue
-
-        # Check include/exclude patterns
-        if include_patterns:
-            if not any(fnmatch.fnmatch(filename.lower(), pat.lower()) for pat in include_patterns):
-                excluded_counts['pattern exclude'] += 1
-                continue
-        if exclude_patterns:
-            if any(fnmatch.fnmatch(filename.lower(), pat.lower()) for pat in exclude_patterns):
-                excluded_counts['pattern exclude'] += 1
+            # Skip if already processed (via parent/clone relationship)
+            if rom_name in processed:
                 continue
 
-        # Get game info
-        game = games.get(rom_name)
-        if not game:
-            # Unknown game - include it if it matches patterns
-            selected_urls.append(url)
-            selected_size += size_map.get(filename, 0)
-            included_count += 1
+            # Check include/exclude patterns
+            if include_patterns:
+                if not any(fnmatch.fnmatch(filename.lower(), pat.lower()) for pat in include_patterns):
+                    excluded_counts['pattern exclude'] += 1
+                    continue
+            if exclude_patterns:
+                if any(fnmatch.fnmatch(filename.lower(), pat.lower()) for pat in exclude_patterns):
+                    excluded_counts['pattern exclude'] += 1
+                    continue
+
+            # Get game info
+            game = games.get(rom_name)
+            if not game:
+                # Unknown game - include it if it matches patterns
+                selected_urls.append(url)
+                selected_size += size_map.get(filename, 0)
+                included_count += 1
+                processed.add(rom_name)
+                if verbose:
+                    print(f"  [INCLUDE] {filename} (not in DAT)")
+                continue
+
+            # Check if this is a clone - process through parent
+            if not game.is_parent and game.parent_name:
+                parent_name = game.parent_name
+                if parent_name in processed:
+                    continue
+                parent_game = games.get(parent_name)
+                if parent_game:
+                    game = parent_game
+                    rom_name = parent_name
+
+            # Check category filtering
+            category = categories.get(rom_name, game.category or '')
+            should_include, reason = should_include_mame_game(game, category, include_adult)
+
+            if not should_include:
+                excluded_counts[reason] += 1
+                if verbose:
+                    print(f"  [EXCLUDE] {filename}: {reason}")
+                processed.add(rom_name)
+                # Also mark clones as processed
+                for clone in parent_clones.get(rom_name, []):
+                    processed.add(clone)
+                continue
+
+            # Find best version (parent or regional clone)
+            best_rom = select_best_mame_clone(rom_name, parent_clones.get(rom_name, []), games,
+                                              verbose=verbose)
+            if not best_rom:
+                best_rom = game
+
+            # Check if best ROM is available
+            best_filename = f"{best_rom.name}.zip"
+            if best_filename in url_map:
+                selected_urls.append(url_map[best_filename])
+                selected_size += size_map.get(best_filename, 0)
+                included_count += 1
+                if verbose:
+                    print(f"  [SELECT] {best_filename}: {reason}")
+            elif filename in url_map:
+                # Fallback to original if best not available
+                selected_urls.append(url)
+                selected_size += size_map.get(filename, 0)
+                included_count += 1
+                if verbose:
+                    print(f"  [SELECT] {filename}: {reason} (fallback)")
+
             processed.add(rom_name)
-            if verbose:
-                print(f"  [INCLUDE] {filename} (not in DAT)")
-            continue
-
-        # Check if this is a clone - process through parent
-        if not game.is_parent and game.parent_name:
-            parent_name = game.parent_name
-            if parent_name in processed:
-                continue
-            parent_game = games.get(parent_name)
-            if parent_game:
-                game = parent_game
-                rom_name = parent_name
-
-        # Check category filtering
-        category = categories.get(rom_name, game.category or '')
-        should_include, reason = should_include_mame_game(game, category, include_adult)
-
-        if not should_include:
-            excluded_counts[reason] += 1
-            if verbose:
-                print(f"  [EXCLUDE] {filename}: {reason}")
-            processed.add(rom_name)
-            # Also mark clones as processed
             for clone in parent_clones.get(rom_name, []):
                 processed.add(clone)
-            continue
 
-        # Find best version (parent or regional clone)
-        best_rom = select_best_mame_clone(rom_name, parent_clones.get(rom_name, []), games,
-                                          verbose=verbose)
-        if not best_rom:
-            best_rom = game
+        print(f"{label}: {len(selected_urls)} ROMs after filtering ({format_size(selected_size)})")
 
-        # Check if best ROM is available
-        best_filename = f"{best_rom.name}.zip"
-        if best_filename in url_map:
-            selected_urls.append(url_map[best_filename])
-            selected_size += size_map.get(best_filename, 0)
-            included_count += 1
-            if verbose:
-                print(f"  [SELECT] {best_filename}: {reason}")
-        elif filename in url_map:
-            # Fallback to original if best not available
-            selected_urls.append(url)
-            selected_size += size_map.get(filename, 0)
-            included_count += 1
-            if verbose:
-                print(f"  [SELECT] {filename}: {reason} (fallback)")
+        # Print exclusion summary
+        if excluded_counts:
+            top_reasons = sorted(excluded_counts.items(), key=lambda x: -x[1])[:5]
+            for reason, count in top_reasons:
+                print(f"{label}: {count} filtered by {reason}")
 
-        processed.add(rom_name)
-        for clone in parent_clones.get(rom_name, []):
-            processed.add(clone)
-
-    print(f"{label}: {len(selected_urls)} ROMs after filtering ({format_size(selected_size)})")
-
-    # Print exclusion summary
-    if excluded_counts:
-        top_reasons = sorted(excluded_counts.items(), key=lambda x: -x[1])[:5]
-        for reason, count in top_reasons:
-            print(f"{label}: {count} filtered by {reason}")
-
-    print(f"{label}: {len(set(processed))} unique games processed")
-    print(f"{label}: Selected {len(selected_urls)} ROMs to download ({format_size(selected_size)})")
+        print(f"{label}: {len(set(processed))} unique games processed")
+        print(f"{label}: Selected {len(selected_urls)} ROMs to download ({format_size(selected_size)})")
 
     if total_source_size > 0:
         size_saved = total_source_size - selected_size
@@ -6904,7 +6993,9 @@ def filter_roms_from_files(rom_files: list, dest_dir: str, system: str, dry_run:
                            verbose: bool = False,
                            top_n: int = None,
                            include_unrated: bool = False,
-                           ratings: dict = None):
+                           ratings: dict = None,
+                           no_filter: bool = False,
+                           english_only: bool = False):
     """Filter ROMs from a list of file paths.
 
     If dat_entries is provided, uses DAT metadata to enhance/override filename parsing.
@@ -6937,44 +7028,46 @@ def filter_roms_from_files(rom_files: list, dest_dir: str, system: str, dry_run:
             break
         filename = filepath.name
 
-        # Apply include/exclude patterns
-        if include_patterns and not matches_patterns(filename, include_patterns):
-            filtered_by_pattern += 1
-            if verbose:
-                print(f"  [SKIP] {filename}: doesn't match include patterns")
-            continue
-        if exclude_patterns and matches_patterns(filename, exclude_patterns):
-            filtered_by_pattern += 1
-            if verbose:
-                print(f"  [SKIP] {filename}: matches exclude pattern")
-            continue
+        if not no_filter:
+            # Apply include/exclude patterns
+            if include_patterns and not matches_patterns(filename, include_patterns):
+                filtered_by_pattern += 1
+                if verbose:
+                    print(f"  [SKIP] {filename}: doesn't match include patterns")
+                continue
+            if exclude_patterns and matches_patterns(filename, exclude_patterns):
+                filtered_by_pattern += 1
+                if verbose:
+                    print(f"  [SKIP] {filename}: matches exclude pattern")
+                continue
 
         rom_info = parse_rom_filename(filename)
 
-        # Filter by proto/beta/unlicensed unless explicitly included
-        if rom_info.is_proto and exclude_protos:
-            if verbose:
-                print(f"  [SKIP] {filename}: prototype (excluded via --exclude-protos)")
-            continue
-        if rom_info.is_beta and not include_betas:
-            if verbose:
-                print(f"  [SKIP] {filename}: beta (use --include-betas to include)")
-            continue
-        if rom_info.is_unlicensed and not include_unlicensed:
-            if verbose:
-                print(f"  [SKIP] {filename}: unlicensed (use --include-unlicensed to include)")
-            continue
+        if not no_filter:
+            # Filter by proto/beta/unlicensed unless explicitly included
+            if rom_info.is_proto and exclude_protos:
+                if verbose:
+                    print(f"  [SKIP] {filename}: prototype (excluded via --exclude-protos)")
+                continue
+            if rom_info.is_beta and not include_betas:
+                if verbose:
+                    print(f"  [SKIP] {filename}: beta (use --include-betas to include)")
+                continue
+            if rom_info.is_unlicensed and not include_unlicensed:
+                if verbose:
+                    print(f"  [SKIP] {filename}: unlicensed (use --include-unlicensed to include)")
+                continue
 
-        # Filter by year if specified (only if year is known)
-        if rom_info.year > 0:
-            if year_from and rom_info.year < year_from:
-                if verbose:
-                    print(f"  [SKIP] {filename}: year {rom_info.year} < {year_from}")
-                continue
-            if year_to and rom_info.year > year_to:
-                if verbose:
-                    print(f"  [SKIP] {filename}: year {rom_info.year} > {year_to}")
-                continue
+            # Filter by year if specified (only if year is known)
+            if rom_info.year > 0:
+                if year_from and rom_info.year < year_from:
+                    if verbose:
+                        print(f"  [SKIP] {filename}: year {rom_info.year} < {year_from}")
+                    continue
+                if year_to and rom_info.year > year_to:
+                    if verbose:
+                        print(f"  [SKIP] {filename}: year {rom_info.year} > {year_to}")
+                    continue
 
         all_roms.append(rom_info)
         file_map[filename] = filepath
@@ -6986,87 +7079,100 @@ def filter_roms_from_files(rom_files: list, dest_dir: str, system: str, dry_run:
     if filtered_by_pattern:
         print(f"{system.upper()}: {filtered_by_pattern} filtered by include/exclude patterns")
 
-    # Group by normalized title
-    grouped = defaultdict(list)
-    for rom in all_roms:
-        normalized = normalize_title(rom.base_title)
-        grouped[normalized].append(rom)
+    if no_filter:
+        # --all mode: select every ROM without grouping or filtering
+        selected_roms = all_roms
+        print(f"\n{system.upper()}: --all mode, selecting all {len(selected_roms)} ROMs ({format_size(total_source_size)})")
+    else:
+        # Group by normalized title
+        grouped = defaultdict(list)
+        for rom in all_roms:
+            normalized = normalize_title(rom.base_title)
+            grouped[normalized].append(rom)
 
-    print(f"{system.upper()}: Found {len(grouped)} unique game titles")
+        print(f"{system.upper()}: Found {len(grouped)} unique game titles")
 
-    # Select best ROM from each group (or multiple if keep_regions)
-    selected_roms = []
-    skipped_games = []
+        # Select best ROM from each group (or multiple if keep_regions)
+        selected_roms = []
+        skipped_games = []
 
-    for title, roms in grouped.items():
-        if keep_regions:
-            # Keep one ROM per requested region
-            for region in keep_regions:
-                region_roms = [r for r in roms if r.region.lower() == region.lower()]
-                if region_roms:
-                    best = select_best_rom(region_roms, region_priority, verbose=verbose)
+        for title, roms in grouped.items():
+            if keep_regions:
+                # Keep one ROM per requested region
+                for region in keep_regions:
+                    region_roms = [r for r in roms if r.region.lower() == region.lower()]
+                    if region_roms:
+                        best = select_best_rom(region_roms, region_priority, verbose=verbose)
+                        if best:
+                            selected_roms.append(best)
+                            if verbose:
+                                print(f"  [SELECT] {best.filename} ({region} version of '{title}')")
+                # If no regions matched, fall back to best overall
+                if not any(r in selected_roms for r in roms):
+                    best = select_best_rom(roms, region_priority, verbose=verbose)
                     if best:
                         selected_roms.append(best)
                         if verbose:
-                            print(f"  [SELECT] {best.filename} ({region} version of '{title}')")
-            # If no regions matched, fall back to best overall
-            if not any(r in selected_roms for r in roms):
+                            print(f"  [SELECT] {best.filename} (fallback for '{title}')")
+            else:
                 best = select_best_rom(roms, region_priority, verbose=verbose)
                 if best:
                     selected_roms.append(best)
                     if verbose:
-                        print(f"  [SELECT] {best.filename} (fallback for '{title}')")
-        else:
-            best = select_best_rom(roms, region_priority, verbose=verbose)
-            if best:
-                selected_roms.append(best)
-                if verbose:
-                    candidates = len(roms)
-                    print(f"  [SELECT] {best.filename} (best of {candidates} for '{title}')")
+                        candidates = len(roms)
+                        print(f"  [SELECT] {best.filename} (best of {candidates} for '{title}')")
+                else:
+                    sample = roms[0].filename if roms else "unknown"
+                    skipped_games.append((title, sample))
+                    if verbose:
+                        print(f"  [SKIP] No suitable ROM for '{title}' (sample: {sample})")
+
+        # Apply english-only filter if requested
+        if english_only:
+            pre_english = len(selected_roms)
+            selected_roms = [r for r in selected_roms if r.is_english]
+            excluded = pre_english - len(selected_roms)
+            if excluded:
+                print(f"{system.upper()}: Excluded {excluded} non-English ROMs")
+
+        # Post-selection DAT enrichment (CRC only calculated for selected ROMs)
+        if crc_to_dat:
+            for rom in selected_roms:
+                filepath = file_map.get(rom.filename)
+                if not filepath:
+                    continue
+                crc = get_cached_crc(filepath, crc_cache)
+                if crc and crc in crc_to_dat:
+                    dat_entry = crc_to_dat[crc]
+                    if dat_entry.region != 'Unknown':
+                        rom.region = dat_entry.region
+                    dat_matched += 1
+            save_crc_cache(crc_cache_path, crc_cache)
+        if dat_entries:
+            print(f"{system.upper()}: {dat_matched} selected ROMs matched to DAT entries")
+
+        # Apply top-N filter if requested
+        if top_n and ratings:
+            system_ratings = ratings.get(system, {})
+            pre_filter_count = len(selected_roms)
+
+            rated_count = sum(1 for r in selected_roms
+                            if normalize_title(r.base_title) in system_ratings)
+
+            print(f"{system.upper()}: Rating data matched {rated_count} of {pre_filter_count} games")
+
+            selected_roms = apply_top_n_filter(
+                selected_roms, system_ratings, top_n, include_unrated
+            )
+
+            filtered_out = pre_filter_count - len(selected_roms)
+            top_label = format_top_label(top_n)
+            actual_kept = len(selected_roms)
+            if include_unrated:
+                print(f"{system.upper()}: {top_label} selected ({actual_kept} games, {filtered_out} below cutoff)")
             else:
-                sample = roms[0].filename if roms else "unknown"
-                skipped_games.append((title, sample))
-                if verbose:
-                    print(f"  [SKIP] No suitable ROM for '{title}' (sample: {sample})")
-
-    # Post-selection DAT enrichment (CRC only calculated for selected ROMs)
-    if crc_to_dat:
-        for rom in selected_roms:
-            filepath = file_map.get(rom.filename)
-            if not filepath:
-                continue
-            crc = get_cached_crc(filepath, crc_cache)
-            if crc and crc in crc_to_dat:
-                dat_entry = crc_to_dat[crc]
-                if dat_entry.region != 'Unknown':
-                    rom.region = dat_entry.region
-                dat_matched += 1
-        save_crc_cache(crc_cache_path, crc_cache)
-    if dat_entries:
-        print(f"{system.upper()}: {dat_matched} selected ROMs matched to DAT entries")
-
-    # Apply top-N filter if requested
-    if top_n and ratings:
-        system_ratings = ratings.get(system, {})
-        pre_filter_count = len(selected_roms)
-
-        rated_count = sum(1 for r in selected_roms
-                        if normalize_title(r.base_title) in system_ratings)
-
-        print(f"{system.upper()}: Rating data matched {rated_count} of {pre_filter_count} games")
-
-        selected_roms = apply_top_n_filter(
-            selected_roms, system_ratings, top_n, include_unrated
-        )
-
-        filtered_out = pre_filter_count - len(selected_roms)
-        top_label = format_top_label(top_n)
-        actual_kept = len(selected_roms)
-        if include_unrated:
-            print(f"{system.upper()}: {top_label} selected ({actual_kept} games, {filtered_out} below cutoff)")
-        else:
-            unrated_excluded = pre_filter_count - rated_count
-            print(f"{system.upper()}: {top_label} selected ({actual_kept} games, {filtered_out} below cutoff, {unrated_excluded} unrated excluded)")
+                unrated_excluded = pre_filter_count - rated_count
+                print(f"{system.upper()}: {top_label} selected ({actual_kept} games, {filtered_out} below cutoff, {unrated_excluded} unrated excluded)")
 
     # Calculate selected size
     selected_size = sum(size_map.get(rom.filename, 0) for rom in selected_roms)
@@ -7216,6 +7322,12 @@ Pattern examples (--include / --exclude):
                         help='Custom region priority order (comma-separated, e.g., "USA,Europe,Japan")')
     parser.add_argument('--keep-regions', default=None,
                         help='Keep multiple regional versions (comma-separated, e.g., "USA,Japan")')
+    parser.add_argument('--english-only', action='store_true', default=False,
+                        help='Only keep English-playable ROMs (official releases + translations)')
+
+    # All mode (skip filtering)
+    parser.add_argument('--all', action='store_true',
+                        help='Skip all filtering and select every ROM (overrides 1G1R selection)')
 
     # Inclusion filters
     parser.add_argument('--include', action='append', default=None,
@@ -7334,6 +7446,30 @@ Pattern examples (--include / --exclude):
         args.size_bytes = parse_size_string(args.size)
         if args.size_bytes <= 0:
             parser.error(f"--size must be a valid positive size (e.g., 10G, 500M), got '{args.size}'")
+
+    # Validate --all is not combined with filtering options
+    if getattr(args, 'all', False):
+        conflicts = []
+        if args.top is not None:
+            conflicts.append('--top')
+        if args.limit is not None:
+            conflicts.append('--limit')
+        if args.size is not None:
+            conflicts.append('--size')
+        if args.exclude_protos:
+            conflicts.append('--exclude-protos')
+        if args.include:
+            conflicts.append('--include')
+        if args.exclude:
+            conflicts.append('--exclude')
+        if args.year_from is not None:
+            conflicts.append('--year-from')
+        if args.year_to is not None:
+            conflicts.append('--year-to')
+        if args.genres:
+            conflicts.append('--genres')
+        if conflicts:
+            parser.error(f"--all cannot be combined with {', '.join(conflicts)}")
 
     # Resolve IA credentials from args or environment
     args.ia_access_key = args.ia_access_key or os.environ.get('IA_ACCESS_KEY')
@@ -7683,6 +7819,8 @@ Pattern examples (--include / --exclude):
         options.append("include betas")
     if args.include_unlicensed:
         options.append("include unlicensed")
+    if args.english_only:
+        options.append("English only")
     if genre_filter:
         options.append(f"genres: {','.join(genre_filter)}")
     if args.year_from or args.year_to:
@@ -7964,7 +8102,8 @@ Pattern examples (--include / --exclude):
                 include_patterns=args.include,
                 exclude_patterns=args.exclude,
                 url_sizes=all_url_sizes,
-                verbose=args.verbose
+                verbose=args.verbose,
+                no_filter=getattr(args, 'all', False)
             )
         elif system in ('mame', 'fbneo', 'fba', 'arcade') and mame_categories and mame_games:
             # Special handling for MAME/FBNeo (uses category filtering)
@@ -7976,7 +8115,8 @@ Pattern examples (--include / --exclude):
                 exclude_patterns=args.exclude,
                 include_adult=not args.exclude_adult if hasattr(args, 'exclude_adult') else True,
                 url_sizes=all_url_sizes,
-                verbose=args.verbose
+                verbose=args.verbose,
+                no_filter=getattr(args, 'all', False)
             )
         else:
             # Get DAT entries for this system if available
@@ -8001,7 +8141,9 @@ Pattern examples (--include / --exclude):
                 dat_entries=system_dat_entries,
                 top_n=args.top,
                 include_unrated=args.include_unrated,
-                ratings=ratings
+                ratings=ratings,
+                no_filter=getattr(args, 'all', False),
+                english_only=args.english_only
             )
 
         # Apply top-N filter for paths that don't handle it internally
@@ -8448,7 +8590,8 @@ Pattern examples (--include / --exclude):
                     keep_all_versions=args.tp_all_versions,
                     include_patterns=args.include,
                     exclude_patterns=args.exclude,
-                    verbose=args.verbose
+                    verbose=args.verbose,
+                    no_filter=getattr(args, 'all', False)
                 )
                 selected, size_info = result
 
@@ -8649,7 +8792,8 @@ Pattern examples (--include / --exclude):
                     dry_run=dry_run,
                     system_name=system,
                     include_adult=not args.no_adult,
-                    verbose=args.verbose
+                    verbose=args.verbose,
+                    no_filter=getattr(args, 'all', False)
                 )
                 selected, size_info = result
 
@@ -8785,7 +8929,9 @@ Pattern examples (--include / --exclude):
                 verbose=args.verbose,
                 top_n=args.top,
                 include_unrated=args.include_unrated,
-                ratings=ratings
+                ratings=ratings,
+                no_filter=getattr(args, 'all', False),
+                english_only=args.english_only
             )
             selected, size_info = result
 
