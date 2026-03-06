@@ -3376,8 +3376,10 @@ def filter_network_roms(rom_urls: List[str], system: str,
                     )):
                         if rom.region == region and region not in seen_regions:
                             if rom.filename in url_map:
-                                selected_urls.append(url_map[rom.filename])
-                                selected_roms.append(rom)
+                                for sibling in _collect_sibling_discs(rom, roms):
+                                    if sibling.filename in url_map:
+                                        selected_urls.append(url_map[sibling.filename])
+                                        selected_roms.append(sibling)
                                 seen_regions.add(region)
                                 if verbose:
                                     print(f"  [SELECT] {rom.filename} ({region} version of '{title}')")
@@ -3386,16 +3388,20 @@ def filter_network_roms(rom_urls: List[str], system: str,
                 if not seen_regions:
                     best = select_best_rom(roms, region_priority, verbose=verbose)
                     if best and best.filename in url_map:
-                        selected_urls.append(url_map[best.filename])
-                        selected_roms.append(best)
+                        for sibling in _collect_sibling_discs(best, roms):
+                            if sibling.filename in url_map:
+                                selected_urls.append(url_map[sibling.filename])
+                                selected_roms.append(sibling)
                         if verbose:
                             print(f"  [SELECT] {best.filename} (fallback for '{title}')")
             else:
                 # Select single best ROM
                 best = select_best_rom(roms, region_priority, verbose=verbose)
                 if best and best.filename in url_map:
-                    selected_urls.append(url_map[best.filename])
-                    selected_roms.append(best)
+                    for sibling in _collect_sibling_discs(best, roms):
+                        if sibling.filename in url_map:
+                            selected_urls.append(url_map[sibling.filename])
+                            selected_roms.append(sibling)
                     if verbose:
                         print(f"  [SELECT] {best.filename} (best of {len(roms)} for '{title}')")
 
@@ -3918,6 +3924,7 @@ class RomInfo:
     is_lock_on: bool
     has_hacks: bool = False
     year: int = 0  # Release year if available
+    disc_number: int = 0  # Disc number for multi-disc games
 
 
 # =============================================================================
@@ -4500,6 +4507,7 @@ _RE_BRACKETS = re.compile(r'\[[^\]]+\]')
 _RE_PARENS = re.compile(r'\s*\([^)]+\)')
 _RE_WHITESPACE = re.compile(r'\s+')
 _RE_YEAR = re.compile(r'\((\d{4})\)')
+_RE_DISC = re.compile(r'\(Disc\s+(\d+)\)', re.IGNORECASE)
 
 # Pre-compiled patterns used in normalize_title()
 _RE_ARTICLE_COMMA = re.compile(r',\s*(the|a|an)\s*')
@@ -4614,6 +4622,10 @@ def parse_rom_filename(filename: str) -> RomInfo:
     if ver_match:
         revision = max(revision, int(ver_match.group(1)) * 100 + int(ver_match.group(2)))
 
+    # Extract disc number for multi-disc games
+    disc_match = _RE_DISC.search(name)
+    disc_number = int(disc_match.group(1)) if disc_match else 0
+
     # Extract base title (remove all tags)
     base_title = name
     # Remove square bracket tags first
@@ -4658,6 +4670,7 @@ def parse_rom_filename(filename: str) -> RomInfo:
         is_lock_on=is_lock_on,
         has_hacks=has_hacks,
         year=year,
+        disc_number=disc_number,
     )
 
 def normalize_title(title: str) -> str:
@@ -4806,6 +4819,19 @@ def select_best_rom(roms: List[RomInfo], region_priority: List[str] = None,
         print(f"    [SELECT] '{title}': {result.filename} "
               f"(region={result.region}, rev={result.revision})")
     return result
+
+
+def _collect_sibling_discs(best, group):
+    """Given a selected ROM, find all discs of the same game matching its region/revision."""
+    if best.disc_number == 0:
+        return [best]
+    siblings = [r for r in group
+                if r.disc_number > 0
+                and r.region == best.region
+                and r.revision == best.revision
+                and r.is_translation == best.is_translation]
+    siblings.sort(key=lambda r: r.disc_number)
+    return siblings if siblings else [best]
 
 
 # =============================================================================
@@ -7104,20 +7130,20 @@ def filter_roms_from_files(rom_files: list, dest_dir: str, system: str, dry_run:
                     if region_roms:
                         best = select_best_rom(region_roms, region_priority, verbose=verbose)
                         if best:
-                            selected_roms.append(best)
+                            selected_roms.extend(_collect_sibling_discs(best, roms))
                             if verbose:
                                 print(f"  [SELECT] {best.filename} ({region} version of '{title}')")
                 # If no regions matched, fall back to best overall
                 if not any(r in selected_roms for r in roms):
                     best = select_best_rom(roms, region_priority, verbose=verbose)
                     if best:
-                        selected_roms.append(best)
+                        selected_roms.extend(_collect_sibling_discs(best, roms))
                         if verbose:
                             print(f"  [SELECT] {best.filename} (fallback for '{title}')")
             else:
                 best = select_best_rom(roms, region_priority, verbose=verbose)
                 if best:
-                    selected_roms.append(best)
+                    selected_roms.extend(_collect_sibling_discs(best, roms))
                     if verbose:
                         candidates = len(roms)
                         print(f"  [SELECT] {best.filename} (best of {candidates} for '{title}')")

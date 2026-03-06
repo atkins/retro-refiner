@@ -1966,6 +1966,147 @@ def test_english_only_flag():
         results.fail("english_only no-op", "2", str(len(filtered_eng)))
 
 
+def test_multi_disc_games():
+    """Test multi-disc game handling (all discs selected together)."""
+    print("\n" + "="*60)
+    print("MULTI-DISC GAME TESTS")
+    print("="*60)
+
+    # Test disc_number parsing
+    rom1 = parse_rom_filename("Final Fantasy VII (USA) (Disc 1).bin")
+    if rom1.disc_number == 1:
+        results.ok("parse_rom_filename extracts disc_number=1")
+    else:
+        results.fail("disc_number=1", "1", str(rom1.disc_number))
+
+    rom3 = parse_rom_filename("Final Fantasy VII (USA) (Disc 3).bin")
+    if rom3.disc_number == 3:
+        results.ok("parse_rom_filename extracts disc_number=3")
+    else:
+        results.fail("disc_number=3", "3", str(rom3.disc_number))
+
+    # Non-disc game should have disc_number=0
+    rom_single = parse_rom_filename("Crash Bandicoot (USA).bin")
+    if rom_single.disc_number == 0:
+        results.ok("single-disc game has disc_number=0")
+    else:
+        results.fail("disc_number=0 for single", "0", str(rom_single.disc_number))
+
+    # Case insensitive disc tag
+    rom_lower = parse_rom_filename("Game (USA) (disc 2).bin")
+    if rom_lower.disc_number == 2:
+        results.ok("disc tag case insensitive")
+    else:
+        results.fail("disc case insensitive", "2", str(rom_lower.disc_number))
+
+    # Test _collect_sibling_discs helper
+    _collect_sibling_discs = _module._collect_sibling_discs
+
+    disc1 = parse_rom_filename("Final Fantasy VII (USA) (Disc 1).bin")
+    disc2 = parse_rom_filename("Final Fantasy VII (USA) (Disc 2).bin")
+    disc3 = parse_rom_filename("Final Fantasy VII (USA) (Disc 3).bin")
+    disc1_jp = parse_rom_filename("Final Fantasy VII (Japan) (Disc 1).bin")
+    disc2_jp = parse_rom_filename("Final Fantasy VII (Japan) (Disc 2).bin")
+    group = [disc1, disc2, disc3, disc1_jp, disc2_jp]
+
+    siblings = _collect_sibling_discs(disc1, group)
+    sibling_fns = [r.filename for r in siblings]
+    if len(siblings) == 3 and all("(USA)" in fn for fn in sibling_fns):
+        results.ok("_collect_sibling_discs returns 3 USA discs")
+    else:
+        results.fail("sibling discs USA", "3 USA discs", str(sibling_fns))
+
+    # Siblings should be sorted by disc number
+    if siblings[0].disc_number == 1 and siblings[1].disc_number == 2 and siblings[2].disc_number == 3:
+        results.ok("sibling discs sorted by disc_number")
+    else:
+        results.fail("sibling disc order", "[1,2,3]",
+                     str([s.disc_number for s in siblings]))
+
+    # Single-disc game returns just itself
+    single = parse_rom_filename("Crash Bandicoot (USA).bin")
+    single_siblings = _collect_sibling_discs(single, [single])
+    if len(single_siblings) == 1 and single_siblings[0] is single:
+        results.ok("single-disc game returns [self]")
+    else:
+        results.fail("single-disc sibling", "1 item", str(len(single_siblings)))
+
+    # Test multi-disc with filter_network_roms
+    multi_disc_urls = [
+        "https://example.com/psx/Final Fantasy VII (USA) (Disc 1).bin",
+        "https://example.com/psx/Final Fantasy VII (USA) (Disc 2).bin",
+        "https://example.com/psx/Final Fantasy VII (USA) (Disc 3).bin",
+        "https://example.com/psx/Final Fantasy VII (Japan) (Disc 1).bin",
+        "https://example.com/psx/Final Fantasy VII (Japan) (Disc 2).bin",
+        "https://example.com/psx/Final Fantasy VII (Japan) (Disc 3).bin",
+        "https://example.com/psx/Crash Bandicoot (USA).bin",
+    ]
+    filtered, _ = filter_network_roms(
+        multi_disc_urls, "psx",
+        region_priority=DEFAULT_REGION_PRIORITY
+    )
+    # Should get all 3 USA discs + Crash = 4
+    ff7_urls = [u for u in filtered if "Final Fantasy VII" in u]
+    crash_urls = [u for u in filtered if "Crash" in u]
+    if len(ff7_urls) == 3:
+        results.ok("filter_network_roms keeps all 3 discs of FF7")
+    else:
+        results.fail("network multi-disc FF7", "3 discs", str(len(ff7_urls)))
+
+    if all("(USA)" in u for u in ff7_urls):
+        results.ok("filter_network_roms selects USA discs (not Japan)")
+    else:
+        results.fail("network multi-disc region", "all USA", str(ff7_urls))
+
+    if len(crash_urls) == 1:
+        results.ok("filter_network_roms single-disc game unaffected")
+    else:
+        results.fail("network single-disc", "1", str(len(crash_urls)))
+
+    # Test multi-disc with filter_roms_from_files using temp files
+    with tempfile.TemporaryDirectory() as tmpdir:
+        rom_dir = Path(tmpdir) / "roms"
+        rom_dir.mkdir()
+        dest_dir = Path(tmpdir) / "dest"
+        dest_dir.mkdir()
+
+        filenames = [
+            "Final Fantasy VII (USA) (Disc 1).bin",
+            "Final Fantasy VII (USA) (Disc 2).bin",
+            "Final Fantasy VII (USA) (Disc 3).bin",
+            "Final Fantasy VII (Japan) (Disc 1).bin",
+            "Final Fantasy VII (Japan) (Disc 2).bin",
+            "Crash Bandicoot (USA).bin",
+        ]
+        rom_paths = []
+        for fn in filenames:
+            p = rom_dir / fn
+            p.write_bytes(b'\x00' * 100)
+            rom_paths.append(p)
+
+        selected, _ = filter_roms_from_files(
+            rom_paths, str(dest_dir), "psx", dry_run=True,
+            region_priority=DEFAULT_REGION_PRIORITY
+        )
+        selected_names = {r.filename for r in selected}
+
+        ff7_selected = [n for n in selected_names if "Final Fantasy VII" in n]
+        if len(ff7_selected) == 3:
+            results.ok("filter_roms_from_files keeps all 3 discs of FF7")
+        else:
+            results.fail("local multi-disc FF7", "3 discs", str(ff7_selected))
+
+        if all("(USA)" in n for n in ff7_selected):
+            results.ok("filter_roms_from_files selects USA discs")
+        else:
+            results.fail("local multi-disc region", "all USA", str(ff7_selected))
+
+        if "Crash Bandicoot (USA).bin" in selected_names:
+            results.ok("filter_roms_from_files single-disc unaffected")
+        else:
+            results.fail("local single-disc", "present", str(selected_names))
+
+
 def main():
     """Run all tests."""
     print("\n" + "="*60)
@@ -1995,6 +2136,7 @@ def main():
     test_all_flag()
 
     test_english_only_flag()
+    test_multi_disc_games()
 
     # Run integration tests with real files
     source = r"C:\Users\atkin\Downloads\Roms"
