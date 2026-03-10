@@ -316,6 +316,7 @@ LIBRETRO_DAT_SYSTEMS = {}
 REDUMP_DAT_SYSTEMS = {}
 TEN_DAT_SYSTEMS = {}
 LAUNCHBOX_PLATFORM_MAP = {}
+IGDB_PLATFORM_MAP = {}
 DAT_NAME_TO_SYSTEM = {}
 SYSTEM_TO_LAUNCHBOX = {}
 SORTED_DAT_NAMES = []
@@ -335,13 +336,15 @@ def load_system_data():
       - REDUMP_DAT_SYSTEMS: system -> Redump DAT name
       - TEN_DAT_SYSTEMS: system -> T-En DAT prefix
       - LAUNCHBOX_PLATFORM_MAP: LaunchBox platform name -> system code
+      - IGDB_PLATFORM_MAP: system code -> IGDB platform ID
       - DAT_NAME_TO_SYSTEM: DAT name (lowercase) -> system code
       - SYSTEM_TO_LAUNCHBOX: system code -> first LaunchBox platform name
     """
     global _system_data_cache
     global KNOWN_SYSTEMS, EXTENSION_TO_SYSTEM, FOLDER_ALIASES
     global LIBRETRO_DAT_SYSTEMS, REDUMP_DAT_SYSTEMS, TEN_DAT_SYSTEMS
-    global LAUNCHBOX_PLATFORM_MAP, DAT_NAME_TO_SYSTEM, SYSTEM_TO_LAUNCHBOX
+    global LAUNCHBOX_PLATFORM_MAP, IGDB_PLATFORM_MAP
+    global DAT_NAME_TO_SYSTEM, SYSTEM_TO_LAUNCHBOX
     global SORTED_DAT_NAMES, SORTED_ALIASES
 
     if _system_data_cache is not None:
@@ -365,6 +368,7 @@ def load_system_data():
     redump_map = {}
     ten_map = {}
     lb_map = {}
+    igdb_map = {}
 
     for system_code, info in systems.items():
         for ext in info.get('extensions', []):
@@ -388,6 +392,10 @@ def load_system_data():
         for lb_name in info.get('launchbox_platforms', []):
             lb_map[lb_name] = system_code
 
+        igdb_id = info.get('igdb_id')
+        if igdb_id is not None:
+            igdb_map[system_code] = igdb_id
+
     # Reverse mappings
     dat_name_to_sys = {v.lower(): k for k, v in dat_map.items()}
     dat_name_to_sys.update({v.lower(): k for k, v in redump_map.items()})
@@ -405,6 +413,7 @@ def load_system_data():
     REDUMP_DAT_SYSTEMS = redump_map
     TEN_DAT_SYSTEMS = ten_map
     LAUNCHBOX_PLATFORM_MAP = lb_map
+    IGDB_PLATFORM_MAP = igdb_map
     DAT_NAME_TO_SYSTEM = dat_name_to_sys
     SYSTEM_TO_LAUNCHBOX = sys_to_lb
 
@@ -420,6 +429,7 @@ def load_system_data():
         'redump_dat_systems': redump_map,
         'ten_dat_systems': ten_map,
         'launchbox_platform_map': lb_map,
+        'igdb_platform_map': igdb_map,
         'dat_name_to_system': dat_name_to_sys,
         'system_to_launchbox': sys_to_lb,
     }
@@ -3061,7 +3071,11 @@ def scan_network_source_urls(base_url: str, systems: List[str] = None,
                     _url_sizes[url] = size
 
     # Get subdirectories
-    if recursive and max_depth > 0:
+    # Always explore subdirs when we detected a system but found no ROM files at root
+    # (handles TOSEC-style nested structures like Games/ → [BIN]/ → files.zip)
+    should_recurse = (recursive and max_depth > 0) or (
+        url_system and not rom_files_with_sizes and max_depth > 0)
+    if should_recurse:
         subdirs = parse_html_for_directories(html, base_url)
 
         # Categorize subdirectories into system folders vs other folders
@@ -3193,6 +3207,7 @@ def scan_network_source_urls(base_url: str, systems: List[str] = None,
                 # Process fetched game folders
                 total_roms = 0
                 total_size = 0
+                nested_urls_to_fetch = []
                 for subdir_url, (content, final_url) in fetched.items():
                     check_shutdown()
                     subdir_html = content.decode('utf-8', errors='replace')
@@ -3204,6 +3219,48 @@ def scan_network_source_urls(base_url: str, systems: List[str] = None,
                                 _url_sizes[url] = size
                                 total_size += size
                         total_roms += len(sub_files)
+                    # Check for nested subdirectories (e.g., Games/ → [BIN]/, [DSK]/)
+                    nested_dirs = parse_html_for_directories(subdir_html, final_url)
+                    if nested_dirs:
+                        nested_urls_to_fetch.extend(nested_dirs)
+
+                # Fetch nested subdirectories in parallel if any were found
+                if nested_urls_to_fetch:
+                    if len(nested_urls_to_fetch) > 3:
+                        nested_progress = ScanProgressBar(
+                            total=len(nested_urls_to_fetch),
+                            desc=f"Scanning {len(nested_urls_to_fetch)} nested folders",
+                            indent=f"{_indent}  "
+                        )
+                        nested_fetched = fetch_urls_parallel(
+                            nested_urls_to_fetch,
+                            max_workers=scan_workers,
+                            auth_header=auth_header,
+                            progress_callback=nested_progress.make_callback()
+                        )
+                        nested_progress.finish(
+                            f"Scanned {len(nested_fetched)}/{len(nested_urls_to_fetch)} nested folders"
+                        )
+                    else:
+                        nested_fetched = {}
+                        for nurl in nested_urls_to_fetch:
+                            try:
+                                ncontent, nfinal = fetch_url(nurl, auth_header=auth_header)
+                                nested_fetched[nurl] = (ncontent, nfinal)
+                            except Exception:
+                                pass
+
+                    for _nested_url, (ncontent, nfinal_url) in nested_fetched.items():
+                        check_shutdown()
+                        nested_html = ncontent.decode('utf-8', errors='replace')
+                        nested_files = parse_html_for_files_with_sizes(nested_html, nfinal_url)
+                        if nested_files:
+                            for url, size in nested_files:
+                                detected[url_system].append(url)
+                                if size > 0:
+                                    _url_sizes[url] = size
+                                    total_size += size
+                            total_roms += len(nested_files)
 
                 if total_roms > 0:
                     if total_size > 0:
@@ -3571,6 +3628,12 @@ english_only: false
 # Maximum total size budget across all systems (e.g., 10G, 500M, 1.5T)
 # size: 10G
 
+# Rating data source: 'igdb' (default with credentials) or 'launchbox'
+# IGDB requires free Twitch developer credentials from https://dev.twitch.tv/console
+# ratings_source: igdb
+# igdb_client_id:
+# igdb_client_secret:
+
 # -----------------------------------------------------------------------------
 # Metadata Filters
 # -----------------------------------------------------------------------------
@@ -3775,6 +3838,10 @@ def apply_config_to_args(args, config: dict):
         'size': 'size',
         # All mode
         'all': 'all',
+        # IGDB options
+        'igdb_client_id': 'igdb_client_id',
+        'igdb_client_secret': 'igdb_client_secret',
+        'ratings_source': 'ratings_source',
     }
 
     for config_key, arg_name in config_map.items():
@@ -4193,12 +4260,92 @@ def download_libretro_dat(system: str, dest_dir: Path, force: bool = False) -> O
     return None
 
 
+def is_myrient_tosec_url(url: str) -> bool:
+    """Check if a URL is a Myrient TOSEC source."""
+    return 'myrient.erista.me/files/TOSEC/' in url
+
+
+def _scan_tosec_dat_urls(base_url: str, max_depth: int = 3) -> List[str]:
+    """Recursively scan a Myrient TOSEC DAT directory for .dat file URLs."""
+    dat_urls = []
+    try:
+        content, final_url = fetch_url(base_url)
+        html = content.decode('utf-8', errors='replace')
+    except Exception:
+        return dat_urls
+
+    # Extract .dat file links
+    links = extract_links_from_html(html)
+    for href in links:
+        url = normalize_url(href, final_url)
+        if url and url.lower().endswith('.dat'):
+            dat_urls.append(url)
+
+    # Recurse into subdirectories
+    if max_depth > 1:
+        subdirs = parse_html_for_directories(html, final_url)
+        for subdir_url in subdirs:
+            dat_urls.extend(_scan_tosec_dat_urls(subdir_url, max_depth - 1))
+
+    return dat_urls
+
+
+def download_tosec_dats(source_url: str, dest_dir: Path, system: str,
+                        force: bool = False) -> Optional[Dict[str, 'DatRomEntry']]:
+    """Download all TOSEC DAT files for a system from Myrient's DAT mirror.
+
+    Scans the /dats/ mirror of a /files/ TOSEC URL, downloads all .dat files,
+    parses them, and returns merged entries keyed by CRC.
+    """
+    # Derive DAT mirror URL from ROM source URL
+    dat_base_url = source_url.replace('/files/TOSEC/', '/dats/TOSEC/')
+
+    tosec_dat_dir = dest_dir / f"{system}_tosec"
+
+    # Check for cached DATs (skip scan if directory exists and not forcing)
+    if tosec_dat_dir.exists() and not force:
+        dat_files = list(tosec_dat_dir.glob('*.dat'))
+        if dat_files:
+            merged = {}
+            for dat_path in dat_files:
+                merged.update(parse_dat_file(dat_path))
+            return merged if merged else None
+
+    # Scan for DAT file URLs
+    Console.detail(f"Scanning TOSEC DATs: {system}")
+    dat_urls = _scan_tosec_dat_urls(dat_base_url)
+    if not dat_urls:
+        return None
+
+    # Download all DAT files
+    tosec_dat_dir.mkdir(parents=True, exist_ok=True)
+    merged = {}
+    for url in dat_urls:
+        filename = get_filename_from_url(url)
+        dat_path = tosec_dat_dir / filename
+        if not dat_path.exists() or force:
+            try:
+                req = urllib.request.Request(url, headers={'User-Agent': 'Retro-Refiner/1.0'})
+                with urllib.request.urlopen(req, timeout=30) as response:
+                    with open(dat_path, 'wb') as f:
+                        shutil.copyfileobj(response, f)
+            except Exception:
+                continue
+        try:
+            entries = parse_dat_file(dat_path)
+            merged.update(entries)
+        except Exception:
+            continue
+
+    return merged if merged else None
+
+
 def parse_dat_file(dat_path: Path) -> Dict[str, DatRomEntry]:
     """Parse a DAT file (auto-detects ClrMamePro text or Logiqx XML format)."""
-    with open(dat_path, 'r', encoding='utf-8', errors='ignore') as f:
+    with open(dat_path, 'r', encoding='utf-8-sig', errors='ignore') as f:
         first_line = f.readline().strip()
 
-    # Detect format from first line
+    # Detect format from first line (utf-8-sig strips BOM automatically)
     if first_line.startswith('<?xml') or first_line.startswith('<'):
         return parse_logiqx_xml_dat(dat_path)
     else:
@@ -4206,10 +4353,10 @@ def parse_dat_file(dat_path: Path) -> Dict[str, DatRomEntry]:
 
 
 def parse_logiqx_xml_dat(dat_path: Path) -> Dict[str, DatRomEntry]:
-    """Parse a Logiqx XML format DAT file (used by T-En DATs)."""
+    """Parse a Logiqx XML format DAT file (used by T-En DATs and TOSEC)."""
     entries = {}
 
-    with open(dat_path, 'r', encoding='utf-8', errors='ignore') as f:
+    with open(dat_path, 'r', encoding='utf-8-sig', errors='ignore') as f:
         content = f.read()
 
     # Parse machine/game entries with their ROMs
@@ -4509,6 +4656,20 @@ _RE_WHITESPACE = re.compile(r'\s+')
 _RE_YEAR = re.compile(r'\((\d{4})\)')
 _RE_DISC = re.compile(r'\(Disc\s+(\d+)\)', re.IGNORECASE)
 
+# TOSEC naming convention patterns
+_RE_TOSEC_DATE = re.compile(r'^\(\d{4}(?:-\d{2}(?:-\d{2})?)?\)$|^\(\d{2}xx\)$')
+_RE_TOSEC_REVISION = re.compile(r'\s+r(\d+)\s*$')
+_RE_TOSEC_BAD_FLAGS = re.compile(r'\[([bo!]|cr)\]', re.IGNORECASE)
+_TOSEC_REGION_MAP = {
+    'US': 'USA', 'GB': 'Europe', 'EU': 'Europe', 'JP': 'Japan',
+    'FR': 'France', 'DE': 'Germany', 'ES': 'Spain', 'IT': 'Italy',
+    'AU': 'Australia', 'NL': 'Netherlands', 'SE': 'Sweden',
+    'BR': 'Brazil', 'KR': 'Korea', 'CN': 'China', 'TW': 'Taiwan',
+    'CA': 'Canada', 'PT': 'Portugal', 'NO': 'Norway', 'DK': 'Denmark',
+    'FI': 'Finland',
+}
+_TOSEC_ENGLISH_REGIONS = {'US', 'GB', 'AU', 'CA'}
+
 # Pre-compiled patterns used in normalize_title()
 _RE_ARTICLE_COMMA = re.compile(r',\s*(the|a|an)\s*')
 _RE_ARTICLE_START = re.compile(r'^(the|a|an)\s+')
@@ -4526,6 +4687,12 @@ def parse_rom_filename(filename: str) -> RomInfo:
 
     # Remove file extension (covers all common ROM formats)
     name = _RE_EXTENSION.sub('', filename)
+
+    # Detect TOSEC naming: first paren token is a date like (1980) or (19xx)
+    is_tosec = False
+    first_paren = _RE_REGION.search(name)
+    if first_paren and _RE_TOSEC_DATE.match(f'({first_paren.group(1)})'):
+        is_tosec = True
 
     # Check for BIOS
     is_bios = name.startswith('[BIOS]') or '(BIOS)' in name
@@ -4552,6 +4719,25 @@ def parse_rom_filename(filename: str) -> RomInfo:
     is_sample = '(Sample)' in name
     is_proto = '(Proto)' in name or bool(_RE_PROTO.search(name))
 
+    # TOSEC-specific flags
+    tosec_cracked = False
+    tosec_verified = False
+    if is_tosec:
+        name_lower = name.lower()
+        # TOSEC demo tags: (demo), (demo-playable), (demo-slideshow), etc.
+        if '(demo' in name_lower:
+            is_demo = True
+        # TOSEC dump quality flags
+        for flag_match in _RE_TOSEC_BAD_FLAGS.finditer(name):
+            flag = flag_match.group(1)
+            flag_lower = flag.lower()
+            if flag_lower in ('b', 'o'):
+                is_beta = True  # Reuse is_beta to filter out
+            elif flag_lower == 'cr':
+                tosec_cracked = True
+            elif flag == '!':
+                tosec_verified = True
+
     # Check for re-releases (Virtual Console, mini consoles, collections, etc.)
     is_rerelease = any(p.search(name) for p in RERELEASE_PATTERNS)
 
@@ -4575,50 +4761,95 @@ def parse_rom_filename(filename: str) -> RomInfo:
     is_translation = bool(_RE_TRANSLATION.search(name))
 
     # Check for hacks (but not translation-related patches)
-    has_hacks = any(p.search(name) for p in _HACK_PATTERNS)
+    has_hacks = any(p.search(name) for p in _HACK_PATTERNS) or tosec_cracked
 
-    # Extract region - handle multi-region releases like "(Japan, USA)" or "(USA, Europe)"
-    region_match = _RE_REGION.search(name)
+    # Extract region and language
     region = "Unknown"
-    if region_match:
-        region_str = region_match.group(1)
-        # Priority order for multi-region releases
-        region_priority = ['USA', 'World', 'Europe', 'Australia', 'Japan', 'Korea',
-                          'Brazil', 'France', 'Germany', 'Spain', 'Italy', 'Asia',
-                          'Taiwan', 'Hong Kong', 'China']
-        for r in region_priority:
-            if r in region_str:
-                region = r
-                break
-
-    # Check for English language support
     is_english = False
-
-    # Check for explicit language tags like "(En)" or "(En,Fr,De)" or "(Japan) (En)"
-    # Look for standalone (En) or language list containing En
-    if _RE_ENGLISH_TAG.search(name):
-        is_english = True
-
-    # Region-based English detection
-    if region in ['USA', 'World', 'Europe', 'Australia']:
-        is_english = True
-
-    # If it's a translation to English, mark as English
-    if is_translation:
-        is_english = True
-
-    # Extract revision number
     revision = 0
-    rev_match = _RE_REVISION.search(name)
-    if rev_match:
-        rev_str = rev_match.group(1)
-        if rev_str.isdigit():
-            revision = int(rev_str)
-        else:
-            # Convert letter revisions (A=1, B=2, etc.)
-            revision = ord(rev_str[0].upper()) - ord('A') + 1
 
-    # Also check for version numbers
+    if is_tosec:
+        # TOSEC naming: (Year)(Publisher)(region)(language)[flags]
+        # Skip first two parens (year, publisher) for region detection
+        paren_tokens = _RE_REGION.findall(name)
+        tosec_region_code = None
+        has_lang_tag = False
+
+        for token in paren_tokens[2:]:  # Skip year and publisher
+            # Check for TOSEC 2-letter region codes
+            token_upper = token.upper().strip()
+            if token_upper in _TOSEC_REGION_MAP:
+                tosec_region_code = token_upper
+                region = _TOSEC_REGION_MAP[token_upper]
+            # Check for TOSEC language tags (en, fr, de, etc.)
+            if re.match(r'^[a-z]{2}(?:\s*-\s*[a-z]{2})*$', token.strip()):
+                has_lang_tag = True
+                if re.search(r'\ben\b', token.strip()):
+                    is_english = True
+
+        # English detection for TOSEC
+        if _RE_ENGLISH_TAG.search(name) or re.search(r'\(en\b', name, re.IGNORECASE):
+            is_english = True
+        elif tosec_region_code in _TOSEC_ENGLISH_REGIONS:
+            is_english = True
+        elif not tosec_region_code and not has_lang_tag:
+            # No region/language tag at all → default to English (TOSEC convention)
+            is_english = True
+
+        # TOSEC revision: "Title r13 (Year)(Publisher)" — r\d+ at end of pre-paren title
+        pre_paren = name[:name.index('(')] if '(' in name else name
+        tosec_rev = _RE_TOSEC_REVISION.search(pre_paren)
+        if tosec_rev:
+            revision = int(tosec_rev.group(1))
+
+        # Also check standard (Rev X) and version patterns
+        rev_match = _RE_REVISION.search(name)
+        if rev_match:
+            rev_str = rev_match.group(1)
+            rev_val = int(rev_str) if rev_str.isdigit() else ord(rev_str[0].upper()) - ord('A') + 1
+            revision = max(revision, rev_val)
+
+        # Prefer verified good dumps [!] over unverified
+        if tosec_verified:
+            revision += 1
+
+    else:
+        # No-Intro naming: (Region) (Rev X) format
+        region_match = _RE_REGION.search(name)
+        if region_match:
+            region_str = region_match.group(1)
+            # Priority order for multi-region releases
+            nointro_regions = ['USA', 'World', 'Europe', 'Australia', 'Japan', 'Korea',
+                               'Brazil', 'France', 'Germany', 'Spain', 'Italy', 'Asia',
+                               'Taiwan', 'Hong Kong', 'China']
+            for r in nointro_regions:
+                if r in region_str:
+                    region = r
+                    break
+
+        # Check for explicit language tags like "(En)" or "(En,Fr,De)" or "(Japan) (En)"
+        if _RE_ENGLISH_TAG.search(name):
+            is_english = True
+
+        # Region-based English detection
+        if region in ['USA', 'World', 'Europe', 'Australia']:
+            is_english = True
+
+        # If it's a translation to English, mark as English
+        if is_translation:
+            is_english = True
+
+        # Extract revision number
+        rev_match = _RE_REVISION.search(name)
+        if rev_match:
+            rev_str = rev_match.group(1)
+            if rev_str.isdigit():
+                revision = int(rev_str)
+            else:
+                # Convert letter revisions (A=1, B=2, etc.)
+                revision = ord(rev_str[0].upper()) - ord('A') + 1
+
+    # Also check for version numbers (both No-Intro and TOSEC)
     ver_match = _RE_VERSION.search(name)
     if ver_match:
         revision = max(revision, int(ver_match.group(1)) * 100 + int(ver_match.group(2)))
@@ -4633,6 +4864,9 @@ def parse_rom_filename(filename: str) -> RomInfo:
     base_title = _RE_BRACKETS.sub('', base_title)
     # Remove parenthetical tags
     base_title = _RE_PARENS.sub('', base_title)
+    # For TOSEC: strip trailing revision suffix (e.g., "Title r13" → "Title")
+    if is_tosec:
+        base_title = _RE_TOSEC_REVISION.sub('', base_title)
     # Clean up
     base_title = base_title.strip()
     base_title = _RE_WHITESPACE.sub(' ', base_title)
@@ -4643,6 +4877,13 @@ def parse_rom_filename(filename: str) -> RomInfo:
 
     # Extract year if present (look for 4-digit year in parentheses, e.g. "(1990)")
     year = 0
+    if is_tosec and first_paren:
+        # TOSEC: extract year from first paren (e.g., "(1990)", "(2022-08-14)", "(19xx)")
+        date_str = first_paren.group(1)
+        if len(date_str) >= 4 and date_str[:4].isdigit():
+            potential_year = int(date_str[:4])
+            if 1970 <= potential_year <= 2030:
+                year = potential_year
     year_match = _RE_YEAR.search(name)
     if year_match:
         potential_year = int(year_match.group(1))
@@ -5852,6 +6093,212 @@ def download_teknoparrot_dat(dat_dir: Path, force: bool = False) -> Optional[Pat
     except Exception as e:
         print(f"TeknoParrot: Error downloading DAT: {e}")
         return None
+
+
+# =============================================================================
+# IGDB Rating Data
+# =============================================================================
+
+
+def get_igdb_token(client_id: str, client_secret: str) -> Optional[str]:
+    """Get an OAuth2 access token from Twitch for IGDB API access.
+
+    Args:
+        client_id: Twitch/IGDB client ID
+        client_secret: Twitch/IGDB client secret
+
+    Returns:
+        Access token string, or None on failure
+    """
+    url = "https://id.twitch.tv/oauth2/token"
+    params = urllib.parse.urlencode({
+        'client_id': client_id,
+        'client_secret': client_secret,
+        'grant_type': 'client_credentials',
+    }).encode('utf-8')
+
+    try:
+        req = urllib.request.Request(url, data=params, method='POST')
+        with urllib.request.urlopen(req, timeout=30) as response:
+            data = json.loads(response.read().decode('utf-8'))
+            return data.get('access_token')
+    except (urllib.error.URLError, json.JSONDecodeError, KeyError) as e:
+        Console.error(f"Failed to get IGDB token: {e}")
+        return None
+
+
+def fetch_igdb_ratings(system: str, client_id: str, token: str) -> dict:
+    """Fetch game ratings from IGDB for a given system.
+
+    Args:
+        system: System code (e.g., 'nes', 'snes')
+        client_id: Twitch/IGDB client ID
+        token: OAuth2 access token
+
+    Returns:
+        Dict of {normalized_title: {"rating": float, "votes": int, "name": str}}
+    """
+    igdb_id = IGDB_PLATFORM_MAP.get(system)
+    if igdb_id is None:
+        return {}
+
+    ratings = {}
+    offset = 0
+    limit = 500
+
+    while True:
+        body = (
+            f"fields name,total_rating,total_rating_count;"
+            f" where platforms = ({igdb_id}) & total_rating != null;"
+            f" limit {limit}; offset {offset};"
+        ).encode('utf-8')
+
+        req = urllib.request.Request(
+            "https://api.igdb.com/v4/games",
+            data=body,
+            method='POST',
+            headers={
+                'Client-ID': client_id,
+                'Authorization': f'Bearer {token}',
+                'Content-Type': 'text/plain',
+            }
+        )
+
+        try:
+            with urllib.request.urlopen(req, timeout=30) as response:
+                games = json.loads(response.read().decode('utf-8'))
+        except (urllib.error.URLError, json.JSONDecodeError) as e:
+            Console.error(f"IGDB API error for {system} at offset {offset}: {e}")
+            break
+
+        if not games:
+            break
+
+        for game in games:
+            name = game.get('name', '')
+            total_rating = game.get('total_rating')
+            vote_count = game.get('total_rating_count', 0)
+
+            if name and total_rating is not None:
+                normalized = normalize_title(name)
+                # Convert 0-100 scale to 0-10 to match LaunchBox format
+                rating_10 = total_rating / 10.0
+
+                existing = ratings.get(normalized)
+                if not existing or vote_count > existing['votes']:
+                    ratings[normalized] = {
+                        'rating': round(rating_10, 2),
+                        'votes': vote_count,
+                        'name': name,
+                    }
+
+        if len(games) < limit:
+            break
+
+        offset += limit
+        _time.sleep(0.25)  # 4 req/sec rate limit
+
+    return ratings
+
+
+def build_igdb_ratings_cache(client_id: str, client_secret: str,
+                             systems: list, cache_path: Path) -> dict:
+    """Fetch ratings from IGDB for all systems and save to cache.
+
+    Args:
+        client_id: Twitch/IGDB client ID
+        client_secret: Twitch/IGDB client secret
+        systems: List of system codes to fetch ratings for
+        cache_path: Path to save the JSON cache file
+
+    Returns:
+        Dict of {system: {normalized_title: {"rating": float, "votes": int, "name": str}}}
+    """
+    token = get_igdb_token(client_id, client_secret)
+    if not token:
+        Console.error("Failed to authenticate with IGDB. Check your credentials.")
+        return {}
+
+    cache = {}
+    igdb_systems = [s for s in systems if s in IGDB_PLATFORM_MAP]
+
+    if not igdb_systems:
+        Console.warning("No systems with IGDB platform IDs found.")
+        return {}
+
+    Console.info(f"Fetching IGDB ratings for {len(igdb_systems)} systems...")
+
+    for i, system in enumerate(igdb_systems, 1):
+        Console.detail(f"  [{i}/{len(igdb_systems)}] {system}...")
+        ratings = fetch_igdb_ratings(system, client_id, token)
+        if ratings:
+            cache[system] = ratings
+            Console.detail(f"    {len(ratings)} rated games")
+        _time.sleep(0.25)  # Rate limit between systems
+
+    # Save cache
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(cache_path, 'w', encoding='utf-8') as f:
+        json.dump(cache, f)
+
+    total_rated = sum(len(games) for games in cache.values())
+    Console.success(f"IGDB cache saved: {total_rated} games across {len(cache)} systems")
+
+    return cache
+
+
+def load_igdb_cache(dat_dir: Path, client_id: str = None,
+                    client_secret: str = None,
+                    force_rebuild: bool = False,
+                    systems: list = None) -> dict:
+    """Load IGDB ratings cache, rebuilding from API if stale or missing.
+
+    Cache is stored at {dat_dir}/igdb/ratings_cache.json and expires after 7 days.
+
+    Args:
+        dat_dir: Base directory for data files
+        client_id: Twitch/IGDB client ID (needed for rebuild)
+        client_secret: Twitch/IGDB client secret (needed for rebuild)
+        force_rebuild: Force rebuild even if cache is fresh
+        systems: List of system codes (needed for rebuild)
+
+    Returns:
+        Ratings cache dict, or empty dict if unavailable
+    """
+    igdb_dir = dat_dir / "igdb"
+    cache_path = igdb_dir / "ratings_cache.json"
+
+    # Check if cache exists and is fresh (< 7 days old)
+    if cache_path.exists() and not force_rebuild:
+        cache_age = _time.time() - cache_path.stat().st_mtime
+        if cache_age < 7 * 24 * 3600:  # 7 days
+            Console.detail(f"Loading IGDB cache from {cache_path.name}...")
+            try:
+                with open(cache_path, 'r', encoding='utf-8') as f:
+                    cached = json.load(f)
+                if cached:
+                    return cached
+                Console.warning("IGDB cache is empty, rebuilding...")
+            except (json.JSONDecodeError, IOError):
+                Console.warning("IGDB cache corrupted, rebuilding...")
+        else:
+            Console.detail("IGDB cache expired (>7 days), rebuilding...")
+
+    # Need credentials to rebuild
+    if not client_id or not client_secret:
+        if cache_path.exists():
+            Console.warning("IGDB credentials not set, using stale cache...")
+            try:
+                with open(cache_path, 'r', encoding='utf-8') as f:
+                    return json.load(f)
+            except (json.JSONDecodeError, IOError):
+                pass
+        return {}
+
+    # Rebuild from API
+    target_systems = systems if systems else list(IGDB_PLATFORM_MAP.keys())
+    return build_igdb_ratings_cache(client_id, client_secret,
+                                    target_systems, cache_path)
 
 
 # =============================================================================
@@ -7440,6 +7887,16 @@ Pattern examples (--include / --exclude):
     parser.add_argument('--ia-secret-key', default=None,
                         help='Internet Archive S3 secret key (or set IA_SECRET_KEY env var)')
 
+    # IGDB authentication
+    parser.add_argument('--igdb-client-id', default=None,
+                        help='IGDB/Twitch client ID (or set IGDB_CLIENT_ID env var)')
+    parser.add_argument('--igdb-client-secret', default=None,
+                        help='IGDB/Twitch client secret (or set IGDB_CLIENT_SECRET env var)')
+    parser.add_argument('--ratings-source', default=None,
+                        choices=['igdb', 'launchbox'],
+                        help='Rating data source for --top/--size '
+                             '(default: igdb if credentials set, else launchbox)')
+
     # TeknoParrot options
     parser.add_argument('--tp-include-platforms', default=None,
                         help='Comma-separated TeknoParrot platforms to include (e.g., "Sega Nu,Taito Type X")')
@@ -7502,6 +7959,10 @@ Pattern examples (--include / --exclude):
     # Resolve IA credentials from args or environment
     args.ia_access_key = args.ia_access_key or os.environ.get('IA_ACCESS_KEY')
     args.ia_secret_key = args.ia_secret_key or os.environ.get('IA_SECRET_KEY')
+
+    # Resolve IGDB credentials from args or environment
+    args.igdb_client_id = args.igdb_client_id or os.environ.get('IGDB_CLIENT_ID')
+    args.igdb_client_secret = args.igdb_client_secret or os.environ.get('IGDB_CLIENT_SECRET')
 
     # Default connections to parallel if not specified
     if args.connections is None:
@@ -7602,6 +8063,21 @@ Pattern examples (--include / --exclude):
                     # Small delay to avoid rate limiting
                     _time.sleep(1.0)
             Console.result("T-En DATs", ten_downloaded, ten_failed)
+
+        # IGDB ratings data (if credentials available)
+        if args.igdb_client_id and args.igdb_client_secret:
+            Console.section("IGDB Ratings Data")
+            igdb_ratings = load_igdb_cache(
+                dat_dir,
+                client_id=args.igdb_client_id,
+                client_secret=args.igdb_client_secret,
+                force_rebuild=True,
+                systems=list(IGDB_PLATFORM_MAP.keys()),
+            )
+            if igdb_ratings:
+                Console.success("IGDB ratings cached successfully")
+            else:
+                Console.error("Failed to fetch IGDB ratings")
 
         # LaunchBox ratings data
         Console.section("LaunchBox Ratings Data")
@@ -7926,6 +8402,7 @@ Pattern examples (--include / --exclude):
     url_to_source = {}  # {url: network_url} - track which source each URL came from
     empty_network_sources = []
     systems_with_ten_sources = set()  # Track systems that have T-En translation sources
+    tosec_source_urls = {}  # {system: source_url} for Myrient TOSEC sources
 
     for network_url in network_sources:
         check_shutdown()
@@ -7974,6 +8451,9 @@ Pattern examples (--include / --exclude):
             # Track if this is a T-En source for this system
             if is_ten_source(network_url):
                 systems_with_ten_sources.add(system)
+            # Track if this is a Myrient TOSEC source
+            if is_myrient_tosec_url(network_url):
+                tosec_source_urls[system] = network_url
 
     # Step 1.5: Download DAT files for detected network systems (improves filtering accuracy)
     # DAT files provide official game names for better title matching
@@ -7999,6 +8479,13 @@ Pattern examples (--include / --exclude):
                         fmt = "XML" if first.startswith('<?xml') or first.startswith('<') else "ClrMamePro"
                         print(f"  [DAT] {system.upper()}: format={fmt}, entries={len(dat_entries)}, "
                               f"path={dat_path}")
+                elif system in tosec_source_urls:
+                    # Fall back to TOSEC DATs from Myrient's /dats/ mirror
+                    tosec_entries = download_tosec_dats(
+                        tosec_source_urls[system], dat_dir, system)
+                    if tosec_entries:
+                        network_dat_entries[system] = tosec_entries
+                        print(f"  {system.upper()}: {len(tosec_entries)} TOSEC DAT entries loaded")
 
         # Download MAME data (catver.ini + DAT) for MAME/arcade network sources
         mame_network_systems = [s for s in all_network_urls.keys() if s in ('mame', 'fbneo', 'fba', 'arcade')]
@@ -8068,31 +8555,56 @@ Pattern examples (--include / --exclude):
         Console.section("Loading Rating Data")
         dat_dir_ratings = Path(args.dat_dir) if args.dat_dir else Path(__file__).parent / 'dat_files'
 
-        # Check if LaunchBox data exists
-        lb_xml = dat_dir_ratings / "launchbox" / "Metadata.xml"
-        if not lb_xml.exists():
-            Console.warning("LaunchBox data not found. Downloading...")
-            if not download_launchbox_data(dat_dir_ratings):
+        # Determine rating source: explicit choice, or auto-detect
+        ratings_source = getattr(args, 'ratings_source', None)
+        has_igdb_creds = (getattr(args, 'igdb_client_id', None)
+                          and getattr(args, 'igdb_client_secret', None))
+        if ratings_source is None:
+            ratings_source = 'igdb' if has_igdb_creds else 'launchbox'
+
+        if ratings_source == 'igdb':
+            Console.info("Rating source: IGDB")
+            ratings = load_igdb_cache(
+                dat_dir_ratings,
+                client_id=getattr(args, 'igdb_client_id', None),
+                client_secret=getattr(args, 'igdb_client_secret', None),
+                systems=list(IGDB_PLATFORM_MAP.keys()),
+            )
+            if not ratings:
+                Console.warning("IGDB ratings unavailable, falling back to LaunchBox...")
+                ratings_source = 'launchbox'
+
+        if ratings_source == 'launchbox':
+            Console.info("Rating source: LaunchBox")
+            lb_xml = dat_dir_ratings / "launchbox" / "Metadata.xml"
+            if not lb_xml.exists():
+                Console.warning("LaunchBox data not found. Downloading...")
+                if not download_launchbox_data(dat_dir_ratings):
+                    if args.top:
+                        Console.error("Failed to download LaunchBox data. "
+                                      "--top requires rating data.")
+                        Console.info("Run with --update-dats to download, "
+                                     "or remove --top flag.")
+                        sys.exit(1)
+                    else:
+                        Console.warning("Rating data unavailable. "
+                                        "--size will use default order.")
+
+            if not ratings:
+                ratings = load_ratings_cache(dat_dir_ratings)
+            if not ratings:
                 if args.top:
-                    Console.error("Failed to download LaunchBox data. --top requires rating data.")
-                    Console.info("Run with --update-dats to download, or remove --top flag.")
+                    Console.error("Failed to load ratings cache.")
                     sys.exit(1)
                 else:
-                    Console.warning("Rating data unavailable. --size will use default order.")
-
-        if not ratings:
-            ratings = load_ratings_cache(dat_dir_ratings)
-        if not ratings:
-            if args.top:
-                Console.error("Failed to load ratings cache.")
-                sys.exit(1)
-            else:
-                Console.warning("Rating data unavailable. --size will use default order.")
-                ratings = {}
+                    Console.warning("Rating data unavailable. "
+                                    "--size will use default order.")
+                    ratings = {}
 
         if ratings:
             total_rated = sum(len(games) for games in ratings.values())
-            Console.success(f"Loaded ratings for {total_rated} games across {len(ratings)} systems")
+            Console.success(f"Loaded ratings for {total_rated} games "
+                            f"across {len(ratings)} systems")
         print()
 
     # Step 2: Filter combined URL pool per system (select best ROM across ALL sources)

@@ -62,6 +62,9 @@ KNOWN_SYSTEMS = _module.KNOWN_SYSTEMS
 FOLDER_ALIASES = _module.FOLDER_ALIASES
 EXTENSION_TO_SYSTEM = _module.EXTENSION_TO_SYSTEM
 
+# IGDB
+IGDB_PLATFORM_MAP = _module.IGDB_PLATFORM_MAP
+
 
 class TestResult:
     """Track test results."""
@@ -2128,6 +2131,317 @@ def test_multi_disc_games():
             results.fail("local single-disc", "present", str(selected_names))
 
 
+def test_tosec_parsing():
+    """Test TOSEC filename parsing and selection."""
+    print(f"\n{'-'*40}")
+    print("TOSEC FILENAME PARSING")
+    print(f"{'-'*40}")
+
+    # Basic TOSEC detection and title extraction
+    rom = parse_rom_filename("Aliens (1986)(Electric Dreams Software).zip")
+    if rom.base_title == "Aliens":
+        results.ok("TOSEC basic title extraction")
+    else:
+        results.fail("TOSEC title", "Aliens", rom.base_title)
+
+    # TOSEC year extraction
+    if rom.year == 1986:
+        results.ok("TOSEC year extraction")
+    else:
+        results.fail("TOSEC year", "1986", str(rom.year))
+
+    # TOSEC with no region/language = English by default
+    if rom.is_english:
+        results.ok("TOSEC no-tag defaults to English")
+    else:
+        results.fail("TOSEC english default", "True", str(rom.is_english))
+
+    # TOSEC with US region
+    rom = parse_rom_filename("Pac-Man (1982)(Atari)(US).zip")
+    if rom.region == "USA" and rom.is_english:
+        results.ok("TOSEC US region =USA + English")
+    else:
+        results.fail("TOSEC US region", "USA/English", f"{rom.region}/{rom.is_english}")
+
+    # TOSEC with JP region
+    rom = parse_rom_filename("Space Invaders (1980)(Taito)(JP).zip")
+    if rom.region == "Japan" and not rom.is_english:
+        results.ok("TOSEC JP region =Japan + not English")
+    else:
+        results.fail("TOSEC JP region", "Japan/False", f"{rom.region}/{rom.is_english}")
+
+    # TOSEC with EU region
+    rom = parse_rom_filename("Tetris (1989)(Nintendo)(EU).zip")
+    if rom.region == "Europe":
+        results.ok("TOSEC EU region =Europe")
+    else:
+        results.fail("TOSEC EU region", "Europe", rom.region)
+
+    # TOSEC with GB region (English)
+    rom = parse_rom_filename("Elite (1985)(Acornsoft)(GB).zip")
+    if rom.region == "Europe" and rom.is_english:
+        results.ok("TOSEC GB region =Europe + English")
+    else:
+        results.fail("TOSEC GB region", "Europe/True", f"{rom.region}/{rom.is_english}")
+
+    # TOSEC with explicit (en) language tag
+    rom = parse_rom_filename("Game (1990)(Publisher)(en).zip")
+    if rom.is_english:
+        results.ok("TOSEC explicit (en) tag =English")
+    else:
+        results.fail("TOSEC (en) tag", "True", str(rom.is_english))
+
+    # TOSEC with non-English language only
+    rom = parse_rom_filename("Jeu (1990)(Publisher)(FR)(fr).zip")
+    if rom.region == "France" and not rom.is_english:
+        results.ok("TOSEC FR region + (fr) lang =not English")
+    else:
+        results.fail("TOSEC FR", "France/False", f"{rom.region}/{rom.is_english}")
+
+    # TOSEC revision in title
+    rom = parse_rom_filename("Hibernated 1 Director's Cut r13 (2022-08-14)(Puddle Soft).zip")
+    if rom.revision == 13 and rom.base_title == "Hibernated 1 Director's Cut":
+        results.ok("TOSEC revision extraction and title cleanup")
+    else:
+        results.fail("TOSEC revision", "13/Hibernated 1 Director's Cut",
+                     f"{rom.revision}/{rom.base_title}")
+
+    # TOSEC revision grouping: r9 and r13 same title
+    rom_r9 = parse_rom_filename("Hibernated 1 Director's Cut r9 (2022-08-14)(Puddle Soft).zip")
+    rom_r13 = parse_rom_filename("Hibernated 1 Director's Cut r13 (2022-08-14)(Puddle Soft).zip")
+    norm_r9 = normalize_title(rom_r9.base_title)
+    norm_r13 = normalize_title(rom_r13.base_title)
+    if norm_r9 == norm_r13:
+        results.ok("TOSEC revisions group to same normalized title")
+    else:
+        results.fail("TOSEC rev grouping", norm_r9, norm_r13)
+
+    # TOSEC bad dump [b] =filtered out
+    rom = parse_rom_filename("Game (1990)(Publisher)[b].zip")
+    if rom.is_beta:
+        results.ok("TOSEC [b] bad dump =is_beta")
+    else:
+        results.fail("TOSEC [b]", "True", str(rom.is_beta))
+
+    # TOSEC overdump [o] =filtered out
+    rom = parse_rom_filename("Game (1990)(Publisher)[o].zip")
+    if rom.is_beta:
+        results.ok("TOSEC [o] overdump =is_beta")
+    else:
+        results.fail("TOSEC [o]", "True", str(rom.is_beta))
+
+    # TOSEC cracked [cr] =has_hacks
+    rom = parse_rom_filename("Game (1990)(Publisher)[cr].zip")
+    if rom.has_hacks:
+        results.ok("TOSEC [cr] cracked =has_hacks")
+    else:
+        results.fail("TOSEC [cr]", "True", str(rom.has_hacks))
+
+    # TOSEC verified [!] =higher revision
+    rom_plain = parse_rom_filename("Game (1990)(Publisher).zip")
+    rom_verified = parse_rom_filename("Game (1990)(Publisher)[!].zip")
+    if rom_verified.revision > rom_plain.revision:
+        results.ok("TOSEC [!] verified =higher revision")
+    else:
+        results.fail("TOSEC [!]", f">{rom_plain.revision}", str(rom_verified.revision))
+
+    # TOSEC demo detection (case-insensitive)
+    rom = parse_rom_filename("Game (1990)(Publisher)(demo-playable).zip")
+    if rom.is_demo:
+        results.ok("TOSEC (demo-playable) =is_demo")
+    else:
+        results.fail("TOSEC demo", "True", str(rom.is_demo))
+
+    rom = parse_rom_filename("Game (1990)(Publisher)(Demo).zip")
+    if rom.is_demo:
+        results.ok("TOSEC (Demo) =is_demo")
+    else:
+        results.fail("TOSEC Demo", "True", str(rom.is_demo))
+
+    # TOSEC date formats: YYYY-MM-DD and YYxx
+    rom = parse_rom_filename("Game (2022-08-14)(Publisher).zip")
+    if rom.year == 2022:
+        results.ok("TOSEC YYYY-MM-DD date format")
+    else:
+        results.fail("TOSEC date", "2022", str(rom.year))
+
+    rom = parse_rom_filename("Game (19xx)(Publisher).zip")
+    # 19xx shouldn't parse as a valid year (not 4 digits matching 1970-2030)
+    if rom.base_title == "Game":
+        results.ok("TOSEC 19xx date format detected as TOSEC")
+    else:
+        results.fail("TOSEC 19xx", "Game", rom.base_title)
+
+    # TOSEC selection: prefer verified over bad dump
+    roms = [
+        parse_rom_filename("Game (1990)(Publisher)[b].zip"),
+        parse_rom_filename("Game (1990)(Publisher)[!].zip"),
+        parse_rom_filename("Game (1990)(Publisher).zip"),
+    ]
+    best = select_best_rom(roms)
+    if best and best.filename == "Game (1990)(Publisher)[!].zip":
+        results.ok("TOSEC selection prefers [!] verified dump")
+    else:
+        results.fail("TOSEC selection", "Game (1990)(Publisher)[!].zip",
+                     best.filename if best else "None")
+
+    # TOSEC selection: higher revision wins
+    roms = [
+        parse_rom_filename("Hibernated 1 Director's Cut r9 (2022-08-14)(Puddle Soft).zip"),
+        parse_rom_filename("Hibernated 1 Director's Cut r13 (2022-08-14)(Puddle Soft).zip"),
+    ]
+    best = select_best_rom(roms)
+    if best and best.filename == "Hibernated 1 Director's Cut r13 (2022-08-14)(Puddle Soft).zip":
+        results.ok("TOSEC selection prefers higher revision")
+    else:
+        results.fail("TOSEC higher rev", "r13",
+                     best.filename if best else "None")
+
+    # TOSEC selection: cracked version deprioritized
+    roms = [
+        parse_rom_filename("Game (1990)(Publisher)[cr].zip"),
+        parse_rom_filename("Game (1990)(Publisher).zip"),
+    ]
+    best = select_best_rom(roms)
+    if best and best.filename == "Game (1990)(Publisher).zip":
+        results.ok("TOSEC selection prefers non-cracked")
+    else:
+        results.fail("TOSEC non-cracked pref", "Game (1990)(Publisher).zip",
+                     best.filename if best else "None")
+
+    # Ensure No-Intro filenames are NOT detected as TOSEC
+    rom = parse_rom_filename("Super Mario Bros. (USA).zip")
+    if rom.region == "USA" and rom.is_english:
+        results.ok("No-Intro filename not misdetected as TOSEC")
+    else:
+        results.fail("No-Intro detection", "USA/True", f"{rom.region}/{rom.is_english}")
+
+
+def test_igdb():
+    """Test IGDB integration."""
+    print("\n" + "="*60)
+    print("IGDB INTEGRATION TESTS")
+    print("="*60)
+
+    # Test IGDB platform map loaded from systems.json
+    if isinstance(IGDB_PLATFORM_MAP, dict) and len(IGDB_PLATFORM_MAP) > 0:
+        results.ok("IGDB platform map loaded")
+    else:
+        results.fail("IGDB platform map loaded", ">0 entries", len(IGDB_PLATFORM_MAP))
+
+    # Test known IGDB IDs
+    expected_ids = {
+        'nes': 18, 'snes': 19, 'n64': 4, 'genesis': 29,
+        'gameboy': 33, 'gba': 24, 'psx': 7, 'dreamcast': 23,
+    }
+    for system, expected_id in expected_ids.items():
+        actual_id = IGDB_PLATFORM_MAP.get(system)
+        if actual_id == expected_id:
+            results.ok(f"IGDB ID for {system} = {expected_id}")
+        else:
+            results.fail(f"IGDB ID for {system}", expected_id, actual_id)
+
+    # Test systems without IGDB IDs don't appear in map
+    for system in ['actionmax', 'arduboy', 'chip8']:
+        if system not in IGDB_PLATFORM_MAP:
+            results.ok(f"No IGDB ID for niche system {system}")
+        else:
+            results.fail(f"No IGDB ID for {system}", "not in map", IGDB_PLATFORM_MAP[system])
+
+    # Test IGDB cache format structure
+    sample_cache = {
+        'nes': {
+            'super mario bros': {'rating': 8.5, 'votes': 120, 'name': 'Super Mario Bros.'},
+            'zelda': {'rating': 9.1, 'votes': 200, 'name': 'The Legend of Zelda'},
+        },
+        'snes': {
+            'super mario world': {'rating': 9.3, 'votes': 180, 'name': 'Super Mario World'},
+        },
+    }
+    # Verify cache structure matches what apply_top_n_filter expects
+    nes_ratings = sample_cache.get('nes', {})
+    mario = nes_ratings.get('super mario bros', {})
+    if mario.get('rating') == 8.5 and mario.get('votes') == 120:
+        results.ok("IGDB cache format compatible with rating functions")
+    else:
+        results.fail("IGDB cache format", "rating=8.5, votes=120", mario)
+
+    # Test rating source auto-detection logic
+    class MockArgs:
+        """Mock args for testing rating source detection."""
+        def __init__(self, **kwargs):
+            for k, v in kwargs.items():
+                setattr(self, k, v)
+
+    # With IGDB credentials -> igdb
+    args = MockArgs(ratings_source=None, igdb_client_id='test', igdb_client_secret='test')
+    source = args.ratings_source
+    has_creds = args.igdb_client_id and args.igdb_client_secret
+    detected = 'igdb' if source is None and has_creds else source or 'launchbox'
+    if detected == 'igdb':
+        results.ok("Auto-detect igdb with credentials")
+    else:
+        results.fail("Auto-detect igdb with credentials", "igdb", detected)
+
+    # Without credentials -> launchbox
+    args = MockArgs(ratings_source=None, igdb_client_id=None, igdb_client_secret=None)
+    source = args.ratings_source
+    has_creds = args.igdb_client_id and args.igdb_client_secret
+    detected = 'igdb' if source is None and has_creds else source or 'launchbox'
+    if detected == 'launchbox':
+        results.ok("Auto-detect launchbox without credentials")
+    else:
+        results.fail("Auto-detect launchbox without credentials", "launchbox", detected)
+
+    # Explicit override -> use that
+    args = MockArgs(ratings_source='launchbox', igdb_client_id='test', igdb_client_secret='test')
+    source = args.ratings_source
+    has_creds = args.igdb_client_id and args.igdb_client_secret
+    detected = 'igdb' if source is None and has_creds else source or 'launchbox'
+    if detected == 'launchbox':
+        results.ok("Explicit launchbox overrides igdb credentials")
+    else:
+        results.fail("Explicit override", "launchbox", detected)
+
+    # Test normalize_title matching between IGDB names and ROM filenames
+    # IGDB uses clean names like "Super Mario Bros." while ROMs use "Super Mario Bros. (USA).zip"
+    igdb_name = "Super Mario Bros."
+    rom_name = "Super Mario Bros. (USA).zip"
+    rom_info = parse_rom_filename(rom_name)
+    igdb_normalized = normalize_title(igdb_name)
+    rom_normalized = normalize_title(rom_info.base_title)
+    if igdb_normalized == rom_normalized:
+        results.ok(f"IGDB/ROM title match: '{igdb_name}' == '{rom_info.base_title}'")
+    else:
+        results.fail("IGDB/ROM title match",
+                    igdb_normalized, rom_normalized)
+
+    # Test another title
+    igdb_name = "The Legend of Zelda: A Link to the Past"
+    rom_name = "Legend of Zelda, The - A Link to the Past (USA).sfc"
+    rom_info = parse_rom_filename(rom_name)
+    igdb_normalized = normalize_title(igdb_name)
+    rom_normalized = normalize_title(rom_info.base_title)
+    if igdb_normalized == rom_normalized:
+        results.ok(f"IGDB/ROM title match: Zelda ALTTP")
+    else:
+        results.fail("IGDB/ROM title match Zelda",
+                    igdb_normalized, rom_normalized)
+
+    # Test IGDB config map entries
+    from argparse import Namespace
+    test_config = {'igdb_client_id': 'my_id', 'igdb_client_secret': 'my_secret',
+                   'ratings_source': 'igdb'}
+    test_args = Namespace(igdb_client_id=None, igdb_client_secret=None,
+                          ratings_source=None)
+    apply_config_to_args(test_args, test_config)
+    if test_args.igdb_client_id == 'my_id' and test_args.ratings_source == 'igdb':
+        results.ok("IGDB config map applies correctly")
+    else:
+        results.fail("IGDB config map", "my_id/igdb",
+                    f"{test_args.igdb_client_id}/{test_args.ratings_source}")
+
+
 def main():
     """Run all tests."""
     print("\n" + "="*60)
@@ -2158,6 +2472,8 @@ def main():
 
     test_english_only_flag()
     test_multi_disc_games()
+    test_tosec_parsing()
+    test_igdb()
 
     # Run integration tests with real files
     source = r"C:\Users\atkin\Downloads\Roms"

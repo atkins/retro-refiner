@@ -93,7 +93,7 @@ _spec = importlib.util.spec_from_file_location("retro_refiner", Path(__file__).p
 ```
 
 Test files:
-- `tests/test_selection.py` - 180 unit tests: ROM parsing, selection, filtering, config, playlists, transfers, size budget, english-only, multi-disc games, systems.json validation
+- `tests/test_selection.py` - 222 unit tests: ROM parsing, selection, filtering, config, playlists, transfers, size budget, english-only, multi-disc games, TOSEC naming, systems.json validation, IGDB integration
 - `tests/test_bandwidth.py` - Benchmark tool for download performance tuning
 - `tests/test_network_sources.py` - Functional tests for network source operations
 

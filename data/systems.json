@@ -18,7 +18,8 @@
       "ten_dat_prefix": "Panasonic - 3DO Interactive Multiplayer",
       "launchbox_platforms": [
         "3DO Interactive Multiplayer"
-      ]
+      ],
+      "igdb_id": 50
     },
     "3ds": {
       "name": "Nintendo - Nintendo 3DS",
@@ -83,7 +84,8 @@
         "amstrad-cpc",
         "cpc"
       ],
-      "dat_name": "Amstrad - CPC"
+      "dat_name": "Amstrad - CPC",
+      "igdb_id": 25
     },
     "apple2": {
       "name": "Apple2",
@@ -117,7 +119,8 @@
       "dat_name": "Atari - 2600",
       "launchbox_platforms": [
         "Atari 2600"
-      ]
+      ],
+      "igdb_id": 59
     },
     "atari400": {
       "name": "Atari400"
@@ -146,7 +149,8 @@
       "dat_name": "Atari - 7800",
       "launchbox_platforms": [
         "Atari 7800"
-      ]
+      ],
+      "igdb_id": 60
     },
     "atari800": {
       "name": "Atari - 8-bit Family",
@@ -177,7 +181,8 @@
       "dat_name": "Atari - Jaguar",
       "launchbox_platforms": [
         "Atari Jaguar"
-      ]
+      ],
+      "igdb_id": 62
     },
     "atarijaguarcd": {
       "name": "Atari - Jaguar CD",
@@ -203,7 +208,8 @@
       "dat_name": "Atari - Lynx",
       "launchbox_platforms": [
         "Atari Lynx"
-      ]
+      ],
+      "igdb_id": 61
     },
     "atarist": {
       "name": "Atari - ST",
@@ -306,7 +312,8 @@
       "dat_name": "Coleco - ColecoVision",
       "launchbox_platforms": [
         "ColecoVision"
-      ]
+      ],
+      "igdb_id": 68
     },
     "cps1": {
       "name": "Cps1",
@@ -357,7 +364,8 @@
       "ten_dat_prefix": "Sega - Dreamcast",
       "launchbox_platforms": [
         "Sega Dreamcast"
-      ]
+      ],
+      "igdb_id": 23
     },
     "dsi": {
       "name": "Nintendo - Nintendo DSi",
@@ -457,7 +465,8 @@
       "ten_dat_prefix": "Nintendo - Game Boy",
       "launchbox_platforms": [
         "Nintendo Game Boy"
-      ]
+      ],
+      "igdb_id": 33
     },
     "gameboy-color": {
       "name": "Nintendo - Game Boy Color",
@@ -473,7 +482,8 @@
       "ten_dat_prefix": "Nintendo - Game Boy Color",
       "launchbox_platforms": [
         "Nintendo Game Boy Color"
-      ]
+      ],
+      "igdb_id": 22
     },
     "gamecom": {
       "name": "Tiger - Game.com",
@@ -515,7 +525,8 @@
       "ten_dat_prefix": "Sega - Game Gear",
       "launchbox_platforms": [
         "Sega Game Gear"
-      ]
+      ],
+      "igdb_id": 35
     },
     "gamemaster": {
       "name": "Hartung - Game Master",
@@ -538,7 +549,8 @@
       "ten_dat_prefix": "Nintendo - Game Boy Advance",
       "launchbox_platforms": [
         "Nintendo Game Boy Advance"
-      ]
+      ],
+      "igdb_id": 24
     },
     "genesis": {
       "name": "Sega - Mega Drive - Genesis",
@@ -559,7 +571,8 @@
       "launchbox_platforms": [
         "Sega Genesis",
         "Sega Mega Drive"
-      ]
+      ],
+      "igdb_id": 29
     },
     "gp32": {
       "name": "GamePark - GP32",
@@ -576,7 +589,8 @@
       "dat_name": "Mattel - Intellivision",
       "launchbox_platforms": [
         "Mattel Intellivision"
-      ]
+      ],
+      "igdb_id": 67
     },
     "j2me": {
       "name": "Mobile - J2ME",
@@ -621,7 +635,8 @@
       "launchbox_platforms": [
         "Arcade",
         "MAME"
-      ]
+      ],
+      "igdb_id": 52
     },
     "mastersystem": {
       "name": "Sega - Master System - Mark III",
@@ -637,7 +652,8 @@
       "ten_dat_prefix": "Sega - Master System",
       "launchbox_platforms": [
         "Sega Master System"
-      ]
+      ],
+      "igdb_id": 64
     },
     "megaduck": {
       "name": "Megaduck"
@@ -665,7 +681,8 @@
       "ten_dat_prefix": "Microsoft - MSX",
       "launchbox_platforms": [
         "MSX"
-      ]
+      ],
+      "igdb_id": 27
     },
     "msx2": {
       "name": "Microsoft - MSX2",
@@ -693,7 +710,8 @@
       "ten_dat_prefix": "Nintendo - Nintendo 64",
       "launchbox_platforms": [
         "Nintendo 64"
-      ]
+      ],
+      "igdb_id": 4
     },
     "n64dd": {
       "name": "Nintendo - Nintendo 64DD",
@@ -739,7 +757,8 @@
       "ten_dat_prefix": "Nintendo - Nintendo DS",
       "launchbox_platforms": [
         "Nintendo DS"
-      ]
+      ],
+      "igdb_id": 20
     },
     "neogeo": {
       "name": "SNK - Neo Geo",
@@ -755,7 +774,8 @@
       "launchbox_platforms": [
         "SNK Neo Geo AES",
         "SNK Neo Geo MVS"
-      ]
+      ],
+      "igdb_id": 79
     },
     "neogeocd": {
       "name": "SNK - Neo Geo CD",
@@ -786,7 +806,8 @@
       "ten_dat_prefix": "Nintendo - Famicom",
       "launchbox_platforms": [
         "Nintendo Entertainment System"
-      ]
+      ],
+      "igdb_id": 18
     },
     "ngp": {
       "name": "SNK - Neo Geo Pocket",
@@ -964,7 +985,8 @@
       "ten_dat_prefix": "Sony - PlayStation Portable",
       "launchbox_platforms": [
         "Sony PSP"
-      ]
+      ],
+      "igdb_id": 38
     },
     "psvita": {
       "name": "Sony - PlayStation Vita",
@@ -996,7 +1018,8 @@
       "ten_dat_prefix": "Sony - PlayStation",
       "launchbox_platforms": [
         "Sony Playstation"
-      ]
+      ],
+      "igdb_id": 7
     },
     "pv1000": {
       "name": "Casio - PV-1000",
@@ -1029,7 +1052,8 @@
       "ten_dat_prefix": "Sega - Saturn",
       "launchbox_platforms": [
         "Sega Saturn"
-      ]
+      ],
+      "igdb_id": 32
     },
     "sc3000": {
       "name": "Sc3000",
@@ -1063,7 +1087,8 @@
       "dat_name": "Sega - 32X",
       "launchbox_platforms": [
         "Sega 32X"
-      ]
+      ],
+      "igdb_id": 30
     },
     "segacd": {
       "name": "Sega - Mega-CD - Sega CD",
@@ -1081,7 +1106,8 @@
       "ten_dat_prefix": "Sega - Mega CD",
       "launchbox_platforms": [
         "Sega CD"
-      ]
+      ],
+      "igdb_id": 78
     },
     "segapico": {
       "name": "Sega - PICO",
@@ -1134,7 +1160,8 @@
       "ten_dat_prefix": "Nintendo - Super Famicom",
       "launchbox_platforms": [
         "Super Nintendo Entertainment System"
-      ]
+      ],
+      "igdb_id": 19
     },
     "studio2": {
       "name": "RCA - Studio II",
@@ -1228,7 +1255,8 @@
       "ten_dat_prefix": "NEC - PC Engine",
       "launchbox_platforms": [
         "NEC TurboGrafx-16"
-      ]
+      ],
+      "igdb_id": 86
     },
     "tgcd": {
       "name": "NEC - PC Engine CD - TurboGrafx-CD",
@@ -1282,7 +1310,8 @@
       "dat_name": "GCE - Vectrex",
       "launchbox_platforms": [
         "GCE Vectrex"
-      ]
+      ],
+      "igdb_id": 70
     },
     "vic20": {
       "name": "Commodore - VIC-20",
@@ -1312,7 +1341,8 @@
       "ten_dat_prefix": "Nintendo - Virtual Boy",
       "launchbox_platforms": [
         "Nintendo Virtual Boy"
-      ]
+      ],
+      "igdb_id": 87
     },
     "vsmile": {
       "name": "VTech - V.Smile",
@@ -1367,7 +1397,8 @@
       "ten_dat_prefix": "Bandai - WonderSwan",
       "launchbox_platforms": [
         "Bandai WonderSwan"
-      ]
+      ],
+      "igdb_id": 57
     },
     "wonderswan-color": {
       "name": "Bandai - WonderSwan Color",
@@ -1444,7 +1475,8 @@
       "dat_name": "Sinclair - ZX Spectrum +3",
       "launchbox_platforms": [
         "Sinclair ZX Spectrum"
-      ]
+      ],
+      "igdb_id": 26
     }
   }
 }
