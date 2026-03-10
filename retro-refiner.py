@@ -24,6 +24,7 @@ import zipfile
 import binascii
 import fnmatch
 import json
+import unicodedata
 import urllib.request
 import urllib.error
 import socket
@@ -4919,6 +4920,10 @@ def normalize_title(title: str) -> str:
     """Normalize a title for grouping purposes."""
     # Lowercase
     normalized = title.lower()
+
+    # Strip accented characters to ASCII equivalents (e.g., Pokémon -> Pokemon)
+    normalized = unicodedata.normalize('NFKD', normalized)
+    normalized = ''.join(c for c in normalized if not unicodedata.combining(c))
 
     # Remove common articles and punctuation differences
     # Handle "Title, The" pattern (common in ROM naming)

@@ -2428,6 +2428,29 @@ def test_igdb():
         results.fail("IGDB/ROM title match Zelda",
                     igdb_normalized, rom_normalized)
 
+    # Test accented title matching (Pokémon vs Pokemon)
+    igdb_name = "Pokémon Red Version"
+    rom_name = "Pokemon - Red Version (USA, Europe) (SGB Enhanced).gb"
+    rom_info = parse_rom_filename(rom_name)
+    igdb_normalized = normalize_title(igdb_name)
+    rom_normalized = normalize_title(rom_info.base_title)
+    if igdb_normalized == rom_normalized:
+        results.ok("IGDB/ROM accent match: Pokémon -> Pokemon")
+    else:
+        results.fail("IGDB/ROM accent match",
+                    rom_normalized, igdb_normalized)
+
+    # Test other accented characters
+    if normalize_title("Café") == normalize_title("Cafe"):
+        results.ok("Accent stripping: é -> e")
+    else:
+        results.fail("Accent stripping", normalize_title("Cafe"), normalize_title("Café"))
+
+    if normalize_title("Über") == normalize_title("Uber"):
+        results.ok("Accent stripping: ü -> u")
+    else:
+        results.fail("Accent stripping ü", normalize_title("Uber"), normalize_title("Über"))
+
     # Test IGDB config map entries
     from argparse import Namespace
     test_config = {'igdb_client_id': 'my_id', 'igdb_client_secret': 'my_secret',
