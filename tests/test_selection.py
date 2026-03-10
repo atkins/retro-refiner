@@ -67,6 +67,10 @@ IGDB_PLATFORM_MAP = _module.IGDB_PLATFORM_MAP
 combine_ratings = _module.combine_ratings
 boost_exclusive_ratings = _module.boost_exclusive_ratings
 
+# CRC functions
+build_download_crc_index = _module.build_download_crc_index
+get_cached_crc = _module.get_cached_crc
+
 
 class TestResult:
     """Track test results."""
@@ -2319,6 +2323,65 @@ def test_tosec_parsing():
         results.fail("No-Intro detection", "USA/True", f"{rom.region}/{rom.is_english}")
 
 
+def test_download_crc_index():
+    """Test download-time CRC indexing."""
+    print("\n" + "="*60)
+    print("DOWNLOAD CRC INDEX TESTS")
+    print("="*60)
+
+    with tempfile.TemporaryDirectory() as tmp:
+        cache_dir = Path(tmp)
+
+        # Create a test file
+        test_file = cache_dir / "test_rom.bin"
+        test_file.write_bytes(b"Hello World ROM data for CRC testing")
+
+        # Build index
+        index = build_download_crc_index(cache_dir, [test_file])
+
+        key = str(test_file)
+        if key in index and 'crc' in index[key]:
+            results.ok("CRC index: file indexed with CRC")
+        else:
+            results.fail("CRC index entry", "present", index.get(key))
+
+        # Verify index persisted to disk
+        index_path = cache_dir / '_crc_index.json'
+        if index_path.exists():
+            results.ok("CRC index: persisted to _crc_index.json")
+        else:
+            results.fail("CRC index persist", "exists", "missing")
+
+        # Reload index and verify same CRC
+        reloaded = build_download_crc_index(cache_dir, [test_file])
+        if reloaded[key]['crc'] == index[key]['crc']:
+            results.ok("CRC index: reload returns same CRC")
+        else:
+            results.fail("CRC index reload", index[key]['crc'], reloaded[key]['crc'])
+
+        # Test get_cached_crc with download_crc_index
+        crc_cache = {}
+        crc = get_cached_crc(test_file, crc_cache, download_crc_index=index)
+        if crc == index[key]['crc']:
+            results.ok("get_cached_crc: uses download index")
+        else:
+            results.fail("get_cached_crc index", index[key]['crc'], crc)
+
+        # Verify it was promoted to per-dest cache
+        if key in crc_cache and crc_cache[key]['crc'] == crc:
+            results.ok("get_cached_crc: promoted to dest cache")
+        else:
+            results.fail("CRC promotion", "in crc_cache", crc_cache.get(key))
+
+        # Test without index falls back to calculation
+        crc_cache2 = {}
+        crc2 = get_cached_crc(test_file, crc_cache2, download_crc_index=None)
+        if crc2 == crc:
+            results.ok("get_cached_crc: fallback calculation matches")
+        else:
+            results.fail("CRC fallback", crc, crc2)
+
+
 def test_igdb():
     """Test IGDB integration."""
     print("\n" + "="*60)
@@ -2632,6 +2695,7 @@ def main():
     test_english_only_flag()
     test_multi_disc_games()
     test_tosec_parsing()
+    test_download_crc_index()
     test_igdb()
 
     # Run integration tests with real files

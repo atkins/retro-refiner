@@ -4542,16 +4542,34 @@ def save_crc_cache(cache_path: Path, cache: dict):
         pass
 
 
-def get_cached_crc(filepath: Path, crc_cache: dict) -> str:
-    """Get CRC from cache or calculate and cache it. Uses mtime+size to invalidate."""
+def get_cached_crc(filepath: Path, crc_cache: dict,
+                   download_crc_index: dict = None) -> str:
+    """Get CRC from cache or calculate and cache it. Uses mtime+size to invalidate.
+
+    Args:
+        filepath: Path to the ROM file
+        crc_cache: Per-destination CRC cache (read/write)
+        download_crc_index: Optional pre-computed CRC index from download-time
+                            verification (read-only, checked first for instant lookup)
+    """
     key = str(filepath)
     stat = filepath.stat()
     mtime = stat.st_mtime
     size = stat.st_size
 
+    # Check per-destination cache first
     cached = crc_cache.get(key)
     if cached and cached.get('mtime') == mtime and cached.get('size') == size:
         return cached['crc']
+
+    # Check download-time CRC index (files verified at download time)
+    if download_crc_index:
+        indexed = download_crc_index.get(key)
+        if indexed and indexed.get('mtime') == mtime and indexed.get('size') == size:
+            crc = indexed['crc']
+            # Promote to per-destination cache for future runs
+            crc_cache[key] = {'crc': crc, 'mtime': mtime, 'size': size}
+            return crc
 
     if filepath.suffix.lower() == '.zip':
         crc = calculate_crc32_from_zip(filepath)
@@ -4561,6 +4579,75 @@ def get_cached_crc(filepath: Path, crc_cache: dict) -> str:
     if crc:
         crc_cache[key] = {'crc': crc, 'mtime': mtime, 'size': size}
     return crc
+
+
+def build_download_crc_index(cache_dir: Path, files: List[Path]) -> dict:
+    """Compute CRC32 for downloaded files and store in a persistent index.
+
+    Called after downloading files to cache. The index persists at
+    cache_dir/_crc_index.json so subsequent runs skip CRC calculation
+    for files that haven't changed.
+
+    Args:
+        cache_dir: Root cache directory
+        files: List of file paths to index
+
+    Returns:
+        CRC index dict {filepath_str: {crc, mtime, size}}
+    """
+    index_path = cache_dir / '_crc_index.json'
+
+    # Load existing index
+    index = {}
+    if index_path.exists():
+        try:
+            with open(index_path, 'r', encoding='utf-8') as f:
+                index = json.load(f)
+        except (json.JSONDecodeError, IOError):
+            index = {}
+
+    new_count = 0
+    cached_count = 0
+    for filepath in tqdm(files, desc="Indexing CRCs", unit="file", leave=False):
+        if _shutdown_requested:
+            break
+        if not filepath.exists():
+            continue
+        key = str(filepath)
+        try:
+            stat = filepath.stat()
+        except OSError:
+            continue
+        mtime = stat.st_mtime
+        size = stat.st_size
+
+        # Skip if already indexed with same mtime+size
+        existing = index.get(key)
+        if existing and existing.get('mtime') == mtime and existing.get('size') == size:
+            cached_count += 1
+            continue
+
+        # Calculate CRC
+        if filepath.suffix.lower() == '.zip':
+            crc = calculate_crc32_from_zip(filepath)
+        else:
+            crc = calculate_crc32(filepath)
+
+        if crc:
+            index[key] = {'crc': crc, 'mtime': mtime, 'size': size}
+            new_count += 1
+
+    # Save index
+    try:
+        with open(index_path, 'w', encoding='utf-8') as f:
+            json.dump(index, f)
+    except IOError:
+        pass
+
+    if new_count > 0:
+        print(f"\nCRC indexed: {new_count} new, {cached_count} already indexed")
+
+    return index
 
 
 def verify_roms_against_dat(rom_files: List[Path], dat_entries: Dict[str, DatRomEntry],
@@ -7584,7 +7671,8 @@ def filter_roms_from_files(rom_files: list, dest_dir: str, system: str, dry_run:
                            include_unrated: bool = False,
                            ratings: dict = None,
                            no_filter: bool = False,
-                           english_only: bool = False):
+                           english_only: bool = False,
+                           download_crc_index: dict = None):
     """Filter ROMs from a list of file paths.
 
     If dat_entries is provided, uses DAT metadata to enhance/override filename parsing.
@@ -7731,7 +7819,7 @@ def filter_roms_from_files(rom_files: list, dest_dir: str, system: str, dry_run:
                 filepath = file_map.get(rom.filename)
                 if not filepath:
                     continue
-                crc = get_cached_crc(filepath, crc_cache)
+                crc = get_cached_crc(filepath, crc_cache, download_crc_index)
                 if crc and crc in crc_to_dat:
                     dat_entry = crc_to_dat[crc]
                     if dat_entry.region != 'Unknown':
@@ -8750,6 +8838,7 @@ Pattern examples (--include / --exclude):
         print()
 
     # Step 2: Filter combined URL pool per system (select best ROM across ALL sources)
+    download_crc_index = {}  # CRC index for cached network downloads
     network_downloads = {}  # {system: [selected_urls]}
     total_network_files = 0
     total_network_source_size = 0
@@ -9074,6 +9163,29 @@ Pattern examples (--include / --exclude):
 
     check_shutdown()
 
+    # Build CRC index for all cached files (downloaded + previously cached)
+    # This makes post-selection verification instant for network-sourced ROMs
+    all_cached_paths = list(cached_files.values()) if cached_files else []
+    # Also include already-cached files that weren't downloaded this run
+    for system, filtered_urls in network_downloads.items():
+        for url in filtered_urls:
+            if url not in cached_files:
+                url_clean = url.split('?')[0].split('#')[0]
+                filename = urllib.request.unquote(url_clean.split('/')[-1])
+                filename = re.sub(r'[<>:"/\\|?*]', '_', filename) or 'unknown_file'
+                url_path = url_clean.replace('://', '/').split('/', 1)[1] \
+                    if '://' in url_clean else url_clean
+                path_parts = [p for p in url_path.split('/') if p]
+                subdir = path_parts[-2] if len(path_parts) >= 2 else 'misc'
+                subdir = re.sub(r'[<>:"/\\|?*]', '_', subdir)
+                cached = cache_dir / subdir / filename
+                if cached.exists():
+                    all_cached_paths.append(cached)
+
+    if all_cached_paths and not args.no_verify:
+        Console.info("Computing CRC checksums for cached files...")
+        download_crc_index = build_download_crc_index(cache_dir, all_cached_paths)
+
     # Process results back into per-system detected lists
     for system, filtered_urls in network_downloads.items():
         if not filtered_urls:
@@ -9154,6 +9266,16 @@ Pattern examples (--include / --exclude):
     total_selected_size = 0
     system_stats = {}  # Track stats per system
     # remaining_size_budget carries over from network phase (initialized before network loop)
+
+    # Load existing CRC index from cache if not already populated
+    if not download_crc_index and not args.no_verify:
+        crc_index_path = cache_dir / '_crc_index.json'
+        if crc_index_path.exists():
+            try:
+                with open(crc_index_path, 'r', encoding='utf-8') as f:
+                    download_crc_index = json.load(f)
+            except (json.JSONDecodeError, IOError):
+                pass
 
     for system in sorted(detected.keys()):
         check_shutdown()
@@ -9613,7 +9735,8 @@ Pattern examples (--include / --exclude):
                 include_unrated=args.include_unrated,
                 ratings=ratings,
                 no_filter=getattr(args, 'all', False),
-                english_only=args.english_only
+                english_only=args.english_only,
+                download_crc_index=download_crc_index
             )
             selected, size_info = result
 
