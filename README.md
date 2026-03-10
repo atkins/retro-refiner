@@ -112,7 +112,8 @@ Whether you're building a curated collection for a Raspberry Pi, populating a Mi
 - **Selection logs**: Detailed logs showing exactly what was selected and why
 
 ### Rating & Budget
-- **IGDB ratings**: High-quality game ratings with vote counts from IGDB (Twitch) for 32 systems
+- **Combined ratings**: Merges IGDB + LaunchBox via vote-weighted averaging for best coverage
+- **IGDB ratings**: High-quality game ratings with vote counts from IGDB (Twitch) for 116 systems
 - **LaunchBox fallback**: No-auth rating source when IGDB credentials aren't configured
 - **Top-N filtering**: Keep only the highest-rated games per system (`--top 50`, `--top 10%`)
 - **Size budgets**: Fit the best-rated games into a storage limit (`--size 10G`)
@@ -200,7 +201,7 @@ python retro-refiner.py -s /path/to/roms --limit 500 --commit
 
 `--top` and `--size` use game ratings to prioritize the best games. Two rating sources are supported:
 
-**IGDB (default when credentials are set)** — Higher-quality ratings with vote counts from the IGDB database (owned by Twitch). Covers 32 major systems with thousands of rated games.
+**Combined (default when IGDB credentials are set)** — Merges IGDB and LaunchBox ratings using vote-weighted averaging. Games rated by both sources get a balanced score; games in only one source use that rating. This gives the best coverage and most reliable rankings.
 
 ```bash
 # Set credentials via environment (recommended)
@@ -217,7 +218,8 @@ Get free IGDB credentials at https://dev.twitch.tv/console (create an applicatio
 **LaunchBox (no-auth fallback)** — Used automatically when IGDB credentials are not configured. No setup required.
 
 ```bash
-# Force a specific source
+# Force a single source
+python retro-refiner.py -s /path/to/roms --top 50 --ratings-source igdb --commit
 python retro-refiner.py -s /path/to/roms --top 50 --ratings-source launchbox --commit
 ```
 
@@ -544,7 +546,7 @@ Each system folder contains `_selection_log.txt` with:
 | `--include-unrated` | Include unrated games after rated ones when using `--top` |
 | `--limit` | Maximum total ROMs to select across all systems |
 | `--size` | Maximum total size budget across all systems (e.g., `--size 10G`, `--size 500M`) |
-| `--ratings-source` | Rating source: `igdb` (default with credentials) or `launchbox` |
+| `--ratings-source` | Rating source: `combined` (default with credentials), `igdb`, or `launchbox` |
 | `--igdb-client-id` | IGDB/Twitch client ID (or set `IGDB_CLIENT_ID` env var) |
 | `--igdb-client-secret` | IGDB/Twitch client secret (or set `IGDB_CLIENT_SECRET` env var) |
 
@@ -627,7 +629,7 @@ year_from: 1990
 year_to: 1999
 
 # Rating source for --top/--size
-# ratings_source: igdb    # 'igdb' (default with credentials) or 'launchbox'
+# ratings_source: combined  # 'combined' (default with credentials), 'igdb', or 'launchbox'
 # igdb_client_id: your_client_id
 # igdb_client_secret: your_client_secret
 

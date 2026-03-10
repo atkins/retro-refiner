@@ -3629,9 +3629,10 @@ english_only: false
 # Maximum total size budget across all systems (e.g., 10G, 500M, 1.5T)
 # size: 10G
 
-# Rating data source: 'igdb' (default with credentials) or 'launchbox'
+# Rating data source: 'combined' (default with credentials), 'igdb', or 'launchbox'
+# Combined merges IGDB + LaunchBox using vote-weighted averaging
 # IGDB requires free Twitch developer credentials from https://dev.twitch.tv/console
-# ratings_source: igdb
+# ratings_source: combined
 # igdb_client_id:
 # igdb_client_secret:
 
@@ -6306,6 +6307,62 @@ def load_igdb_cache(dat_dir: Path, client_id: str = None,
                                     target_systems, cache_path)
 
 
+def combine_ratings(igdb_cache: dict, lb_cache: dict) -> dict:
+    """Combine IGDB and LaunchBox ratings using vote-weighted averaging.
+
+    For games rated by both sources, the combined rating is weighted by
+    vote count so the source with more votes has more influence. Games
+    rated by only one source use that rating unchanged.
+
+    Args:
+        igdb_cache: IGDB ratings {system: {title: {rating, votes, name}}}
+        lb_cache: LaunchBox ratings {system: {title: {rating, votes, name}}}
+
+    Returns:
+        Combined ratings in the same format
+    """
+    combined = {}
+    all_systems = set(list(igdb_cache.keys()) + list(lb_cache.keys()))
+
+    for system in all_systems:
+        igdb_games = igdb_cache.get(system, {})
+        lb_games = lb_cache.get(system, {})
+        merged = {}
+
+        # All titles from both sources
+        all_titles = set(list(igdb_games.keys()) + list(lb_games.keys()))
+
+        for title in all_titles:
+            igdb_entry = igdb_games.get(title)
+            lb_entry = lb_games.get(title)
+
+            if igdb_entry and lb_entry:
+                # Both sources — vote-weighted average
+                ig_r = igdb_entry['rating']
+                ig_v = igdb_entry['votes']
+                lb_r = lb_entry['rating']
+                lb_v = lb_entry['votes']
+                total_v = ig_v + lb_v
+                if total_v > 0:
+                    avg_rating = (ig_r * ig_v + lb_r * lb_v) / total_v
+                else:
+                    avg_rating = (ig_r + lb_r) / 2.0
+                merged[title] = {
+                    'rating': round(avg_rating, 2),
+                    'votes': total_v,
+                    'name': igdb_entry.get('name', lb_entry.get('name', '')),
+                }
+            elif igdb_entry:
+                merged[title] = igdb_entry
+            else:
+                merged[title] = lb_entry
+
+        if merged:
+            combined[system] = merged
+
+    return combined
+
+
 # =============================================================================
 # LaunchBox Data Download
 # =============================================================================
@@ -7898,9 +7955,10 @@ Pattern examples (--include / --exclude):
     parser.add_argument('--igdb-client-secret', default=None,
                         help='IGDB/Twitch client secret (or set IGDB_CLIENT_SECRET env var)')
     parser.add_argument('--ratings-source', default=None,
-                        choices=['igdb', 'launchbox'],
+                        choices=['combined', 'igdb', 'launchbox'],
                         help='Rating data source for --top/--size '
-                             '(default: igdb if credentials set, else launchbox)')
+                             '(default: combined if IGDB credentials set, '
+                             'else launchbox)')
 
     # TeknoParrot options
     parser.add_argument('--tp-include-platforms', default=None,
@@ -8565,46 +8623,62 @@ Pattern examples (--include / --exclude):
         has_igdb_creds = (getattr(args, 'igdb_client_id', None)
                           and getattr(args, 'igdb_client_secret', None))
         if ratings_source is None:
-            ratings_source = 'igdb' if has_igdb_creds else 'launchbox'
+            ratings_source = 'combined' if has_igdb_creds else 'launchbox'
 
-        if ratings_source == 'igdb':
-            Console.info("Rating source: IGDB")
-            ratings = load_igdb_cache(
+        # Helper: load LaunchBox ratings
+        def _load_launchbox():
+            lb_xml = dat_dir_ratings / "launchbox" / "Metadata.xml"
+            if not lb_xml.exists():
+                Console.warning("LaunchBox data not found. Downloading...")
+                if not download_launchbox_data(dat_dir_ratings):
+                    return {}
+            return load_ratings_cache(dat_dir_ratings)
+
+        # Helper: load IGDB ratings
+        def _load_igdb():
+            return load_igdb_cache(
                 dat_dir_ratings,
                 client_id=getattr(args, 'igdb_client_id', None),
                 client_secret=getattr(args, 'igdb_client_secret', None),
                 systems=list(IGDB_PLATFORM_MAP.keys()),
             )
+
+        if ratings_source == 'combined':
+            Console.info("Rating source: Combined (IGDB + LaunchBox)")
+            igdb_ratings = _load_igdb()
+            lb_ratings = _load_launchbox()
+            if igdb_ratings and lb_ratings:
+                ratings = combine_ratings(igdb_ratings, lb_ratings)
+            elif igdb_ratings:
+                Console.warning("LaunchBox unavailable, using IGDB only")
+                ratings = igdb_ratings
+            elif lb_ratings:
+                Console.warning("IGDB unavailable, using LaunchBox only")
+                ratings = lb_ratings
+
+        elif ratings_source == 'igdb':
+            Console.info("Rating source: IGDB")
+            ratings = _load_igdb()
             if not ratings:
-                Console.warning("IGDB ratings unavailable, falling back to LaunchBox...")
+                Console.warning("IGDB ratings unavailable, "
+                                "falling back to LaunchBox...")
                 ratings_source = 'launchbox'
 
         if ratings_source == 'launchbox':
             Console.info("Rating source: LaunchBox")
-            lb_xml = dat_dir_ratings / "launchbox" / "Metadata.xml"
-            if not lb_xml.exists():
-                Console.warning("LaunchBox data not found. Downloading...")
-                if not download_launchbox_data(dat_dir_ratings):
-                    if args.top:
-                        Console.error("Failed to download LaunchBox data. "
-                                      "--top requires rating data.")
-                        Console.info("Run with --update-dats to download, "
-                                     "or remove --top flag.")
-                        sys.exit(1)
-                    else:
-                        Console.warning("Rating data unavailable. "
-                                        "--size will use default order.")
+            ratings = _load_launchbox()
 
-            if not ratings:
-                ratings = load_ratings_cache(dat_dir_ratings)
-            if not ratings:
-                if args.top:
-                    Console.error("Failed to load ratings cache.")
-                    sys.exit(1)
-                else:
-                    Console.warning("Rating data unavailable. "
-                                    "--size will use default order.")
-                    ratings = {}
+        if not ratings:
+            if args.top:
+                Console.error("Failed to load rating data. "
+                              "--top requires ratings.")
+                Console.info("Run with --update-dats to download, "
+                             "or remove --top flag.")
+                sys.exit(1)
+            else:
+                Console.warning("Rating data unavailable. "
+                                "--size will use default order.")
+                ratings = {}
 
         if ratings:
             total_rated = sum(len(games) for games in ratings.values())

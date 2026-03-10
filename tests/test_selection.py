@@ -64,6 +64,7 @@ EXTENSION_TO_SYSTEM = _module.EXTENSION_TO_SYSTEM
 
 # IGDB
 IGDB_PLATFORM_MAP = _module.IGDB_PLATFORM_MAP
+combine_ratings = _module.combine_ratings
 
 
 class TestResult:
@@ -2382,35 +2383,105 @@ def test_igdb():
             for k, v in kwargs.items():
                 setattr(self, k, v)
 
-    # With IGDB credentials -> igdb
+    # With IGDB credentials -> combined
     args = MockArgs(ratings_source=None, igdb_client_id='test', igdb_client_secret='test')
     source = args.ratings_source
     has_creds = args.igdb_client_id and args.igdb_client_secret
-    detected = 'igdb' if source is None and has_creds else source or 'launchbox'
-    if detected == 'igdb':
-        results.ok("Auto-detect igdb with credentials")
+    detected = 'combined' if source is None and has_creds else source or 'launchbox'
+    if detected == 'combined':
+        results.ok("Auto-detect combined with credentials")
     else:
-        results.fail("Auto-detect igdb with credentials", "igdb", detected)
+        results.fail("Auto-detect combined with credentials", "combined", detected)
 
     # Without credentials -> launchbox
     args = MockArgs(ratings_source=None, igdb_client_id=None, igdb_client_secret=None)
     source = args.ratings_source
     has_creds = args.igdb_client_id and args.igdb_client_secret
-    detected = 'igdb' if source is None and has_creds else source or 'launchbox'
+    detected = 'combined' if source is None and has_creds else source or 'launchbox'
     if detected == 'launchbox':
         results.ok("Auto-detect launchbox without credentials")
     else:
         results.fail("Auto-detect launchbox without credentials", "launchbox", detected)
 
     # Explicit override -> use that
-    args = MockArgs(ratings_source='launchbox', igdb_client_id='test', igdb_client_secret='test')
+    args = MockArgs(ratings_source='igdb', igdb_client_id='test', igdb_client_secret='test')
     source = args.ratings_source
     has_creds = args.igdb_client_id and args.igdb_client_secret
-    detected = 'igdb' if source is None and has_creds else source or 'launchbox'
-    if detected == 'launchbox':
-        results.ok("Explicit launchbox overrides igdb credentials")
+    detected = 'combined' if source is None and has_creds else source or 'launchbox'
+    if detected == 'igdb':
+        results.ok("Explicit igdb overrides combined default")
     else:
-        results.fail("Explicit override", "launchbox", detected)
+        results.fail("Explicit override", "igdb", detected)
+
+    # Test combine_ratings: vote-weighted averaging
+    igdb_cache = {
+        'nes': {
+            'super mario bros': {'rating': 8.9, 'votes': 1659, 'name': 'Super Mario Bros. 3'},
+            'zelda': {'rating': 9.2, 'votes': 200, 'name': 'The Legend of Zelda'},
+            'igdb only game': {'rating': 7.0, 'votes': 50, 'name': 'IGDB Only'},
+        },
+    }
+    lb_cache = {
+        'nes': {
+            'super mario bros': {'rating': 9.5, 'votes': 41, 'name': 'Super Mario Bros. 3'},
+            'zelda': {'rating': 8.0, 'votes': 800, 'name': 'The Legend of Zelda'},
+            'lb only game': {'rating': 6.0, 'votes': 10, 'name': 'LB Only'},
+        },
+        'snes': {
+            'chrono trigger': {'rating': 9.8, 'votes': 100, 'name': 'Chrono Trigger'},
+        },
+    }
+    combined = combine_ratings(igdb_cache, lb_cache)
+
+    # Both sources present -> vote-weighted average
+    mario = combined['nes']['super mario bros']
+    # Expected: (8.9*1659 + 9.5*41) / (1659+41) = (14765.1 + 389.5) / 1700 = 8.914...
+    if abs(mario['rating'] - 8.91) < 0.01 and mario['votes'] == 1700:
+        results.ok("Combined: vote-weighted average (high IGDB votes)")
+    else:
+        results.fail("Combined vote-weighted", "~8.91/1700",
+                    f"{mario['rating']}/{mario['votes']}")
+
+    zelda = combined['nes']['zelda']
+    # Expected: (9.2*200 + 8.0*800) / 1000 = (1840 + 6400) / 1000 = 8.24
+    if abs(zelda['rating'] - 8.24) < 0.01 and zelda['votes'] == 1000:
+        results.ok("Combined: vote-weighted average (high LB votes)")
+    else:
+        results.fail("Combined vote-weighted LB", "~8.24/1000",
+                    f"{zelda['rating']}/{zelda['votes']}")
+
+    # IGDB-only game preserved
+    if 'igdb only game' in combined['nes']:
+        ig = combined['nes']['igdb only game']
+        if ig['rating'] == 7.0 and ig['votes'] == 50:
+            results.ok("Combined: IGDB-only game preserved")
+        else:
+            results.fail("IGDB-only preserved", "7.0/50", f"{ig['rating']}/{ig['votes']}")
+    else:
+        results.fail("IGDB-only preserved", "present", "missing")
+
+    # LB-only game preserved
+    if 'lb only game' in combined['nes']:
+        lb = combined['nes']['lb only game']
+        if lb['rating'] == 6.0 and lb['votes'] == 10:
+            results.ok("Combined: LB-only game preserved")
+        else:
+            results.fail("LB-only preserved", "6.0/10", f"{lb['rating']}/{lb['votes']}")
+    else:
+        results.fail("LB-only preserved", "present", "missing")
+
+    # System only in LB preserved
+    if 'snes' in combined and 'chrono trigger' in combined['snes']:
+        results.ok("Combined: LB-only system preserved")
+    else:
+        results.fail("LB-only system", "snes present", "missing")
+
+    # Empty input handling
+    empty = combine_ratings({}, {})
+    if empty == {}:
+        results.ok("Combined: empty inputs -> empty result")
+    else:
+        results.fail("Combined empty", "{}", str(empty))
 
     # Test normalize_title matching between IGDB names and ROM filenames
     # IGDB uses clean names like "Super Mario Bros." while ROMs use "Super Mario Bros. (USA).zip"
