@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Retro-Refiner is a zero-dependency Python script (~8,900 lines in a single file `retro-refiner.py`) that filters ROM collections to select the best English version of each game. It supports 144 systems, local and network sources, and multiple arcade formats (MAME, FBNeo, TeknoParrot).
+Retro-Refiner is a zero-dependency Python script (~10,000 lines in a single file `retro-refiner.py`) that filters ROM collections to select the best English version of each game. It supports 144 systems, local and network sources, and multiple arcade formats (MAME, FBNeo, TeknoParrot).
 
 ## Commands
 
@@ -35,16 +35,36 @@ python retro-refiner.py -s /path/to/roms --commit
 ### Single-file design
 Everything lives in `retro-refiner.py` with no external dependencies. YAML parsing, progress bars, and all network handling are built-in. System definitions are externalized to `data/systems.json`. The file is organized into major sections separated by `# ===` comment banners:
 
-1. **Console Output Styling** (~lines 93-305) - `Style`, `Console`, `ProgressBar`, `ScanProgressBar` classes, plus `load_title_mappings()`
-2. **System Data Loading** (~lines 307-420) - `load_system_data()` reads `data/systems.json` and populates all system lookup dicts at module load
-3. **YAML Parser & Shutdown** (~lines 420-795) - `parse_simple_yaml()`, graceful shutdown handling
-4. **Network Source Support** (~lines 795-3430) - URL parsing, HTML link extraction, connection pooling (`ConnectionPool`), download tools (aria2c/curl/urllib), `DownloadUI` (curses-based download progress), batch downloading, network source scanning
-5. **Configuration** (~lines 3430-3878) - Default config template, `load_config()`, `apply_config_to_args()`, transfer/playlist/gamelist functions
-6. **Libretro DAT File Support** (~lines 3878-4766) - `RomInfo`/`DatRomEntry` dataclasses, T-En translation DAT support, DAT parsing (Logiqx XML + ClrMamePro formats), ROM verification, `parse_rom_filename()`, `normalize_title()`, `select_best_rom()`
-7. **MAME Arcade Filtering** (~lines 4766-5563) - `MameGameInfo`/`TeknoParrotGameInfo` dataclasses, catver.ini parsing, category include/exclude sets, clone selection, `filter_mame_roms()`
-8. **TeknoParrot Filtering** (~lines 5563-5766) - Version parsing, platform filtering, deduplication
-9. **LaunchBox Data & Budget** (~lines 5766-6090) - Rating downloads, XML parsing with `XMLPullParser` for progress tracking, `apply_top_n_filter()`, `apply_size_budget()`
-10. **Main Flow** (~lines 6090-end) - System detection helpers, `scan_for_systems()`, `filter_roms_from_files()`, `main()`
+1. **Console Output Styling** (~lines 98-450) - `DEFAULT_THEME`, `Style`, `Console`, `ProgressBar`, `ScanProgressBar` classes, plus `load_title_mappings()`
+2. **System Data Loading** (~lines 452-580) - `load_system_data()` reads `data/systems.json` and populates all system lookup dicts at module load
+3. **YAML Parser & Shutdown** (~lines 580-950) - `parse_simple_yaml()`, graceful shutdown handling
+4. **Network Source Support** (~lines 955-3580) - URL parsing, HTML link extraction, connection pooling (`ConnectionPool`), download tools (aria2c/curl/urllib), `DownloadUI` (curses-based download progress), batch downloading, network source scanning
+5. **Configuration** (~lines 3580-4180) - Default config template, `load_config()`, `apply_config_to_args()`, transfer/playlist/gamelist functions
+6. **Libretro DAT File Support** (~lines 4180-5390) - `RomInfo`/`DatRomEntry` dataclasses, T-En translation DAT support, DAT parsing (Logiqx XML + ClrMamePro formats), ROM verification, `parse_rom_filename()`, `normalize_title()`, `select_best_rom()`
+7. **MAME Arcade Filtering** (~lines 5395-6215) - `MameGameInfo`/`TeknoParrotGameInfo` dataclasses, catver.ini parsing, category include/exclude sets, clone selection, `filter_mame_roms()`
+8. **TeknoParrot Filtering** (~lines 6216-6420) - Version parsing, platform filtering, deduplication
+9. **LaunchBox Data & Budget** (~lines 6420-6960) - Rating downloads, XML parsing with `XMLPullParser` for progress tracking, `apply_top_n_filter()`, `apply_size_budget()`
+10. **Main Flow** (~lines 6960-end) - System detection helpers, `scan_for_systems()`, `filter_roms_from_files()`, `main()`
+
+### Visual style system
+All output routes through the `Console` class using semantic color attributes from `Style`. The `DEFAULT_THEME` dict (~line 101) maps 35 semantic roles (e.g., `'success'`, `'error'`, `'tag_select'`) to base ANSI color names. `Style.apply_theme()` resolves these to ANSI escape codes. Colors are disabled automatically for non-TTY output or when `NO_COLOR` env var is set.
+
+**Key Console methods:**
+- `banner()`, `header(text)`, `section(text)`, `subsection(text)` — structural output
+- `success(text)`, `error(text)`, `warning(text)`, `info(text)`, `detail(text)` — status messages
+- `system_stat(system, text)` — `SYSTEM: text` lines with colored system name
+- `verbose(tag, text)` — `  [TAG] text` lines with tag-specific colors (SKIP, SELECT, FILTER, DAT, CONFIG, DETECT, MATCH, INCLUDE, EXCLUDE, CLONE, VERSION)
+- `error_block(title, lines)` — bordered error blocks (writes to stderr)
+- `table_header()`, `table_rule()`, `table_row()`, `table_total()` — formatted tables
+- `status(label, value)` — label:value pairs
+- `blank()`, `text(text, indent)` — plain output
+
+**Rules for adding output:**
+- Never use raw `print()` for user-facing output — use a Console method
+- `Console.error()` and `Console.error_block()` write to `sys.stderr`
+- DownloadUI uses `Style.*` attributes directly (no duplicate color constants)
+- Progress bars use `Style.PROGRESS_FILL`/`Style.PROGRESS_EMPTY` for colored bars
+- The ~15 remaining raw `print()` calls are justified exceptions: signal handlers, inline `end=''` output, KeyboardInterrupt
 
 ### Key data flow
 1. `main()` parses args, loads config, validates sources
@@ -55,10 +75,10 @@ Everything lives in `retro-refiner.py` with no external dependencies. YAML parsi
 6. Transfer: copy/move/symlink/hardlink based on `--commit` mode
 
 ### Key dataclasses
-- `RomInfo` (line ~3855): Parsed ROM metadata (title, region, language, revision, flags like is_beta/is_proto/is_translation)
-- `DatRomEntry` (line ~3883): DAT file entry (name, description, CRC32, region, size)
-- `MameGameInfo` (line ~4860): MAME game with parent/clone relationships
-- `TeknoParrotGameInfo` (line ~4877): TeknoParrot game with version/platform info
+- `RomInfo` (line ~4185): Parsed ROM metadata (title, region, language, revision, flags like is_beta/is_proto/is_translation)
+- `DatRomEntry` (line ~4214): DAT file entry (name, description, CRC32, region, size)
+- `MameGameInfo` (line ~5583): MAME game with parent/clone relationships
+- `TeknoParrotGameInfo` (line ~5600): TeknoParrot game with version/platform info
 
 ### System data (`data/systems.json`)
 All system definitions (144 systems) live in `data/systems.json`. At module load, `load_system_data()` reads this file and populates module-level globals:
@@ -77,13 +97,16 @@ All system definitions (144 systems) live in `data/systems.json`. At module load
 The generation script `tools/generate_systems_json.py` can regenerate the JSON from hardcoded dicts (kept as a maintenance tool).
 
 ### Other lookup tables (still in code)
-- `MAME_INCLUDE_CATEGORIES` / `MAME_EXCLUDE_CATEGORIES` (~line 4900/4920): Arcade category filtering
+- `MAME_INCLUDE_CATEGORIES` / `MAME_EXCLUDE_CATEGORIES` (~line 5620/5640): Arcade category filtering
 
 ### Title normalization pipeline
 `normalize_title()` lowercases, strips punctuation, converts Roman numerals to Arabic, then applies mappings from `data/title_mappings.json` (1,194 Japan→English mappings in 50 categories). This is how regional variants like "Rockman" and "Mega Man" get grouped together.
 
 ### Network download pipeline
 Auto-detects best tool: aria2c > curl > Python urllib. `DownloadUI` provides a curses-based real-time progress display with per-file status, stall detection, and automatic retry (3 attempts). Auto-tuning adjusts parallelism based on median file size.
+
+### DAT download priority
+`get_libretro_dat_url()` returns URLs in priority order. For disc-based systems (in `REDUMP_DAT_SYSTEMS`), the Redump URL is tried **first** because the `dat/` folder on libretro-database often contains stub files instead of full DATs. For cartridge-based systems, No-Intro is tried first.
 
 ## Testing
 
@@ -106,6 +129,9 @@ Maintenance tools:
 - **New title mapping**: Add to `data/title_mappings.json` (lowercase, no punctuation, Arabic numerals)
 - **New filter pattern**: Add to `RERELEASE_PATTERNS` or `COMPILATION_PATTERNS` (pre-compiled `re.compile()` lists at module level)
 - **New MAME category**: Edit `MAME_INCLUDE_CATEGORIES` / `MAME_EXCLUDE_CATEGORIES` sets
+- **New Console output**: Use an existing `Console` method — never add raw `print()` for user-facing output
+- **New verbose tag**: Add the tag name to the `tag_colors` dict in `Console.verbose()` and to `DEFAULT_THEME`
+- **Theme change**: Edit `DEFAULT_THEME` dict — maps semantic role names to `Style` base color attribute names
 
 ## Performance Patterns
 
@@ -125,6 +151,7 @@ CRC/DAT enrichment runs only on selected ROMs (post-selection pass in `filter_ro
 - Windows enables ANSI escape codes via `ctypes` (line ~63)
 - `DownloadUI` uses curses on Unix, falls back on Windows
 - Windows cp1252 console cannot render Unicode symbols — always use `SYM_*` constants
+- Colors respect `NO_COLOR` env var (https://no-color.org/) and non-TTY detection
 
 ## XML Parsing Caveat
 

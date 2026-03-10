@@ -53,6 +53,11 @@ python retro-refiner.py -s "https://myrient.erista.me/files/No-Intro/Sega%20-%20
 python retro-refiner.py -s "https://myrient.erista.me/files/Redump/Sony%20-%20PlayStation/" -s "https://myrient.erista.me/files/T-En%20Collection/Sony%20-%20PlayStation%20%5BT-En%5D%20Collection/" --commit
 ```
 
+**Sega Saturn (Redump + translations, English only)**
+```bash
+python retro-refiner.py -s "https://myrient.erista.me/files/Redump/Sega%20-%20Saturn/" -s "https://myrient.erista.me/files/T-En%20Collection/Sega%20-%20Saturn%20%5BT-En%5D%20Collection/Discs/" --english-only --commit
+```
+
 **TeknoParrot (Modern Arcade)**
 ```bash
 python retro-refiner.py -s "https://myrient.erista.me/files/TeknoParrot/" --systems teknoparrot --commit
@@ -122,6 +127,8 @@ Whether you're building a curated collection for a Raspberry Pi, populating a Mi
 - **Safe by default**: Dry run mode previews selections without transferring any files
 - **Cross-platform**: Works on Windows, macOS, and Linux with no dependencies
 - **Auto-detection**: Detects systems from folder names (200+ aliases) or file extensions (90+)
+- **Semantic color output**: Color-coded output (green=success, red=error, yellow=warning, blue=info, cyan=system names)
+- **Respects `NO_COLOR`**: Set `NO_COLOR=1` to disable all colors; also auto-disabled when piping output
 - **Progress bars**: Visual feedback with ETA, throughput, and per-file status
 - **Graceful shutdown**: Ctrl+C stops cleanly between operations
 
@@ -177,6 +184,12 @@ python retro-refiner.py -s /Games/archive -d /Games/refined --link --commit
 ```bash
 # Only Mario, Zelda, and Metroid games
 python retro-refiner.py -s /path/to/roms --include "*Mario*" --include "*Zelda*" --include "*Metroid*" --commit
+
+# English-playable only (drops Japan-only games with no translation)
+python retro-refiner.py -s /path/to/roms --english-only --commit
+
+# Prioritize platform exclusives (boost unique games in ratings)
+python retro-refiner.py -s /path/to/roms --top 50 --prefer-exclusives --commit
 
 # Retro-only (pre-2000) with playlists
 python retro-refiner.py -s /path/to/roms --year-to 1999 --playlists --commit
@@ -482,6 +495,43 @@ Automatically groups Japan ROMs with their fan translation counterparts when usi
 
 ## Output
 
+### Example Output
+```
+─────────────────────────────────────────────────────────────────
+                     NETWORK DOWNLOAD SUMMARY
+─────────────────────────────────────────────────────────────────
+SATURN: 416 files (142.28 GB) (416 cached, 0 to download)
+
+  Total: 416 files (142.28 GB)
+  Cache directory: /home/user/retro-refiner/cache
+  Download tool: aria2c (auto-tune enabled)
+
+SATURN: Found 416 total ROMs (142.28 GB)
+SATURN: Found 380 unique game titles
+SATURN: Selected 416 ROMs (142.28 GB)
+
+─────────────────────────────────────────────────────────────────
+                             RESULTS
+─────────────────────────────────────────────────────────────────
+  Total ROMs selected: 416
+
+  ────────────────────────────────────────────────────────────
+  System           Source        Selected      Saved         %
+  ────────────────────────────────────────────────────────────
+  saturn           142.28 GB     142.28 GB     0 B           0.0%
+  ────────────────────────────────────────────────────────────
+  TOTAL            142.28 GB     142.28 GB     0 B           0.0%
+  ============================================================
+```
+
+Verbose mode (`-v`) shows detailed filtering decisions:
+```
+  [SKIP] Alien Trilogy (Europe) (Beta).zip: beta
+  [FILTER] '3D Lemmings': 1 English, 1 foreign
+  [SELECT] 3D Lemmings (Europe).zip (best of 2 for '3d lemmings')
+  [DAT] SATURN: format=XML, entries=56, path=dat_files/saturn.dat
+```
+
 ### Refined ROMs
 ```
 <source>_refined/
@@ -536,6 +586,7 @@ Each system folder contains `_selection_log.txt` with:
 | `--exclude-protos` | Exclude prototype ROMs (included by default) |
 | `--include-betas` | Include beta ROMs |
 | `--include-unlicensed` | Include unlicensed ROMs |
+| `--english-only` | Only keep English-playable ROMs (official releases + translations) |
 | `--year-from` | Filter by year (minimum) |
 | `--year-to` | Filter by year (maximum) |
 
@@ -546,6 +597,7 @@ Each system folder contains `_selection_log.txt` with:
 | `--include-unrated` | Include unrated games after rated ones when using `--top` |
 | `--limit` | Maximum total ROMs to select across all systems |
 | `--size` | Maximum total size budget across all systems (e.g., `--size 10G`, `--size 500M`) |
+| `--prefer-exclusives` | Boost rating of platform-exclusive games by N points (default: 1.0) |
 | `--ratings-source` | Rating source: `combined` (default with credentials), `igdb`, or `launchbox` |
 | `--igdb-client-id` | IGDB/Twitch client ID (or set `IGDB_CLIENT_ID` env var) |
 | `--igdb-client-secret` | IGDB/Twitch client secret (or set `IGDB_CLIENT_SECRET` env var) |

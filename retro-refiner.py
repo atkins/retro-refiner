@@ -4419,7 +4419,11 @@ LIBRETRO_DB_REDUMP_URL = "https://raw.githubusercontent.com/libretro/libretro-da
 
 
 def get_libretro_dat_url(system: str) -> list:
-    """Get possible libretro DAT URLs for a system (returns list to try)."""
+    """Get possible libretro DAT URLs for a system (returns list to try).
+
+    For disc-based systems (in REDUMP_DAT_SYSTEMS), tries the Redump URL first
+    since the dat/ folder may contain a stub file instead of the full DAT.
+    """
     dat_name = LIBRETRO_DAT_SYSTEMS.get(system)
     if not dat_name:
         return []
@@ -4427,7 +4431,15 @@ def get_libretro_dat_url(system: str) -> list:
     # URL encode the name
     encoded_name = urllib.request.quote(dat_name)
 
-    # Return multiple URLs to try (no-intro, dat folder, redump for CD systems)
+    # Disc-based systems: try Redump first (dat/ folder often has stubs)
+    if system in REDUMP_DAT_SYSTEMS:
+        return [
+            f"{LIBRETRO_DB_REDUMP_URL}/{encoded_name}.dat",
+            f"{LIBRETRO_DB_DAT_URL}/{encoded_name}.dat",
+            f"{LIBRETRO_DB_NOINTO_URL}/{encoded_name}.dat",
+        ]
+
+    # Cartridge-based systems: try No-Intro first
     return [
         f"{LIBRETRO_DB_NOINTO_URL}/{encoded_name}.dat",
         f"{LIBRETRO_DB_DAT_URL}/{encoded_name}.dat",
