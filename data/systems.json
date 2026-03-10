@@ -36,7 +36,8 @@
       "ten_dat_prefix": "Nintendo - Nintendo 3DS",
       "launchbox_platforms": [
         "Nintendo 3DS"
-      ]
+      ],
+      "igdb_id": 37
     },
     "actionmax": {
       "name": "Actionmax"
@@ -64,7 +65,8 @@
       "dat_name": "Commodore - Amiga",
       "launchbox_platforms": [
         "Commodore Amiga"
-      ]
+      ],
+      "igdb_id": 16
     },
     "amigacd32": {
       "name": "Commodore - CD32",
@@ -72,7 +74,8 @@
         "amiga-cd32"
       ],
       "dat_name": "Commodore - CD32",
-      "redump_dat_name": "Commodore - Amiga CD32"
+      "redump_dat_name": "Commodore - Amiga CD32",
+      "igdb_id": 114
     },
     "amstradcpc": {
       "name": "Amstrad - CPC",
@@ -92,20 +95,24 @@
       "folder_aliases": [
         "apple-ii",
         "apple-iie"
-      ]
+      ],
+      "igdb_id": 75
     },
     "arcadia": {
       "name": "Emerson - Arcadia 2001",
-      "dat_name": "Emerson - Arcadia 2001"
+      "dat_name": "Emerson - Arcadia 2001",
+      "igdb_id": 473
     },
     "arduboy": {
-      "name": "Arduboy"
+      "name": "Arduboy",
+      "igdb_id": 438
     },
     "astrocade": {
       "name": "Astrocade",
       "folder_aliases": [
         "bally-astrocade"
-      ]
+      ],
+      "igdb_id": 91
     },
     "atari2600": {
       "name": "Atari - 2600",
@@ -123,7 +130,8 @@
       "igdb_id": 59
     },
     "atari400": {
-      "name": "Atari400"
+      "name": "Atari400",
+      "igdb_id": 65
     },
     "atari5200": {
       "name": "Atari - 5200",
@@ -136,7 +144,8 @@
       "dat_name": "Atari - 5200",
       "launchbox_platforms": [
         "Atari 5200"
-      ]
+      ],
+      "igdb_id": 66
     },
     "atari7800": {
       "name": "Atari - 7800",
@@ -166,7 +175,8 @@
         "atari-xe",
         "atari800xl"
       ],
-      "dat_name": "Atari - 8-bit Family"
+      "dat_name": "Atari - 8-bit Family",
+      "igdb_id": 65
     },
     "atarijaguar": {
       "name": "Atari - Jaguar",
@@ -194,7 +204,8 @@
       "redump_dat_name": "Atari - Jaguar CD Interactive Multimedia System",
       "launchbox_platforms": [
         "Atari Jaguar CD"
-      ]
+      ],
+      "igdb_id": 410
     },
     "atarilynx": {
       "name": "Atari - Lynx",
@@ -224,24 +235,28 @@
       "dat_name": "Atari - ST",
       "launchbox_platforms": [
         "Atari ST"
-      ]
+      ],
+      "igdb_id": 63
     },
     "atomiswave": {
-      "name": "Atomiswave"
+      "name": "Atomiswave",
+      "igdb_id": 52
     },
     "bbc": {
       "name": "Bbc",
       "folder_aliases": [
         "acorn",
         "bbc-micro"
-      ]
+      ],
+      "igdb_id": 69
     },
     "beena": {
       "name": "Sega - Beena",
       "folder_aliases": [
         "sega-beena"
       ],
-      "dat_name": "Sega - Beena"
+      "dat_name": "Sega - Beena",
+      "igdb_id": 507
     },
     "c128": {
       "name": "C128",
@@ -267,7 +282,8 @@
       "dat_name": "Commodore - 64",
       "launchbox_platforms": [
         "Commodore 64"
-      ]
+      ],
+      "igdb_id": 15
     },
     "cdi": {
       "name": "Philips - CD-i",
@@ -279,12 +295,14 @@
       "redump_dat_name": "Philips - CD-i",
       "launchbox_platforms": [
         "Philips CD-i"
-      ]
+      ],
+      "igdb_id": 117
     },
     "cdtv": {
       "name": "Commodore - CDTV",
       "dat_name": "Commodore - CDTV",
-      "redump_dat_name": "Commodore - CDTV"
+      "redump_dat_name": "Commodore - CDTV",
+      "igdb_id": 158
     },
     "channelf": {
       "name": "Fairchild - Channel F",
@@ -296,7 +314,8 @@
         "fairchild",
         "fairchild-channel-f"
       ],
-      "dat_name": "Fairchild - Channel F"
+      "dat_name": "Fairchild - Channel F",
+      "igdb_id": 127
     },
     "chip8": {
       "name": "Chip8",
@@ -319,19 +338,22 @@
       "name": "Cps1",
       "folder_aliases": [
         "capcom-cps1"
-      ]
+      ],
+      "igdb_id": 52
     },
     "cps2": {
       "name": "Cps2",
       "folder_aliases": [
         "capcom-cps2"
-      ]
+      ],
+      "igdb_id": 52
     },
     "cps3": {
       "name": "Cps3",
       "folder_aliases": [
         "capcom-cps3"
-      ]
+      ],
+      "igdb_id": 52
     },
     "creativision": {
       "name": "VTech - CreatiVision",
@@ -341,13 +363,16 @@
       "dat_name": "VTech - CreatiVision"
     },
     "daphne": {
-      "name": "Daphne"
+      "name": "Daphne",
+      "igdb_id": 52
     },
     "dosbox": {
-      "name": "Dosbox"
+      "name": "Dosbox",
+      "igdb_id": 13
     },
     "dragon32": {
-      "name": "Dragon32"
+      "name": "Dragon32",
+      "igdb_id": 153
     },
     "dreamcast": {
       "name": "Sega - Dreamcast",
@@ -377,10 +402,12 @@
       "ten_dat_prefix": "Nintendo - Nintendo DSi",
       "launchbox_platforms": [
         "Nintendo DSi"
-      ]
+      ],
+      "igdb_id": 159
     },
     "electron": {
-      "name": "Electron"
+      "name": "Electron",
+      "igdb_id": 134
     },
     "enterprise": {
       "name": "Enterprise - 128",
@@ -396,19 +423,22 @@
         "e-reader",
         "nintendo-e-reader"
       ],
-      "dat_name": "Nintendo - e-Reader"
+      "dat_name": "Nintendo - e-Reader",
+      "igdb_id": 510
     },
     "fba": {
       "name": "Fba",
       "folder_aliases": [
         "final-burn-alpha"
-      ]
+      ],
+      "igdb_id": 52
     },
     "fbneo": {
       "name": "Fbneo",
       "folder_aliases": [
         "finalburn-neo"
-      ]
+      ],
+      "igdb_id": 52
     },
     "fds": {
       "name": "Nintendo - Family Computer Disk System",
@@ -423,13 +453,15 @@
       "ten_dat_prefix": "Nintendo - Family Computer Disk System",
       "launchbox_platforms": [
         "Nintendo Famicom Disk System"
-      ]
+      ],
+      "igdb_id": 51
     },
     "fm7": {
       "name": "Fm7",
       "folder_aliases": [
         "fm-7"
-      ]
+      ],
+      "igdb_id": 152
     },
     "fmtowns": {
       "name": "Fujitsu - FM Towns series",
@@ -438,10 +470,12 @@
         "fujitsu-fm-towns"
       ],
       "redump_dat_name": "Fujitsu - FM Towns series",
-      "ten_dat_prefix": "Fujitsu - FM-Towns"
+      "ten_dat_prefix": "Fujitsu - FM-Towns",
+      "igdb_id": 118
     },
     "gamate": {
-      "name": "Gamate"
+      "name": "Gamate",
+      "igdb_id": 378
     },
     "gameandwatch": {
       "name": "Gameandwatch",
@@ -450,7 +484,8 @@
       ],
       "folder_aliases": [
         "game-and-watch"
-      ]
+      ],
+      "igdb_id": 307
     },
     "gameboy": {
       "name": "Nintendo - Game Boy",
@@ -491,7 +526,8 @@
         "game-com",
         "tiger-gamecom"
       ],
-      "dat_name": "Tiger - Game.com"
+      "dat_name": "Tiger - Game.com",
+      "igdb_id": 379
     },
     "gamecube": {
       "name": "Nintendo - GameCube",
@@ -510,7 +546,8 @@
       "ten_dat_prefix": "Nintendo - GameCube",
       "launchbox_platforms": [
         "Nintendo GameCube"
-      ]
+      ],
+      "igdb_id": 21
     },
     "gamegear": {
       "name": "Sega - Game Gear",
@@ -612,14 +649,16 @@
       "folder_aliases": [
         "leapfrog-leapster"
       ],
-      "dat_name": "LeapFrog - Leapster Learning Game System"
+      "dat_name": "LeapFrog - Leapster Learning Game System",
+      "igdb_id": 412
     },
     "loopy": {
       "name": "Casio - Loopy",
       "folder_aliases": [
         "casio-loopy"
       ],
-      "dat_name": "Casio - Loopy"
+      "dat_name": "Casio - Loopy",
+      "igdb_id": 380
     },
     "lowresnx": {
       "name": "Lowresnx"
@@ -656,19 +695,22 @@
       "igdb_id": 64
     },
     "megaduck": {
-      "name": "Megaduck"
+      "name": "Megaduck",
+      "igdb_id": 408
     },
     "model2": {
       "name": "Model2",
       "folder_aliases": [
         "sega-model2"
-      ]
+      ],
+      "igdb_id": 52
     },
     "model3": {
       "name": "Model3",
       "folder_aliases": [
         "sega-model3"
-      ]
+      ],
+      "igdb_id": 52
     },
     "msx": {
       "name": "Microsoft - MSX",
@@ -693,7 +735,8 @@
       "ten_dat_prefix": "Microsoft - MSX2",
       "launchbox_platforms": [
         "MSX2"
-      ]
+      ],
+      "igdb_id": 53
     },
     "n64": {
       "name": "Nintendo - Nintendo 64",
@@ -726,14 +769,16 @@
       "ten_dat_prefix": "Nintendo - Nintendo 64DD",
       "launchbox_platforms": [
         "Nintendo 64DD"
-      ]
+      ],
+      "igdb_id": 416
     },
     "naomi": {
       "name": "Sega - Naomi",
       "folder_aliases": [
         "sega-naomi"
       ],
-      "dat_name": "Sega - Naomi"
+      "dat_name": "Sega - Naomi",
+      "igdb_id": 52
     },
     "naomi2": {
       "name": "Sega - Naomi 2",
@@ -741,7 +786,8 @@
         "sega-naomi-2",
         "sega-naomi2"
       ],
-      "dat_name": "Sega - Naomi 2"
+      "dat_name": "Sega - Naomi 2",
+      "igdb_id": 52
     },
     "nds": {
       "name": "Nintendo - Nintendo DS",
@@ -787,10 +833,12 @@
       "ten_dat_prefix": "SNK - Neo Geo CD",
       "launchbox_platforms": [
         "SNK Neo Geo CD"
-      ]
+      ],
+      "igdb_id": 136
     },
     "neogeocdjapan": {
-      "name": "Neogeocdjapan"
+      "name": "Neogeocdjapan",
+      "igdb_id": 136
     },
     "nes": {
       "name": "Nintendo - Nintendo Entertainment System",
@@ -821,7 +869,8 @@
       "dat_name": "SNK - Neo Geo Pocket",
       "launchbox_platforms": [
         "SNK Neo Geo Pocket"
-      ]
+      ],
+      "igdb_id": 119
     },
     "ngpc": {
       "name": "SNK - Neo Geo Pocket Color",
@@ -836,7 +885,8 @@
       "ten_dat_prefix": "SNK - Neo Geo Pocket Color",
       "launchbox_platforms": [
         "SNK Neo Geo Pocket Color"
-      ]
+      ],
+      "igdb_id": 120
     },
     "odyssey2": {
       "name": "Magnavox - Odyssey2",
@@ -850,7 +900,8 @@
       "dat_name": "Magnavox - Odyssey2",
       "launchbox_platforms": [
         "Magnavox Odyssey 2"
-      ]
+      ],
+      "igdb_id": 133
     },
     "oric": {
       "name": "Oric"
@@ -860,7 +911,8 @@
       "folder_aliases": [
         "palm"
       ],
-      "dat_name": "Mobile - Palm OS"
+      "dat_name": "Mobile - Palm OS",
+      "igdb_id": 417
     },
     "pc88": {
       "name": "Pc88",
@@ -871,7 +923,8 @@
       "ten_dat_prefix": "NEC - PC-8801",
       "launchbox_platforms": [
         "NEC PC-8801"
-      ]
+      ],
+      "igdb_id": 125
     },
     "pc98": {
       "name": "NEC - PC-98",
@@ -884,7 +937,8 @@
       "ten_dat_prefix": "NEC - PC-9801",
       "launchbox_platforms": [
         "NEC PC-9801"
-      ]
+      ],
+      "igdb_id": 149
     },
     "pcfx": {
       "name": "NEC - PC-FX",
@@ -896,7 +950,8 @@
       "ten_dat_prefix": "NEC - PC-FX",
       "launchbox_platforms": [
         "NEC PC-FX"
-      ]
+      ],
+      "igdb_id": 274
     },
     "picno": {
       "name": "Konami - Picno",
@@ -918,7 +973,8 @@
         "commodore-plus-4",
         "commodore-plus4"
       ],
-      "dat_name": "Commodore - Plus-4"
+      "dat_name": "Commodore - Plus-4",
+      "igdb_id": 94
     },
     "pocketchallenge": {
       "name": "Benesse - Pocket Challenge V2",
@@ -940,7 +996,8 @@
       "ten_dat_prefix": "Nintendo - Pokemon Mini",
       "launchbox_platforms": [
         "Nintendo Pokemon Mini"
-      ]
+      ],
+      "igdb_id": 166
     },
     "ps2": {
       "name": "Sony - PlayStation 2",
@@ -954,7 +1011,8 @@
       "ten_dat_prefix": "Sony - PlayStation 2",
       "launchbox_platforms": [
         "Sony Playstation 2"
-      ]
+      ],
+      "igdb_id": 8
     },
     "ps3": {
       "name": "Sony - PlayStation 3",
@@ -968,7 +1026,8 @@
       "ten_dat_prefix": "Sony - PlayStation 3",
       "launchbox_platforms": [
         "Sony Playstation 3"
-      ]
+      ],
+      "igdb_id": 9
     },
     "psp": {
       "name": "Sony - PlayStation Portable",
@@ -999,7 +1058,8 @@
       "redump_dat_name": "Sony - PlayStation Vita",
       "launchbox_platforms": [
         "Sony Playstation Vita"
-      ]
+      ],
+      "igdb_id": 46
     },
     "psx": {
       "name": "Sony - PlayStation",
@@ -1039,7 +1099,8 @@
         "bsx",
         "nintendo-satellaview"
       ],
-      "dat_name": "Nintendo - Satellaview"
+      "dat_name": "Nintendo - Satellaview",
+      "igdb_id": 306
     },
     "saturn": {
       "name": "Sega - Saturn",
@@ -1073,7 +1134,8 @@
         "epoch-scv",
         "super-cassette-vision"
       ],
-      "dat_name": "Epoch - Super Cassette Vision"
+      "dat_name": "Epoch - Super Cassette Vision",
+      "igdb_id": 376
     },
     "sega32x": {
       "name": "Sega - 32X",
@@ -1118,7 +1180,8 @@
         "pico",
         "sega-pico"
       ],
-      "dat_name": "Sega - PICO"
+      "dat_name": "Sega - PICO",
+      "igdb_id": 339
     },
     "sg1000": {
       "name": "Sega - SG-1000",
@@ -1132,7 +1195,8 @@
       "ten_dat_prefix": "Sega - SG-1000",
       "launchbox_platforms": [
         "Sega SG-1000"
-      ]
+      ],
+      "igdb_id": 84
     },
     "sharp-x1": {
       "name": "Sharp - X1",
@@ -1140,7 +1204,8 @@
         "x1"
       ],
       "dat_name": "Sharp - X1",
-      "ten_dat_prefix": "Sharp - X1"
+      "ten_dat_prefix": "Sharp - X1",
+      "igdb_id": 77
     },
     "snes": {
       "name": "Nintendo - Super Nintendo Entertainment System",
@@ -1185,7 +1250,8 @@
         "funtech-super-acan",
         "super-acan"
       ],
-      "dat_name": "Funtech - Super Acan"
+      "dat_name": "Funtech - Super Acan",
+      "igdb_id": 480
     },
     "supergrafx": {
       "name": "NEC - PC Engine SuperGrafx",
@@ -1195,7 +1261,8 @@
       "dat_name": "NEC - PC Engine SuperGrafx",
       "launchbox_platforms": [
         "NEC SuperGrafx"
-      ]
+      ],
+      "igdb_id": 128
     },
     "supervision": {
       "name": "Watara - Supervision",
@@ -1205,7 +1272,8 @@
       "folder_aliases": [
         "watara-supervision"
       ],
-      "dat_name": "Watara - Supervision"
+      "dat_name": "Watara - Supervision",
+      "igdb_id": 415
     },
     "switch": {
       "name": "Switch",
@@ -1218,7 +1286,8 @@
       ],
       "launchbox_platforms": [
         "Nintendo Switch"
-      ]
+      ],
+      "igdb_id": 130
     },
     "symbian": {
       "name": "Mobile - Symbian",
@@ -1236,7 +1305,8 @@
       "folder_aliases": [
         "tekno-parrot",
         "tp"
-      ]
+      ],
+      "igdb_id": 52
     },
     "tg16": {
       "name": "NEC - PC Engine - TurboGrafx 16",
@@ -1270,14 +1340,16 @@
       "ten_dat_prefix": "NEC - PC Engine CD",
       "launchbox_platforms": [
         "NEC TurboGrafx-CD"
-      ]
+      ],
+      "igdb_id": 150
     },
     "ti994a": {
       "name": "Ti994A",
       "folder_aliases": [
         "ti-99-4a",
         "ti99"
-      ]
+      ],
+      "igdb_id": 129
     },
     "tic80": {
       "name": "Tic80",
@@ -1289,7 +1361,8 @@
       "name": "Trs80",
       "folder_aliases": [
         "trs-80"
-      ]
+      ],
+      "igdb_id": 126
     },
     "tvcomputer": {
       "name": "Videoton - TV-Computer",
@@ -1300,7 +1373,8 @@
       "dat_name": "Videoton - TV-Computer"
     },
     "uzebox": {
-      "name": "Uzebox"
+      "name": "Uzebox",
+      "igdb_id": 504
     },
     "vectrex": {
       "name": "GCE - Vectrex",
@@ -1318,7 +1392,8 @@
       "folder_aliases": [
         "commodore-vic20"
       ],
-      "dat_name": "Commodore - VIC-20"
+      "dat_name": "Commodore - VIC-20",
+      "igdb_id": 71
     },
     "videopac": {
       "name": "Philips - Videopac+",
@@ -1350,7 +1425,8 @@
         "v-smile",
         "vtech-vsmile"
       ],
-      "dat_name": "VTech - V.Smile"
+      "dat_name": "VTech - V.Smile",
+      "igdb_id": 439
     },
     "vtech": {
       "name": "Vtech",
@@ -1372,7 +1448,8 @@
       "ten_dat_prefix": "Nintendo - Wii",
       "launchbox_platforms": [
         "Nintendo Wii"
-      ]
+      ],
+      "igdb_id": 5
     },
     "wiiu": {
       "name": "Nintendo - Wii U",
@@ -1383,7 +1460,8 @@
       "redump_dat_name": "Nintendo - Wii U",
       "launchbox_platforms": [
         "Nintendo Wii U"
-      ]
+      ],
+      "igdb_id": 41
     },
     "wonderswan": {
       "name": "Bandai - WonderSwan",
@@ -1414,7 +1492,8 @@
       "ten_dat_prefix": "Bandai - WonderSwan Color",
       "launchbox_platforms": [
         "Bandai WonderSwan Color"
-      ]
+      ],
+      "igdb_id": 123
     },
     "x68000": {
       "name": "Sharp - X68000",
@@ -1427,7 +1506,8 @@
       "ten_dat_prefix": "Sharp - X68000",
       "launchbox_platforms": [
         "Sharp X68000"
-      ]
+      ],
+      "igdb_id": 121
     },
     "xbox": {
       "name": "Microsoft - Xbox",
@@ -1436,7 +1516,8 @@
       "ten_dat_prefix": "Microsoft - XBOX",
       "launchbox_platforms": [
         "Microsoft Xbox"
-      ]
+      ],
+      "igdb_id": 11
     },
     "xbox360": {
       "name": "Microsoft - Xbox 360",
@@ -1445,19 +1526,22 @@
       "ten_dat_prefix": "Microsoft - XBOX 360",
       "launchbox_platforms": [
         "Microsoft Xbox 360"
-      ]
+      ],
+      "igdb_id": 12
     },
     "zeebo": {
       "name": "Mobile - Zeebo",
       "dat_name": "Mobile - Zeebo",
-      "ten_dat_prefix": "Zeebo - Zeebo"
+      "ten_dat_prefix": "Zeebo - Zeebo",
+      "igdb_id": 240
     },
     "zx81": {
       "name": "Sinclair - ZX 81",
       "folder_aliases": [
         "zx-81"
       ],
-      "dat_name": "Sinclair - ZX 81"
+      "dat_name": "Sinclair - ZX 81",
+      "igdb_id": 373
     },
     "zxspectrum": {
       "name": "Sinclair - ZX Spectrum +3",

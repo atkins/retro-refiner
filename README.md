@@ -111,6 +111,12 @@ Whether you're building a curated collection for a Raspberry Pi, populating a Mi
 - **DAT-based selection**: Uses checksums to identify ROMs, not just filenames
 - **Selection logs**: Detailed logs showing exactly what was selected and why
 
+### Rating & Budget
+- **IGDB ratings**: High-quality game ratings with vote counts from IGDB (Twitch) for 32 systems
+- **LaunchBox fallback**: No-auth rating source when IGDB credentials aren't configured
+- **Top-N filtering**: Keep only the highest-rated games per system (`--top 50`, `--top 10%`)
+- **Size budgets**: Fit the best-rated games into a storage limit (`--size 10G`)
+
 ### Usability
 - **Safe by default**: Dry run mode previews selections without transferring any files
 - **Cross-platform**: Works on Windows, macOS, and Linux with no dependencies
@@ -189,6 +195,33 @@ python retro-refiner.py -s /path/to/roms --top 50 --commit
 # Cap at 500 ROMs total across all systems
 python retro-refiner.py -s /path/to/roms --limit 500 --commit
 ```
+
+### Rating Data (IGDB vs LaunchBox)
+
+`--top` and `--size` use game ratings to prioritize the best games. Two rating sources are supported:
+
+**IGDB (default when credentials are set)** — Higher-quality ratings with vote counts from the IGDB database (owned by Twitch). Covers 32 major systems with thousands of rated games.
+
+```bash
+# Set credentials via environment (recommended)
+export IGDB_CLIENT_ID=your_client_id
+export IGDB_CLIENT_SECRET=your_client_secret
+python retro-refiner.py -s /path/to/roms --top 50 --commit
+
+# Or pass directly
+python retro-refiner.py -s /path/to/roms --top 50 --igdb-client-id YOUR_ID --igdb-client-secret YOUR_SECRET --commit
+```
+
+Get free IGDB credentials at https://dev.twitch.tv/console (create an application, use any OAuth redirect URL).
+
+**LaunchBox (no-auth fallback)** — Used automatically when IGDB credentials are not configured. No setup required.
+
+```bash
+# Force a specific source
+python retro-refiner.py -s /path/to/roms --top 50 --ratings-source launchbox --commit
+```
+
+IGDB ratings are cached locally for 7 days. Use `--update-dats` to force a refresh.
 
 ### More Options
 ```bash
@@ -511,6 +544,9 @@ Each system folder contains `_selection_log.txt` with:
 | `--include-unrated` | Include unrated games after rated ones when using `--top` |
 | `--limit` | Maximum total ROMs to select across all systems |
 | `--size` | Maximum total size budget across all systems (e.g., `--size 10G`, `--size 500M`) |
+| `--ratings-source` | Rating source: `igdb` (default with credentials) or `launchbox` |
+| `--igdb-client-id` | IGDB/Twitch client ID (or set `IGDB_CLIENT_ID` env var) |
+| `--igdb-client-secret` | IGDB/Twitch client secret (or set `IGDB_CLIENT_SECRET` env var) |
 
 ### Export Options
 | Option | Description |
@@ -589,6 +625,11 @@ exclude_protos: false  # protos included by default
 include_betas: false
 year_from: 1990
 year_to: 1999
+
+# Rating source for --top/--size
+# ratings_source: igdb    # 'igdb' (default with credentials) or 'launchbox'
+# igdb_client_id: your_client_id
+# igdb_client_secret: your_client_secret
 
 # Output
 flat: false

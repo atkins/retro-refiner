@@ -2342,11 +2342,20 @@ def test_igdb():
             results.fail(f"IGDB ID for {system}", expected_id, actual_id)
 
     # Test systems without IGDB IDs don't appear in map
-    for system in ['actionmax', 'arduboy', 'chip8']:
+    for system in ['actionmax', 'chip8', 'pico8']:
         if system not in IGDB_PLATFORM_MAP:
-            results.ok(f"No IGDB ID for niche system {system}")
+            results.ok(f"No IGDB ID for unmapped system {system}")
         else:
             results.fail(f"No IGDB ID for {system}", "not in map", IGDB_PLATFORM_MAP[system])
+
+    # Test newly added systems have correct IDs
+    new_ids = {'gamecube': 21, 'wii': 5, 'ps2': 8, 'xbox': 11, 'switch': 130, 'c64': 15}
+    for system, expected_id in new_ids.items():
+        actual_id = IGDB_PLATFORM_MAP.get(system)
+        if actual_id == expected_id:
+            results.ok(f"IGDB ID for {system} = {expected_id}")
+        else:
+            results.fail(f"IGDB ID for {system}", expected_id, actual_id)
 
     # Test IGDB cache format structure
     sample_cache = {
