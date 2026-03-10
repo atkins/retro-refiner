@@ -99,9 +99,35 @@ else:
 # Console Output Styling
 # =============================================================================
 
+# Semantic color theme — maps role names to base ANSI color attribute names
+DEFAULT_THEME = {
+    # Structural
+    'banner': 'BRIGHT_CYAN', 'banner_rule': 'CYAN',
+    'header': 'BRIGHT_WHITE', 'header_rule': 'DIM',
+    'section': 'BRIGHT_WHITE', 'section_rule': 'DIM',
+    # Status
+    'success': 'GREEN', 'error': 'RED', 'warning': 'YELLOW', 'info': 'BLUE',
+    # Content
+    'label': 'DIM', 'value': 'WHITE', 'detail': 'DIM',
+    'system_name': 'BRIGHT_CYAN', 'count': 'BRIGHT_WHITE',
+    'size': 'BRIGHT_WHITE', 'filename': 'WHITE',
+    # Progress
+    'progress_fill': 'CYAN', 'progress_empty': 'DIM', 'progress_text': 'WHITE',
+    # Verbose tags
+    'tag_skip': 'DIM', 'tag_select': 'GREEN', 'tag_filter': 'YELLOW',
+    'tag_dat': 'BLUE', 'tag_config': 'MAGENTA', 'tag_detect': 'CYAN',
+    'tag_match': 'GREEN', 'tag_include': 'GREEN', 'tag_exclude': 'RED',
+    # Error blocks
+    'error_border': 'RED', 'error_title': 'BRIGHT_RED',
+    # Tables
+    'table_header': 'BRIGHT_WHITE', 'table_rule': 'DIM',
+    'table_row': 'WHITE', 'table_total': 'BRIGHT_WHITE',
+}
+
+
 class Style:
     """ANSI color codes for styled terminal output."""
-    # Colors
+    # Base colors
     RED = '\033[31m'
     GREEN = '\033[32m'
     YELLOW = '\033[33m'
@@ -126,9 +152,63 @@ class Style:
     UNDERLINE = '\033[4m'
     RESET = '\033[0m'
 
+    # Semantic attributes (populated by apply_theme)
+    BANNER = ''
+    BANNER_RULE = ''
+    HEADER = ''
+    HEADER_RULE = ''
+    SECTION = ''
+    SECTION_RULE = ''
+    SUCCESS = ''
+    ERROR = ''
+    WARNING = ''
+    INFO = ''
+    LABEL = ''
+    VALUE = ''
+    DETAIL = ''
+    SYSTEM_NAME = ''
+    COUNT = ''
+    SIZE = ''
+    FILENAME = ''
+    PROGRESS_FILL = ''
+    PROGRESS_EMPTY = ''
+    PROGRESS_TEXT = ''
+    TAG_SKIP = ''
+    TAG_SELECT = ''
+    TAG_FILTER = ''
+    TAG_DAT = ''
+    TAG_CONFIG = ''
+    TAG_DETECT = ''
+    TAG_MATCH = ''
+    TAG_INCLUDE = ''
+    TAG_EXCLUDE = ''
+    ERROR_BORDER = ''
+    ERROR_TITLE = ''
+    TABLE_HEADER = ''
+    TABLE_RULE = ''
+    TABLE_ROW = ''
+    TABLE_TOTAL = ''
+
+    # Snapshot of base ANSI codes for theme application
+    _BASE_CODES = {}
+
+    @classmethod
+    def apply_theme(cls, theme):
+        """Apply a semantic color theme by mapping role names to base ANSI codes."""
+        # Snapshot base codes on first call
+        if not cls._BASE_CODES:
+            for attr in dir(cls):
+                if attr.isupper() and not attr.startswith('_'):
+                    cls._BASE_CODES[attr] = getattr(cls, attr)
+        # Set semantic attributes from theme
+        for role, base_name in theme.items():
+            attr_name = role.upper()
+            code = cls._BASE_CODES.get(base_name, '')
+            setattr(cls, attr_name, code)
+
     @classmethod
     def disable(cls):
-        """Disable all colors (for non-TTY output)."""
+        """Disable all colors (for non-TTY output or NO_COLOR)."""
         for attr in dir(cls):
             if attr.isupper() and not attr.startswith('_'):
                 setattr(cls, attr, '')
@@ -140,13 +220,13 @@ class Console:
     @staticmethod
     def banner():
         """Print the application banner."""
-        print(f"""{Style.BRIGHT_GREEN}
+        print(f"""{Style.BANNER}
    ___  ___ _____  ___  ___        ___  ___ ___ ___ _  _ ___ ___
   | _ \\| __|_   _|| _ \\/ _ \\  ___ | _ \\| __| __|_ _| \\| | __| _ \\
   |   /| _|  | |  |   / (_) ||___||   /| _|| _| | || .` | _||   /
   |_|_\\|___| |_|  |_|_\\\\___/      |_|_\\|___|_| |___|_|\\_|___|_|_\\
-{Style.GREEN}  ---------------------------------------------------------------------{Style.RESET}
-{Style.BRIGHT_GREEN}             R E F I N E   Y O U R   C O L L E C T I O N{Style.RESET}
+{Style.BANNER_RULE}  ---------------------------------------------------------------------{Style.RESET}
+{Style.BANNER}             R E F I N E   Y O U R   C O L L E C T I O N{Style.RESET}
 """, flush=True)
 
     @staticmethod
@@ -154,51 +234,51 @@ class Console:
         """Print a major section header."""
         width = 65
         print()
-        print(f"{Style.GREEN}{Style.BOLD}{SYM_HLINE * width}{Style.RESET}")
-        print(f"{Style.BRIGHT_GREEN}{Style.BOLD}{text.center(width)}{Style.RESET}")
-        print(f"{Style.GREEN}{Style.BOLD}{SYM_HLINE * width}{Style.RESET}")
+        print(f"{Style.HEADER_RULE}{SYM_HLINE * width}{Style.RESET}")
+        print(f"{Style.HEADER}{Style.BOLD}{text.center(width)}{Style.RESET}")
+        print(f"{Style.HEADER_RULE}{SYM_HLINE * width}{Style.RESET}")
 
     @staticmethod
     def section(text: str):
         """Print a section divider."""
-        print(f"\n{Style.GREEN}{Style.BOLD}{SYM_HLINE*3} {text} {SYM_HLINE * (55 - len(text))}{Style.RESET}")
+        print(f"\n{Style.SECTION_RULE}{SYM_HLINE*3}{Style.RESET} {Style.SECTION}{Style.BOLD}{text}{Style.RESET} {Style.SECTION_RULE}{SYM_HLINE * (55 - len(text))}{Style.RESET}")
 
     @staticmethod
     def subsection(text: str):
         """Print a subsection header."""
-        print(f"\n{Style.GREEN}{text}{Style.RESET}")
+        print(f"\n{Style.SECTION}{text}{Style.RESET}")
 
     @staticmethod
     def success(text: str, prefix: str = None):
         """Print a success message."""
-        sym = prefix if prefix else f"{Style.GREEN}{SYM_CHECK}{Style.RESET}"
-        print(f"  {sym} {Style.GREEN}{text}{Style.RESET}")
+        sym = prefix if prefix else f"{Style.SUCCESS}{SYM_CHECK}{Style.RESET}"
+        print(f"  {sym} {Style.SUCCESS}{text}{Style.RESET}")
 
     @staticmethod
     def error(text: str, prefix: str = None):
         """Print an error message."""
-        sym = prefix if prefix else f"{Style.RED}{SYM_CROSS}{Style.RESET}"
-        print(f"  {sym} {Style.RED}{text}{Style.RESET}")
+        sym = prefix if prefix else f"{Style.ERROR}{SYM_CROSS}{Style.RESET}"
+        print(f"  {sym} {Style.ERROR}{text}{Style.RESET}", file=sys.stderr)
 
     @staticmethod
     def warning(text: str):
         """Print a warning message."""
-        print(f"  {Style.BRIGHT_GREEN}{SYM_WARNING} {text}{Style.RESET}")
+        print(f"  {Style.WARNING}{SYM_WARNING} {text}{Style.RESET}")
 
     @staticmethod
     def info(text: str):
         """Print an info message."""
-        print(f"  {Style.GREEN}{SYM_INFO} {text}{Style.RESET}")
+        print(f"  {Style.INFO}{SYM_INFO} {text}{Style.RESET}")
 
     @staticmethod
     def detail(text: str):
         """Print a detail/status message (dimmed)."""
-        print(f"  {Style.DIM}{text}{Style.RESET}")
+        print(f"  {Style.DETAIL}{text}{Style.RESET}")
 
     @staticmethod
     def item(text: str, indent: int = 2):
         """Print a list item."""
-        print(f"{' ' * indent}{Style.DIM}•{Style.RESET} {text}")
+        print(f"{' ' * indent}{Style.DETAIL}•{Style.RESET} {text}")
 
     @staticmethod
     def progress(current: int, total: int, label: str = ""):
@@ -206,7 +286,7 @@ class Console:
         pct = (current / total * 100) if total > 0 else 0
         bar_width = 30
         filled = int(bar_width * current / total) if total > 0 else 0
-        bar = f"{Style.GREEN}{SYM_BLOCK_FULL * filled}{Style.RESET}{Style.DIM}{SYM_BLOCK_LIGHT * (bar_width - filled)}{Style.RESET}"
+        bar = f"{Style.PROGRESS_FILL}{SYM_BLOCK_FULL * filled}{Style.RESET}{Style.PROGRESS_EMPTY}{SYM_BLOCK_LIGHT * (bar_width - filled)}{Style.RESET}"
         label_text = f" {label}" if label else ""
         print(f"\r  [{bar}] {current}/{total} ({pct:.0f}%){label_text}  ", end='', flush=True)
 
@@ -214,22 +294,22 @@ class Console:
     def status(label: str, value: str, success: bool = None):
         """Print a status line with label and value."""
         if success is True:
-            val_style = Style.BRIGHT_GREEN
+            val_style = Style.SUCCESS
         elif success is False:
-            val_style = Style.RED
+            val_style = Style.ERROR
         else:
-            val_style = Style.GREEN
-        print(f"  {Style.DIM}{label}:{Style.RESET} {val_style}{value}{Style.RESET}")
+            val_style = Style.VALUE
+        print(f"  {Style.LABEL}{label}:{Style.RESET} {val_style}{value}{Style.RESET}")
 
     @staticmethod
     def summary(stats: dict):
         """Print a summary box with statistics."""
         print()
-        print(f"  {Style.DIM}+{SYM_HLINE * 50}+{Style.RESET}")
+        print(f"  {Style.TABLE_RULE}+{SYM_HLINE * 50}+{Style.RESET}")
         for key, value in stats.items():
             line = f"  {key}: {value}"
-            print(f"  {Style.DIM}|{Style.RESET} {line:<48} {Style.DIM}|{Style.RESET}")
-        print(f"  {Style.DIM}+{SYM_HLINE * 50}+{Style.RESET}")
+            print(f"  {Style.TABLE_RULE}|{Style.RESET} {line:<48} {Style.TABLE_RULE}|{Style.RESET}")
+        print(f"  {Style.TABLE_RULE}+{SYM_HLINE * 50}+{Style.RESET}")
 
     @staticmethod
     def table_row(cols: list, widths: list = None):
@@ -237,36 +317,100 @@ class Console:
         if widths is None:
             widths = [20] * len(cols)
         parts = [f"{str(col):<{w}}" for col, w in zip(cols, widths)]
-        print(f"  {'  '.join(parts)}")
+        print(f"  {Style.TABLE_ROW}{'  '.join(parts)}{Style.RESET}")
+
+    @staticmethod
+    def table_header(cols: list, widths: list = None):
+        """Print a table header row."""
+        if widths is None:
+            widths = [20] * len(cols)
+        parts = [f"{str(col):<{w}}" for col, w in zip(cols, widths)]
+        print(f"  {Style.TABLE_HEADER}{Style.BOLD}{'  '.join(parts)}{Style.RESET}")
+
+    @staticmethod
+    def table_rule(width: int = 60, char: str = None):
+        """Print a table rule/separator."""
+        if char is None:
+            char = SYM_HLINE
+        print(f"  {Style.TABLE_RULE}{char * width}{Style.RESET}")
+
+    @staticmethod
+    def table_total(cols: list, widths: list = None):
+        """Print a table total row."""
+        if widths is None:
+            widths = [20] * len(cols)
+        parts = [f"{str(col):<{w}}" for col, w in zip(cols, widths)]
+        print(f"  {Style.TABLE_TOTAL}{Style.BOLD}{'  '.join(parts)}{Style.RESET}")
 
     @staticmethod
     def downloading(filename: str, size: str = None):
         """Print a downloading message."""
         size_text = f" ({size})" if size else ""
-        print(f"  {Style.GREEN}{SYM_ARROW}{Style.RESET} {filename}{Style.DIM}{size_text}{Style.RESET}")
+        print(f"  {Style.SUCCESS}{SYM_ARROW}{Style.RESET} {filename}{Style.DETAIL}{size_text}{Style.RESET}")
 
     @staticmethod
     def downloaded(filename: str):
         """Print a downloaded confirmation."""
-        print(f"  {Style.GREEN}{SYM_CHECK}{Style.RESET} {filename}")
+        print(f"  {Style.SUCCESS}{SYM_CHECK}{Style.RESET} {filename}")
 
     @staticmethod
     def skipped(filename: str, reason: str = None):
         """Print a skipped item message."""
         reason_text = f": {reason}" if reason else ""
-        print(f"  {Style.DIM}[SKIP]{Style.RESET} {filename}{Style.DIM}{reason_text}{Style.RESET}")
+        print(f"  {Style.TAG_SKIP}[SKIP]{Style.RESET} {filename}{Style.DETAIL}{reason_text}{Style.RESET}")
 
     @staticmethod
     def result(label: str, count: int, failed: int = 0):
         """Print a result line with counts."""
         if failed > 0:
-            print(f"\n  {Style.BOLD}{label}:{Style.RESET} {Style.GREEN}{count}{Style.RESET} succeeded, {Style.RED}{failed} failed{Style.RESET}")
+            print(f"\n  {Style.BOLD}{label}:{Style.RESET} {Style.SUCCESS}{count}{Style.RESET} succeeded, {Style.ERROR}{failed} failed{Style.RESET}")
         else:
-            print(f"\n  {Style.BOLD}{label}:{Style.RESET} {Style.GREEN}{count}{Style.RESET}")
+            print(f"\n  {Style.BOLD}{label}:{Style.RESET} {Style.SUCCESS}{count}{Style.RESET}")
+
+    @staticmethod
+    def system_stat(system: str, text: str):
+        """Print a system stat line (e.g., 'NES: 42 ROMs selected')."""
+        print(f"{Style.SYSTEM_NAME}{system.upper()}{Style.RESET}: {text}")
+
+    @staticmethod
+    def verbose(tag: str, text: str):
+        """Print a verbose tag line (e.g., '  [SELECT] rom.zip')."""
+        tag_upper = tag.upper()
+        tag_colors = {
+            'SKIP': Style.TAG_SKIP, 'SELECT': Style.TAG_SELECT,
+            'FILTER': Style.TAG_FILTER, 'DAT': Style.TAG_DAT,
+            'CONFIG': Style.TAG_CONFIG, 'DETECT': Style.TAG_DETECT,
+            'MATCH': Style.TAG_MATCH, 'INCLUDE': Style.TAG_INCLUDE,
+            'EXCLUDE': Style.TAG_EXCLUDE, 'CLONE': Style.TAG_SELECT,
+            'VERSION': Style.TAG_FILTER,
+        }
+        color = tag_colors.get(tag_upper, Style.DETAIL)
+        print(f"  {color}[{tag_upper}]{Style.RESET} {Style.DETAIL}{text}{Style.RESET}")
+
+    @staticmethod
+    def error_block(title: str, lines: list):
+        """Print a bordered error block."""
+        border = "=" * 60
+        print(f"\n{Style.ERROR_BORDER}{border}{Style.RESET}", file=sys.stderr)
+        print(f"{Style.ERROR_TITLE}{title}{Style.RESET}", file=sys.stderr)
+        print(f"{Style.ERROR_BORDER}{border}{Style.RESET}", file=sys.stderr)
+        for line in lines:
+            print(f"  {line}", file=sys.stderr)
+
+    @staticmethod
+    def blank():
+        """Print a blank line."""
+        print()
+
+    @staticmethod
+    def text(text: str, indent: int = 0):
+        """Print plain uncolored text."""
+        print(f"{' ' * indent}{text}")
 
 
-# Disable colors if not a TTY
-if not sys.stdout.isatty():
+# Apply default theme, then disable colors if needed
+Style.apply_theme(DEFAULT_THEME)
+if not sys.stdout.isatty() or os.environ.get('NO_COLOR') is not None:
     Style.disable()
 
 # Title mappings cache (loaded from title_mappings.json)
@@ -299,7 +443,7 @@ def load_title_mappings() -> Dict[str, str]:
                 if isinstance(entries, dict):
                     flat_mappings.update(entries)
         except (json.JSONDecodeError, IOError) as e:
-            print(f"Warning: Could not load title_mappings.json: {e}")
+            Console.warning(f"Could not load title_mappings.json: {e}")
 
     _title_mappings_cache = flat_mappings
     return flat_mappings
@@ -357,7 +501,7 @@ def load_system_data():
         with open(systems_path, 'r', encoding='utf-8') as f:
             data = json.load(f)
     except (json.JSONDecodeError, IOError) as e:
-        print(f"Error: Could not load systems.json: {e}")
+        Console.error(f"Could not load systems.json: {e}")
         sys.exit(1)
 
     systems = data.get('systems', {})
@@ -599,7 +743,9 @@ class ProgressBar:
         if self.total and self.total > 0:
             pct = self.current / self.total
             filled = int(self.bar_width * pct)
-            bar = SYM_BLOCK_FULL * filled + SYM_BLOCK_LIGHT * (self.bar_width - filled)
+            filled_str = f"{Style.PROGRESS_FILL}{SYM_BLOCK_FULL * filled}{Style.RESET}"
+            empty_str = f"{Style.PROGRESS_EMPTY}{SYM_BLOCK_LIGHT * (self.bar_width - filled)}{Style.RESET}"
+            bar = filled_str + empty_str
 
             # Calculate throughput and ETA
             if self.current > 0 and elapsed > 0:
@@ -680,7 +826,9 @@ class ScanProgressBar:
         if self.total > 0:
             pct = self.current / self.total
             filled = int(self.bar_width * pct)
-            bar = SYM_BLOCK_FULL * filled + SYM_BLOCK_LIGHT * (self.bar_width - filled)
+            filled_str = f"{Style.PROGRESS_FILL}{SYM_BLOCK_FULL * filled}{Style.RESET}"
+            empty_str = f"{Style.PROGRESS_EMPTY}{SYM_BLOCK_LIGHT * (self.bar_width - filled)}{Style.RESET}"
+            bar = filled_str + empty_str
 
             # Calculate throughput and ETA
             if self.current > 0 and elapsed > 0:
@@ -1894,12 +2042,7 @@ class DownloadUI:
     # 2=timeout, 5=too slow, 6=network error, 19=HTTP 4xx (429), 20=HTTP 5xx (503)
     THROTTLE_ERROR_CODES = {'2', '5', '6', '19', '20'}
 
-    # ANSI colors for simple mode
-    GREEN = '\033[32m'
-    BRIGHT_GREEN = '\033[92m'
-    RED = '\033[31m'
-    DIM = '\033[2m'
-    RESET = '\033[0m'
+    # Use Style class for colors (no duplicate constants)
 
     def __init__(self, system_name: str, files: List[Tuple[str, Path]],
                  parallel: int = 4, connections: int = 4, auth_header: Optional[str] = None,
@@ -2020,10 +2163,10 @@ class DownloadUI:
         line += f" {self.parallel}p {self.connections}x"  # parallel, connections
         line += f" {SYM_ARROW}{active} {SYM_CIRCLE}{queued}"  # active, queued
         if failed:
-            line += f" {self.RED}{SYM_CROSS}{failed}{self.RESET}"
+            line += f" {Style.ERROR}{SYM_CROSS}{failed}{Style.RESET}"
         line += f"  {speed_str}"
         line += f"  [{elapsed_str}<{eta_str}]"
-        line += f"  {self.DIM}[i]{self.RESET}"
+        line += f"  {Style.DETAIL}[i]{Style.RESET}"
 
         # Use ANSI escape: \r = carriage return, \033[K = clear to end of line
         sys.stdout.write(f"\r\033[K{line}")
@@ -2049,10 +2192,10 @@ class DownloadUI:
         # Colors
         curses.start_color()
         curses.use_default_colors()
-        curses.init_pair(1, curses.COLOR_GREEN, -1)
-        curses.init_pair(2, curses.COLOR_GREEN, -1)
-        curses.init_pair(3, curses.COLOR_RED, -1)
-        curses.init_pair(4, curses.COLOR_GREEN, -1)
+        curses.init_pair(1, curses.COLOR_GREEN, -1)   # done
+        curses.init_pair(2, curses.COLOR_CYAN, -1)    # active/downloading
+        curses.init_pair(3, curses.COLOR_RED, -1)     # failed
+        curses.init_pair(4, curses.COLOR_CYAN, -1)    # header
 
         # Header
         header = f" Downloading ROMs for {self.system_name.upper()}"
@@ -2613,7 +2756,7 @@ class DownloadUI:
             import curses
         except ImportError:
             # Curses not available - stay in simple mode
-            print("\n  [Detailed view not available on this platform]")
+            Console.text("[Detailed view not available on this platform]", indent=2)
             self.detailed_mode = False
             return
 
@@ -2699,7 +2842,7 @@ class DownloadUI:
                 # Check for stall - if no progress for stall_timeout, abort and retry
                 if self._check_stall():
                     sys.stdout.write('\r\033[K')
-                    print(f"  {self.RED}Stall detected - aborting and retrying failed downloads...{self.RESET}")
+                    Console.warning("Stall detected - aborting and retrying failed downloads...")
                     self._terminate_download()
                     break
 
@@ -2734,9 +2877,9 @@ class DownloadUI:
                     self.parallel = new_parallel
                     if not self.detailed_mode:
                         sys.stdout.write('\r\033[K')
-                    msg = f"  Throttling detected ({throttle_info})"
+                    msg = f"Throttling detected ({throttle_info})"
                     msg += f" {SYM_ARROW_RIGHT} reducing to {self.parallel} parallel downloads"
-                    print(msg)
+                    Console.warning(msg)
 
             # Reset tracking for retry round
             self.last_progress_time = _time.time()
@@ -2746,7 +2889,7 @@ class DownloadUI:
 
             if not self.detailed_mode:
                 sys.stdout.write('\r\033[K')
-            print(f"  Retry {retry_round}/{self.max_retries}: {len(failed_downloads)} failed files...")
+            Console.text(f"Retry {retry_round}/{self.max_retries}: {len(failed_downloads)} failed files...", indent=2)
 
             # Start new download thread for retries
             self.download_thread = threading.Thread(target=self._download_worker, daemon=True)
@@ -2766,7 +2909,7 @@ class DownloadUI:
                     # Check for stall during retry
                     if self._check_stall():
                         sys.stdout.write('\r\033[K')
-                        print(f"  {self.RED}Retry stalled - moving to next retry round...{self.RESET}")
+                        Console.warning("Retry stalled - moving to next retry round...")
                         self._terminate_download()
                         break
 
@@ -2785,14 +2928,14 @@ class DownloadUI:
 
         if not self.detailed_mode:
             self._render_simple()
-            print()  # Move to new line after progress bar
+            Console.blank()  # Move to new line after progress bar
 
         # Print final summary
         done = self.completed_count
         failed = self.failed_count
-        print(f"  {self.GREEN}{SYM_CHECK}{self.RESET} Downloaded {done}/{len(self.files)} files", end='')
+        print(f"  {Style.SUCCESS}{SYM_CHECK}{Style.RESET} Downloaded {done}/{len(self.files)} files", end='')
         if failed:
-            print(f" {self.RED}({failed} failed){self.RESET}")
+            print(f" {Style.ERROR}({failed} failed){Style.RESET}")
             # List failed files
             failed_files = [f for f in self.files if f['status'] == self.STATUS_FAILED]
             show_files = failed_files if len(failed_files) <= 10 else failed_files[:5]
@@ -2801,11 +2944,11 @@ class DownloadUI:
                 err_info = ''
                 if f.get('error_code'):
                     err_info = f" [error {f['error_code']}: {f['error_message']}]"
-                print(f"    {self.RED}{SYM_CROSS}{self.RESET} {filename}{err_info}")
+                print(f"    {Style.ERROR}{SYM_CROSS}{Style.RESET} {filename}{err_info}")
             if len(failed_files) > 10:
                 print(f"    ... and {len(failed_files) - 5} more")
         else:
-            print()
+            Console.blank()
 
         # Build result dict
         results = {}
@@ -2817,7 +2960,7 @@ class DownloadUI:
 
     def _run_simple_fallback(self) -> Dict[str, Path]:
         """Non-TTY fallback: just run downloads with print-based progress."""
-        print(f"  {self.system_name.upper()}: Downloading {len(self.files)} files...")
+        Console.system_stat(self.system_name, f"Downloading {len(self.files)} files...")
 
         downloads = [(f['url'], f['path']) for f in self.files]
         tool = get_download_tool()
@@ -2870,10 +3013,10 @@ class DownloadUI:
                 new_parallel = max(1, self.parallel // 2)
                 if new_parallel < self.parallel:
                     self.parallel = new_parallel
-                    print(f"  High failure rate ({len(failed)}/{total_attempted})"
-                          f" {SYM_ARROW_RIGHT} reducing to {self.parallel} parallel downloads")
+                    Console.warning(f"High failure rate ({len(failed)}/{total_attempted})"
+                                    f" {SYM_ARROW_RIGHT} reducing to {self.parallel} parallel downloads")
 
-            print(f"  Retry {retry}/{self.max_retries}: {len(failed)} failed files...")
+            Console.text(f"Retry {retry}/{self.max_retries}: {len(failed)} failed files...", indent=2)
             for f in self.files:
                 if f['status'] == self.STATUS_FAILED:
                     f['retries'] = f.get('retries', 0) + 1
@@ -2907,11 +3050,11 @@ class DownloadUI:
                 err_info = ''
                 if f.get('error_code'):
                     err_info = f" [error {f['error_code']}: {f['error_message']}]"
-                print(f"    {SYM_CROSS} {filename}{err_info}")
+                Console.text(f"{SYM_CROSS} {filename}{err_info}", indent=4)
             if len(failed_files) > 10:
-                print(f"    ... and {len(failed_files) - 5} more")
+                Console.text(f"... and {len(failed_files) - 5} more", indent=4)
         else:
-            print()
+            Console.blank()
 
         return results
 
@@ -3050,7 +3193,7 @@ def download_file_cached(url: str, cache_dir: Path, force: bool = False, use_poo
                 content = response.read()
 
         if content is None:
-            print(f"  Warning: Failed to download {filename}")
+            Console.warning(f"Failed to download {filename}")
             return None
 
         # Write to cache
@@ -3059,13 +3202,13 @@ def download_file_cached(url: str, cache_dir: Path, force: bool = False, use_poo
 
         return cached_path
     except urllib.error.HTTPError as e:
-        print(f"  Warning: HTTP {e.code} downloading {filename}")
+        Console.warning(f"HTTP {e.code} downloading {filename}")
         return None
     except urllib.error.URLError as e:
-        print(f"  Warning: Network error downloading {filename}: {e.reason}")
+        Console.warning(f"Network error downloading {filename}: {e.reason}")
         return None
     except Exception as e:
-        print(f"  Warning: Failed to download {filename}: {e}")
+        Console.warning(f"Failed to download {filename}: {e}")
         return None
 
 
@@ -3089,14 +3232,14 @@ def scan_network_source_urls(base_url: str, systems: List[str] = None,
         _url_sizes = {}
 
     if not _indent:
-        print(f"Scanning network source: {format_url(base_url)}")
+        Console.text(f"Scanning network source: {format_url(base_url)}")
 
     try:
         content, final_url = fetch_url(base_url, auth_header=auth_header)
         html = content.decode('utf-8', errors='replace')
         base_url = final_url
     except Exception as e:
-        print(f"{_indent}  Error fetching {format_url(base_url)}: {e}")
+        Console.error(f"Error fetching {format_url(base_url)}: {e}")
         return dict(detected), _url_sizes
 
     # Try to detect system from URL path (for Redump/Myrient style URLs)
@@ -3109,9 +3252,9 @@ def scan_network_source_urls(base_url: str, systems: List[str] = None,
         total_size = sum(size for _, size in rom_files_with_sizes)
         if not _indent:
             if total_size > 0:
-                print(f"  Found {len(rom_files_with_sizes)} ROM files in root ({format_size(total_size)})")
+                Console.text(f"Found {len(rom_files_with_sizes)} ROM files in root ({format_size(total_size)})", indent=2)
             else:
-                print(f"  Found {len(rom_files_with_sizes)} ROM files in root")
+                Console.text(f"Found {len(rom_files_with_sizes)} ROM files in root", indent=2)
         # Auto-detect system from extensions, fall back to URL path detection
         # For ambiguous extensions (like .chd used by multiple systems), prefer URL path
         ambiguous_extensions = {'.chd', '.iso', '.bin', '.cue', '.img'}
@@ -3201,9 +3344,9 @@ def scan_network_source_urls(base_url: str, systems: List[str] = None,
                     sub_rom_urls = [url for url, _ in sub_files_with_sizes]
                     total_size = sum(size for _, size in sub_files_with_sizes)
                     if total_size > 0:
-                        print(f"{_indent}    {folder_name} ({system}): {len(sub_rom_urls)} ROM URLs ({format_size(total_size)})")
+                        Console.text(f"{_indent}    {folder_name} ({system}): {len(sub_rom_urls)} ROM URLs ({format_size(total_size)})")
                     else:
-                        print(f"{_indent}    {folder_name} ({system}): {len(sub_rom_urls)} ROM URLs")
+                        Console.text(f"{_indent}    {folder_name} ({system}): {len(sub_rom_urls)} ROM URLs")
                     detected[system].extend(sub_rom_urls)
                     for url, size in sub_files_with_sizes:
                         if size > 0:
@@ -3228,9 +3371,9 @@ def scan_network_source_urls(base_url: str, systems: List[str] = None,
                                 nested_roms = [url for url, _ in nested_files]
                                 nested_size = sum(size for _, size in nested_files)
                                 if nested_size > 0:
-                                    print(f"{_indent}      Found {len(nested_roms)} ROM URLs in {nested_name} ({format_size(nested_size)})")
+                                    Console.text(f"{_indent}      Found {len(nested_roms)} ROM URLs in {nested_name} ({format_size(nested_size)})")
                                 else:
-                                    print(f"{_indent}      Found {len(nested_roms)} ROM URLs in {nested_name}")
+                                    Console.text(f"{_indent}      Found {len(nested_roms)} ROM URLs in {nested_name}")
                                 detected[system].extend(nested_roms)
                                 for url, size in nested_files:
                                     if size > 0:
@@ -3326,15 +3469,15 @@ def scan_network_source_urls(base_url: str, systems: List[str] = None,
 
                 if total_roms > 0:
                     if total_size > 0:
-                        print(f"{_indent}  Found {total_roms} ROM URLs ({format_size(total_size)})")
+                        Console.text(f"{_indent}  Found {total_roms} ROM URLs ({format_size(total_size)})")
                     else:
-                        print(f"{_indent}  Found {total_roms} ROM URLs")
+                        Console.text(f"{_indent}  Found {total_roms} ROM URLs")
 
             else:
                 # No URL system detected - scan recursively (sequentially to avoid explosion)
                 for subdir_url, folder_name in other_subdirs:
                     check_shutdown()
-                    print(f"{_indent}  Scanning subfolder: {folder_name}...")
+                    Console.text(f"{_indent}  Scanning subfolder: {folder_name}...")
                     sub_detected, _ = scan_network_source_urls(
                         subdir_url, systems,
                         recursive=True, max_depth=max_depth - 1,
@@ -3406,12 +3549,12 @@ def filter_network_roms(rom_urls: List[str], system: str,
             if include_patterns and not matches_patterns(filename, include_patterns):
                 filtered_by_pattern += 1
                 if verbose:
-                    print(f"  [SKIP] {filename}: doesn't match include patterns")
+                    Console.verbose("skip", f"{filename}: doesn't match include patterns")
                 continue
             if exclude_patterns and matches_patterns(filename, exclude_patterns):
                 filtered_by_pattern += 1
                 if verbose:
-                    print(f"  [SKIP] {filename}: matches exclude pattern")
+                    Console.verbose("skip", f"{filename}: matches exclude pattern")
                 continue
 
         rom_info = parse_rom_filename(filename)
@@ -3420,26 +3563,26 @@ def filter_network_roms(rom_urls: List[str], system: str,
             # Filter by proto/beta/unlicensed unless explicitly included
             if rom_info.is_proto and exclude_protos:
                 if verbose:
-                    print(f"  [SKIP] {filename}: prototype")
+                    Console.verbose("skip", f"{filename}: prototype")
                 continue
             if rom_info.is_beta and not include_betas:
                 if verbose:
-                    print(f"  [SKIP] {filename}: beta")
+                    Console.verbose("skip", f"{filename}: beta")
                 continue
             if rom_info.is_unlicensed and not include_unlicensed:
                 if verbose:
-                    print(f"  [SKIP] {filename}: unlicensed")
+                    Console.verbose("skip", f"{filename}: unlicensed")
                 continue
 
             # Filter by year if specified
             if rom_info.year > 0:
                 if year_from and rom_info.year < year_from:
                     if verbose:
-                        print(f"  [SKIP] {filename}: year {rom_info.year} < {year_from}")
+                        Console.verbose("skip", f"{filename}: year {rom_info.year} < {year_from}")
                     continue
                 if year_to and rom_info.year > year_to:
                     if verbose:
-                        print(f"  [SKIP] {filename}: year {rom_info.year} > {year_to}")
+                        Console.verbose("skip", f"{filename}: year {rom_info.year} > {year_to}")
                     continue
 
         all_roms.append(rom_info)
@@ -3449,16 +3592,16 @@ def filter_network_roms(rom_urls: List[str], system: str,
         total_source_size += file_size
 
     if total_source_size > 0:
-        print(f"{system.upper()}: {len(all_roms)} ROMs after filtering ({format_size(total_source_size)})")
+        Console.system_stat(system, f"{len(all_roms)} ROMs after filtering ({format_size(total_source_size)})")
     else:
-        print(f"{system.upper()}: {len(all_roms)} ROMs after filtering")
+        Console.system_stat(system, f"{len(all_roms)} ROMs after filtering")
     if filtered_by_pattern:
-        print(f"{system.upper()}: {filtered_by_pattern} filtered by include/exclude patterns")
+        Console.system_stat(system, f"{filtered_by_pattern} filtered by include/exclude patterns")
 
     if no_filter:
         # --all mode: select every URL without grouping or 1G1R selection
         selected_urls = [url_map[rom.filename] for rom in all_roms if rom.filename in url_map]
-        print(f"{system.upper()}: --all mode, selecting all {len(selected_urls)} ROMs")
+        Console.system_stat(system, f"--all mode, selecting all {len(selected_urls)} ROMs")
     else:
         # Group by normalized title (using DAT names when available for better matching)
         grouped = defaultdict(list)
@@ -3478,9 +3621,9 @@ def filter_network_roms(rom_urls: List[str], system: str,
             grouped[normalized].append(rom)
 
         if dat_entries and dat_matches > 0:
-            print(f"{system.upper()}: {len(grouped)} unique game titles ({dat_matches} matched via DAT)")
+            Console.system_stat(system, f"{len(grouped)} unique game titles ({dat_matches} matched via DAT)")
         else:
-            print(f"{system.upper()}: {len(grouped)} unique game titles")
+            Console.system_stat(system, f"{len(grouped)} unique game titles")
 
         # Select best ROM from each group
         selected_urls = []
@@ -3501,7 +3644,7 @@ def filter_network_roms(rom_urls: List[str], system: str,
                                         selected_roms.append(sibling)
                                 seen_regions.add(region)
                                 if verbose:
-                                    print(f"  [SELECT] {rom.filename} ({region} version of '{title}')")
+                                    Console.verbose("select", f"{rom.filename} ({region} version of '{title}')")
                             break
                 # If no regions matched, select best overall
                 if not seen_regions:
@@ -3512,7 +3655,7 @@ def filter_network_roms(rom_urls: List[str], system: str,
                                 selected_urls.append(url_map[sibling.filename])
                                 selected_roms.append(sibling)
                         if verbose:
-                            print(f"  [SELECT] {best.filename} (fallback for '{title}')")
+                            Console.verbose("select", f"{best.filename} (fallback for '{title}')")
             else:
                 # Select single best ROM
                 best = select_best_rom(roms, region_priority, verbose=verbose)
@@ -3522,7 +3665,7 @@ def filter_network_roms(rom_urls: List[str], system: str,
                             selected_urls.append(url_map[sibling.filename])
                             selected_roms.append(sibling)
                     if verbose:
-                        print(f"  [SELECT] {best.filename} (best of {len(roms)} for '{title}')")
+                        Console.verbose("select", f"{best.filename} (best of {len(roms)} for '{title}')")
 
         # Apply english-only filter if requested
         if english_only:
@@ -3538,7 +3681,7 @@ def filter_network_roms(rom_urls: List[str], system: str,
                 selected_roms = []
             excluded = pre_english - len(selected_roms)
             if excluded:
-                print(f"{system.upper()}: Excluded {excluded} non-English ROMs")
+                Console.system_stat(system, f"Excluded {excluded} non-English ROMs")
 
         # Apply top-N filter if requested
         if top_n and ratings:
@@ -3548,7 +3691,7 @@ def filter_network_roms(rom_urls: List[str], system: str,
             rated_count = sum(1 for r in selected_roms
                             if normalize_title(r.base_title) in system_ratings)
 
-            print(f"{system.upper()}: Rating data matched {rated_count} of {pre_filter_count} games")
+            Console.system_stat(system, f"Rating data matched {rated_count} of {pre_filter_count} games")
 
             filtered_roms = apply_top_n_filter(
                 selected_roms, system_ratings, top_n, include_unrated
@@ -3563,21 +3706,21 @@ def filter_network_roms(rom_urls: List[str], system: str,
             top_label = format_top_label(top_n)
             actual_kept = len(filtered_roms)
             if include_unrated:
-                print(f"{system.upper()}: {top_label} selected ({actual_kept} games, {filtered_out} below cutoff)")
+                Console.system_stat(system, f"{top_label} selected ({actual_kept} games, {filtered_out} below cutoff)")
             else:
                 unrated_excluded = pre_filter_count - rated_count
-                print(f"{system.upper()}: {top_label} selected ({actual_kept} games, {filtered_out} below cutoff, {unrated_excluded} unrated excluded)")
+                Console.system_stat(system, f"{top_label} selected ({actual_kept} games, {filtered_out} below cutoff, {unrated_excluded} unrated excluded)")
 
     # Calculate selected size
     selected_size = sum(size_map.get(get_filename_from_url(url), 0) for url in selected_urls)
 
     if total_source_size > 0:
-        print(f"{system.upper()}: Selected {len(selected_urls)} ROMs to download ({format_size(selected_size)})")
+        Console.system_stat(system, f"Selected {len(selected_urls)} ROMs to download ({format_size(selected_size)})")
         size_saved = total_source_size - selected_size
         reduction_pct = (size_saved / total_source_size) * 100
-        print(f"{system.upper()}: Size reduction: {format_size(size_saved)} saved ({reduction_pct:.1f}%)")
+        Console.system_stat(system, f"Size reduction: {format_size(size_saved)} saved ({reduction_pct:.1f}%)")
     else:
-        print(f"{system.upper()}: Selected {len(selected_urls)} ROMs to download")
+        Console.system_stat(system, f"Selected {len(selected_urls)} ROMs to download")
 
     return selected_urls, {'source_size': total_source_size, 'selected_size': selected_size}
 
@@ -3818,7 +3961,7 @@ def generate_default_config(config_path: Path) -> bool:
             f.write(DEFAULT_CONFIG_CONTENT)
         return True
     except Exception as e:
-        print(f"Warning: Could not create config file: {e}")
+        Console.warning(f"Could not create config file: {e}")
         return False
 
 
@@ -3834,7 +3977,7 @@ def load_config(config_path: Path) -> dict:
         try:
             return parse_simple_yaml(content) or {}
         except Exception as e:
-            print(f"Warning: Failed to parse {config_path.name}: {e}")
+            Console.warning(f"Failed to parse {config_path.name}: {e}")
             return {}
     elif config_path.suffix.lower() == '.json':
         return json.loads(content) or {}
@@ -4133,7 +4276,7 @@ def fetch_ten_dat_listing() -> Dict[str, str]:
 
         return zip_files
     except Exception as e:
-        print(f"  Error fetching T-En DAT listing: {e}")
+        Console.error(f"Error fetching T-En DAT listing: {e}")
         return {}
 
 
@@ -4706,7 +4849,8 @@ def build_download_crc_index(cache_dir: Path, files: List[Path]) -> dict:
         pass
 
     if new_count > 0:
-        print(f"\nCRC indexed: {new_count} new, {cached_count} already indexed")
+        Console.blank()
+        Console.text(f"CRC indexed: {new_count} new, {cached_count} already indexed")
 
     return index
 
@@ -4733,17 +4877,17 @@ def verify_roms_against_dat(rom_files: List[Path], dat_entries: Dict[str, DatRom
         if crc and crc in dat_entries:
             verified.append((rom_path, dat_entries[crc]))
             if verbose:
-                print(f"  [MATCH] {rom_path.name}: CRC {crc} -> {dat_entries[crc].name}")
+                Console.verbose("match", f"{rom_path.name}: CRC {crc} -> {dat_entries[crc].name}")
         elif crc:
             # CRC calculated but not in DAT - might be unknown ROM
             unverified.append((rom_path, crc))
             if verbose:
-                print(f"  [DAT] {rom_path.name}: CRC {crc} not in DAT")
+                Console.verbose("dat", f"{rom_path.name}: CRC {crc} not in DAT")
         else:
             # Couldn't calculate CRC
             bad.append(rom_path)
             if verbose:
-                print(f"  [DAT] {rom_path.name}: CRC calculation failed")
+                Console.verbose("dat", f"{rom_path.name}: CRC calculation failed")
 
     return verified, unverified, bad
 
@@ -5148,7 +5292,7 @@ def select_best_rom(roms: List[RomInfo], region_priority: List[str] = None,
         title = roms[0].base_title if roms else 'unknown'
         filtered_count = len(roms) - len(base_filtered)
         if filtered_count:
-            print(f"    [FILTER] '{title}': {len(roms)} total, {filtered_count} filtered, "
+            Console.verbose("filter", f"'{title}': {len(roms)} total, {filtered_count} filtered, "
                   f"{len(base_filtered)} candidates")
 
     # Separate into English and non-English pools
@@ -5166,7 +5310,7 @@ def select_best_rom(roms: List[RomInfo], region_priority: List[str] = None,
         return None
 
     if verbose and english_roms and foreign_roms:
-        print(f"    [FILTER] '{title}': {len(english_roms)} English, {len(foreign_roms)} foreign")
+        Console.verbose("filter", f"'{title}': {len(english_roms)} English, {len(foreign_roms)} foreign")
 
     # Separate prototypes from regular releases
     protos = [r for r in candidates if r.is_proto]
@@ -5189,14 +5333,14 @@ def select_best_rom(roms: List[RomInfo], region_priority: List[str] = None,
         non_hacked = [r for r in english_non_trans if not r.has_hacks]
         candidates = non_hacked if non_hacked else english_non_trans
         if verbose and translations:
-            print(f"    [FILTER] '{title}': preferring official English over "
+            Console.verbose("filter", f"'{title}': preferring official English over "
                   f"{len(translations)} translation(s)")
     elif translations:
         # For non-English games, prefer translations over untranslated
         pure_trans = [r for r in translations if not r.has_hacks]
         candidates = pure_trans if pure_trans else translations
         if verbose:
-            print(f"    [FILTER] '{title}': using translation "
+            Console.verbose("filter", f"'{title}': using translation "
                   f"({len(translations)} available)")
     elif non_trans:
         # Fall back to untranslated if no translations available
@@ -5218,8 +5362,8 @@ def select_best_rom(roms: List[RomInfo], region_priority: List[str] = None,
 
     result = candidates[0] if candidates else None
     if verbose and result and len(candidates) > 1:
-        print(f"    [SELECT] '{title}': {result.filename} "
-              f"(region={result.region}, rev={result.revision})")
+        Console.verbose("select", f"'{title}': {result.filename} "
+                        f"(region={result.region}, rev={result.revision})")
     return result
 
 
@@ -5273,7 +5417,7 @@ def get_latest_mame_version() -> str:
                 if len(version_num) >= 4:
                     return f"0.{version_num[1:]}"  # "0.274"
     except Exception as e:
-        print(f"  Could not detect latest MAME version: {e}")
+        Console.detail(f"Could not detect latest MAME version: {e}")
     return DEFAULT_MAME_VERSION
 
 
@@ -5610,7 +5754,7 @@ def parse_catver_ini(catver_path: str, show_progress: bool = False) -> dict:
 
     if show_progress and total_size > 0:
         Console.progress(total_size, total_size, f"{len(categories)} categories")
-        print()
+        Console.blank()
 
     return categories
 
@@ -5700,11 +5844,11 @@ def parse_mame_dat(dat_path: str, show_progress: bool = False) -> dict:
 
         if show_progress and total_size > 0:
             Console.progress(total_size, total_size, f"{len(games)} games")
-            print()
+            Console.blank()
     else:
         # ClrMamePro DAT format - simplified parsing
         # This is more complex, so we'll just handle the XML format primarily
-        print(f"Warning: Non-XML DAT format detected. Using simplified parsing.")
+        Console.warning("Non-XML DAT format detected. Using simplified parsing.")
 
     return games
 
@@ -5831,8 +5975,8 @@ def select_best_mame_clone(parent_name: str, clones: list, games: dict,
 
     if verbose and len(candidates) > 1:
         winner = candidates[0]
-        print(f"    [CLONE] {parent_name}: selected {winner.name} "
-              f"(region={winner.region}) from {len(candidates)} candidates")
+        Console.verbose("clone", f"{parent_name}: selected {winner.name} "
+                          f"(region={winner.region}) from {len(candidates)} candidates")
 
     return candidates[0]
 
@@ -5844,10 +5988,11 @@ def filter_mame_roms(source_dir: str, dest_dir: str, catver_path: str, dat_path:
     """Filter MAME/FBNeo ROMs based on category and region preferences."""
     label = system_name.upper()
 
-    print(f"\n{label}: Loading catver.ini...")
+    Console.blank()
+    Console.system_stat(label, "Loading catver.ini...")
     categories = parse_catver_ini(catver_path, show_progress=True)
 
-    print(f"{label}: Loading DAT...")
+    Console.system_stat(label, "Loading DAT...")
     games = parse_mame_dat(dat_path, show_progress=True)
 
     # Apply categories to games
@@ -5878,8 +6023,8 @@ def filter_mame_roms(source_dir: str, dest_dir: str, catver_path: str, dat_path:
                     chd_sizes[f.name] = chd_size
                     total_source_size += chd_size
 
-    print(f"{label}: Found {len(available_roms)} ROM files ({format_size(sum(rom_sizes.values()))})")
-    print(f"{label}: Found {len(available_chds)} games with CHDs ({format_size(sum(chd_sizes.values()))})")
+    Console.system_stat(label, f"Found {len(available_roms)} ROM files ({format_size(sum(rom_sizes.values()))})")
+    Console.system_stat(label, f"Found {len(available_chds)} games with CHDs ({format_size(sum(chd_sizes.values()))})")
 
     # Group clones by parent
     parent_clones = defaultdict(list)
@@ -5909,7 +6054,8 @@ def filter_mame_roms(source_dir: str, dest_dir: str, catver_path: str, dat_path:
                                     chd_names=available_chds.get(rom_name, []),
                                     region='Unknown')
                 selected_roms.append(game)
-        print(f"\n{label}: --all mode, selecting all {len(selected_roms)} ROMs")
+        Console.blank()
+        Console.system_stat(label, f"--all mode, selecting all {len(selected_roms)} ROMs")
     else:
         # Process each parent game
         for name, game in games.items():
@@ -5935,7 +6081,7 @@ def filter_mame_roms(source_dir: str, dest_dir: str, catver_path: str, dat_path:
                 excluded_reasons[reason] += 1
                 skipped_games.append((game.description, name, reason))
                 if verbose:
-                    print(f"  [SKIP] {name}: {reason}")
+                    Console.verbose("skip", f"{name}: {reason}")
                 continue
 
             included_reasons[reason] += 1
@@ -5946,12 +6092,12 @@ def filter_mame_roms(source_dir: str, dest_dir: str, catver_path: str, dat_path:
             if best_rom and best_rom.name in available_versions:
                 selected_roms.append(best_rom)
                 if verbose:
-                    print(f"  [SELECT] {best_rom.name}: {best_rom.description}")
+                    Console.verbose("select", f"{best_rom.name}: {best_rom.description}")
             elif available_versions:
                 # Fallback to first available
                 selected_roms.append(games[available_versions[0]])
                 if verbose:
-                    print(f"  [SELECT] {available_versions[0]}: fallback (best clone unavailable)")
+                    Console.verbose("select", f"{available_versions[0]}: fallback (best clone unavailable)")
 
     # Calculate selected size
     selected_size = 0
@@ -5960,20 +6106,22 @@ def filter_mame_roms(source_dir: str, dest_dir: str, catver_path: str, dat_path:
         if copy_chds and game.name in chd_sizes:
             selected_size += chd_sizes.get(game.name, 0)
 
-    print(f"{label}: Selected {len(selected_roms)} games ({format_size(selected_size)})")
+    Console.system_stat(label, f"Selected {len(selected_roms)} games ({format_size(selected_size)})")
     if total_source_size > 0:
         size_saved = total_source_size - selected_size
         reduction_pct = (size_saved / total_source_size) * 100
-        print(f"{label}: Size reduction: {format_size(size_saved)} saved ({reduction_pct:.1f}%)")
+        Console.system_stat(label, f"Size reduction: {format_size(size_saved)} saved ({reduction_pct:.1f}%)")
 
     # Print inclusion/exclusion stats
-    print(f"\n{label} Inclusion reasons:")
+    Console.blank()
+    Console.system_stat(label, "Inclusion reasons:")
     for reason, count in sorted(included_reasons.items(), key=lambda x: -x[1])[:10]:
-        print(f"  {reason}: {count}")
+        Console.text(f"  {reason}: {count}")
 
-    print(f"\n{label} Exclusion reasons (top 10):")
+    Console.blank()
+    Console.system_stat(label, "Exclusion reasons (top 10):")
     for reason, count in sorted(excluded_reasons.items(), key=lambda x: -x[1])[:10]:
-        print(f"  {reason}: {count}")
+        Console.text(f"  {reason}: {count}")
 
     # Copy files
     if not dry_run:
@@ -6007,9 +6155,10 @@ def filter_mame_roms(source_dir: str, dest_dir: str, catver_path: str, dat_path:
                         shutil.copy2(src_chd, chd_dest / chd_name)
                         copied_chds += 1
 
-        print(f"\n{label}: Copied {copied} ROMs to {dest_path}")
+        Console.blank()
+        Console.system_stat(label, f"Copied {copied} ROMs to {dest_path}")
         if copied_chds:
-            print(f"{label}: Copied {copied_chds} CHD files")
+            Console.system_stat(label, f"Copied {copied_chds} CHD files")
 
     # Write selection log
     log_path = Path(dest_dir) / system_name / '_selection_log.txt'
@@ -6046,7 +6195,7 @@ def filter_mame_roms(source_dir: str, dest_dir: str, catver_path: str, dat_path:
                 f.write(f"  Reason: {reason}\n\n")
 
     if not dry_run:
-        print(f"{label}: Selection log written to {log_path}")
+        Console.system_stat(label, f"Selection log written to {log_path}")
 
     return selected_roms, {'source_size': total_source_size, 'selected_size': selected_size,
                            'rom_sizes': rom_sizes, 'chd_sizes': chd_sizes}
@@ -6193,7 +6342,7 @@ def download_teknoparrot_dat(dat_dir: Path, force: bool = False) -> Optional[Pat
     if dat_path.exists() and not force:
         return dat_path
 
-    print("TeknoParrot: Downloading DAT file from GitHub...")
+    Console.text("TeknoParrot: Downloading DAT file from GitHub...")
     dat_dir.mkdir(parents=True, exist_ok=True)
 
     try:
@@ -6215,12 +6364,12 @@ def download_teknoparrot_dat(dat_dir: Path, force: bool = False) -> Optional[Pat
                 break
 
         if not zip_url:
-            print("TeknoParrot: Could not find DAT ZIP in release assets")
+            Console.text("TeknoParrot: Could not find DAT ZIP in release assets")
             return None
 
         # Download the ZIP
         zip_path = dat_dir / 'teknoparrot_dat.zip'
-        print(f"TeknoParrot: Downloading from {zip_url}")
+        Console.text(f"TeknoParrot: Downloading from {zip_url}")
 
         req = urllib.request.Request(zip_url)
         req.add_header('User-Agent', 'retro-refiner/1.0')
@@ -6234,7 +6383,7 @@ def download_teknoparrot_dat(dat_dir: Path, force: bool = False) -> Optional[Pat
             # Find .dat file in ZIP
             dat_files = [n for n in zf.namelist() if n.lower().endswith('.dat')]
             if not dat_files:
-                print("TeknoParrot: No .dat file found in ZIP")
+                Console.text("TeknoParrot: No .dat file found in ZIP")
                 zip_path.unlink()
                 return None
 
@@ -6244,14 +6393,14 @@ def download_teknoparrot_dat(dat_dir: Path, force: bool = False) -> Optional[Pat
                     dst.write(src.read())
 
         zip_path.unlink()
-        print(f"TeknoParrot: DAT file saved to {dat_path}")
+        Console.text(f"TeknoParrot: DAT file saved to {dat_path}")
         return dat_path
 
     except urllib.error.URLError as e:
-        print(f"TeknoParrot: Failed to download DAT: {e}")
+        Console.error(f"TeknoParrot: Failed to download DAT: {e}")
         return None
     except Exception as e:
-        print(f"TeknoParrot: Error downloading DAT: {e}")
+        Console.error(f"TeknoParrot: Error downloading DAT: {e}")
         return None
 
 
@@ -6567,7 +6716,7 @@ def download_launchbox_data(dat_dir: Path, force: bool = False) -> Optional[Path
                     downloaded += len(chunk)
                     if total_size > 0:
                         Console.progress(downloaded, total_size, f"{format_size(downloaded)}/{format_size(total_size)}")
-            print()  # Newline after progress
+            Console.blank()  # Newline after progress
 
         Console.success(f"Downloaded {format_size(downloaded)}")
 
@@ -6669,7 +6818,7 @@ def build_ratings_cache(xml_path: Path, cache_path: Path = None) -> dict:
             if total_file_size > 0:
                 Console.progress(bytes_read, total_file_size, f"{game_count} games")
 
-    print()  # Newline after progress bar
+    Console.blank()  # Newline after progress bar
     Console.success(f"Parsed {game_count} games, {rated_count} with ratings")
 
     # Save cache if path provided
@@ -6960,9 +7109,9 @@ def parse_teknoparrot_dat(dat_path: str) -> dict:
                 )
 
     except ET.ParseError as e:
-        print(f"TeknoParrot: Error parsing DAT file: {e}")
+        Console.error(f"TeknoParrot: Error parsing DAT file: {e}")
     except Exception as e:
-        print(f"TeknoParrot: Error reading DAT file: {e}")
+        Console.error(f"TeknoParrot: Error reading DAT file: {e}")
 
     return games
 
@@ -7016,9 +7165,9 @@ def select_best_teknoparrot_version(games: List[TeknoParrotGameInfo],
 
     if verbose and len(sorted_games) > 1:
         winner = sorted_games[0]
-        print(f"    [VERSION] {winner.description}: version={winner.version or 'N/A'}, "
-              f"year={winner.year or 'N/A'}, region={winner.region} "
-              f"(from {len(sorted_games)} candidates)")
+        Console.verbose("version", f"{winner.description}: version={winner.version or 'N/A'}, "
+                          f"year={winner.year or 'N/A'}, region={winner.region} "
+                          f"(from {len(sorted_games)} candidates)")
 
     return sorted_games[0]
 
@@ -7079,9 +7228,9 @@ def filter_teknoparrot_roms(source_dir: str, dest_dir: str, dat_path: str = None
     # Load DAT if provided
     dat_games = {}
     if dat_path:
-        print(f"{label}: Loading DAT from {dat_path}...")
+        Console.system_stat(label, f"Loading DAT from {dat_path}...")
         dat_games = parse_teknoparrot_dat(dat_path)
-        print(f"{label}: Loaded {len(dat_games)} games from DAT")
+        Console.system_stat(label, f"Loaded {len(dat_games)} games from DAT")
 
     # Scan source directory for available ROMs
     source_path = Path(source_dir)
@@ -7121,8 +7270,8 @@ def filter_teknoparrot_roms(source_dir: str, dest_dir: str, dat_path: str = None
                     chd_sizes[f.name] = chd_size
                     total_source_size += chd_size
 
-    print(f"{label}: Found {len(available_roms)} ROM files ({format_size(sum(rom_sizes.values()))})")
-    print(f"{label}: Found {len(available_chds)} games with CHDs ({format_size(sum(chd_sizes.values()))})")
+    Console.system_stat(label, f"Found {len(available_roms)} ROM files ({format_size(sum(rom_sizes.values()))})")
+    Console.system_stat(label, f"Found {len(available_chds)} games with CHDs ({format_size(sum(chd_sizes.values()))})")
 
     # Group ROMs by normalized base title
     title_groups = defaultdict(list)
@@ -7130,7 +7279,7 @@ def filter_teknoparrot_roms(source_dir: str, dest_dir: str, dat_path: str = None
         normalized = normalize_teknoparrot_title(info.base_title)
         title_groups[normalized].append(info)
 
-    print(f"{label}: Grouped into {len(title_groups)} unique games")
+    Console.system_stat(label, f"Grouped into {len(title_groups)} unique games")
 
     # Filter and select best versions
     selected_roms = []
@@ -7143,7 +7292,8 @@ def filter_teknoparrot_roms(source_dir: str, dest_dir: str, dat_path: str = None
         for _normalized_title, games in title_groups.items():
             for game in games:
                 selected_roms.append(game)
-        print(f"\n{label}: --all mode, selecting all {len(selected_roms)} ROMs")
+        Console.blank()
+        Console.system_stat(label, f"--all mode, selecting all {len(selected_roms)} ROMs")
     else:
         # Use default platforms if not specified
         effective_include = include_platforms or TEKNOPARROT_INCLUDE_PLATFORMS
@@ -7160,7 +7310,7 @@ def filter_teknoparrot_roms(source_dir: str, dest_dir: str, dat_path: str = None
                     for g in games:
                         skipped_games.append((g.description, g.name, "Excluded by include pattern"))
                     if verbose:
-                        print(f"  [SKIP] {game_name}: excluded by include pattern")
+                        Console.verbose("skip", f"{game_name}: excluded by include pattern")
                     continue
 
             if exclude_patterns:
@@ -7169,7 +7319,7 @@ def filter_teknoparrot_roms(source_dir: str, dest_dir: str, dat_path: str = None
                     for g in games:
                         skipped_games.append((g.description, g.name, "Excluded by exclude pattern"))
                     if verbose:
-                        print(f"  [SKIP] {game_name}: excluded by exclude pattern")
+                        Console.verbose("skip", f"{game_name}: excluded by exclude pattern")
                     continue
 
             # Filter by platform
@@ -7185,7 +7335,7 @@ def filter_teknoparrot_roms(source_dir: str, dest_dir: str, dat_path: str = None
                     excluded_reasons[reason] += 1
                     skipped_games.append((game.description, game.name, reason))
                     if verbose:
-                        print(f"  [SKIP] {game.name}: {reason}")
+                        Console.verbose("skip", f"{game.name}: {reason}")
 
             if not valid_games:
                 continue
@@ -7197,7 +7347,7 @@ def filter_teknoparrot_roms(source_dir: str, dest_dir: str, dat_path: str = None
                     selected_roms.append(game)
                     included_reasons[f"Platform: {game.platform}"] += 1
                     if verbose:
-                        print(f"  [SELECT] {game.name}: {game.description}")
+                        Console.verbose("select", f"{game.name}: {game.description}")
             else:
                 # Select best version
                 best = select_best_teknoparrot_version(valid_games, region_priority,
@@ -7206,7 +7356,7 @@ def filter_teknoparrot_roms(source_dir: str, dest_dir: str, dat_path: str = None
                     selected_roms.append(best)
                     included_reasons[f"Platform: {best.platform}"] += 1
                     if verbose:
-                        print(f"  [SELECT] {best.name}: {best.description}")
+                        Console.verbose("select", f"{best.name}: {best.description}")
 
                     # Log other versions as superseded
                     for game in valid_games:
@@ -7221,20 +7371,22 @@ def filter_teknoparrot_roms(source_dir: str, dest_dir: str, dat_path: str = None
         if copy_chds and game.name in chd_sizes:
             selected_size += chd_sizes.get(game.name, 0)
 
-    print(f"{label}: Selected {len(selected_roms)} games ({format_size(selected_size)})")
+    Console.system_stat(label, f"Selected {len(selected_roms)} games ({format_size(selected_size)})")
     if total_source_size > 0:
         size_saved = total_source_size - selected_size
         reduction_pct = (size_saved / total_source_size) * 100
-        print(f"{label}: Size reduction: {format_size(size_saved)} saved ({reduction_pct:.1f}%)")
+        Console.system_stat(label, f"Size reduction: {format_size(size_saved)} saved ({reduction_pct:.1f}%)")
 
     # Print inclusion/exclusion stats
-    print(f"\n{label} Inclusion reasons:")
+    Console.blank()
+    Console.system_stat(label, "Inclusion reasons:")
     for reason, count in sorted(included_reasons.items(), key=lambda x: -x[1])[:10]:
-        print(f"  {reason}: {count}")
+        Console.text(f"  {reason}: {count}")
 
-    print(f"\n{label} Exclusion reasons (top 10):")
+    Console.blank()
+    Console.system_stat(label, "Exclusion reasons (top 10):")
     for reason, count in sorted(excluded_reasons.items(), key=lambda x: -x[1])[:10]:
-        print(f"  {reason}: {count}")
+        Console.text(f"  {reason}: {count}")
 
     # Copy files
     if not dry_run:
@@ -7275,9 +7427,10 @@ def filter_teknoparrot_roms(source_dir: str, dest_dir: str, dat_path: str = None
                         shutil.copy2(src_chd, chd_dest / chd_name)
                         copied_chds += 1
 
-        print(f"\n{label}: Copied {copied} ROMs to {dest_path}")
+        Console.blank()
+        Console.system_stat(label, f"Copied {copied} ROMs to {dest_path}")
         if copied_chds:
-            print(f"{label}: Copied {copied_chds} CHD files")
+            Console.system_stat(label, f"Copied {copied_chds} CHD files")
 
     # Write selection log
     log_path = Path(dest_dir) / 'teknoparrot' / '_selection_log.txt'
@@ -7314,7 +7467,7 @@ def filter_teknoparrot_roms(source_dir: str, dest_dir: str, dat_path: str = None
                 f.write(f"  Reason: {reason}\n\n")
 
     if not dry_run:
-        print(f"{label}: Selection log written to {log_path}")
+        Console.system_stat(label, f"Selection log written to {log_path}")
 
     return selected_roms, {'source_size': total_source_size, 'selected_size': selected_size,
                            'rom_sizes': rom_sizes, 'chd_sizes': chd_sizes}
@@ -7361,12 +7514,12 @@ def filter_teknoparrot_network_roms(rom_urls: List[str],
             if include_patterns and not matches_patterns(filename, include_patterns):
                 filtered_by_pattern += 1
                 if verbose:
-                    print(f"  [SKIP] {filename}: doesn't match include patterns")
+                    Console.verbose("skip", f"{filename}: doesn't match include patterns")
                 continue
             if exclude_patterns and matches_patterns(filename, exclude_patterns):
                 filtered_by_pattern += 1
                 if verbose:
-                    print(f"  [SKIP] {filename}: matches exclude pattern")
+                    Console.verbose("skip", f"{filename}: matches exclude pattern")
                 continue
 
         # Parse TeknoParrot filename
@@ -7374,7 +7527,7 @@ def filter_teknoparrot_network_roms(rom_urls: List[str],
         if not rom_info:
             # Not a valid TeknoParrot ROM (no [TP] tag)
             if verbose:
-                print(f"  [SKIP] {filename}: not a TeknoParrot ROM")
+                Console.verbose("skip", f"{filename}: not a TeknoParrot ROM")
             continue
 
         if not no_filter:
@@ -7385,24 +7538,24 @@ def filter_teknoparrot_network_roms(rom_urls: List[str],
             if not should_include:
                 filtered_by_platform += 1
                 if verbose:
-                    print(f"  [SKIP] {filename}: {reason}")
+                    Console.verbose("skip", f"{filename}: {reason}")
                 continue
 
         all_roms.append(rom_info)
         url_map[filename] = url
         size_map[filename] = file_size
 
-    print(f"{label}: {len(all_roms)} ROMs after filtering ({format_size(total_source_size)})")
+    Console.system_stat(label, f"{len(all_roms)} ROMs after filtering ({format_size(total_source_size)})")
     if filtered_by_pattern:
-        print(f"{label}: {filtered_by_pattern} filtered by include/exclude patterns")
+        Console.system_stat(label, f"{filtered_by_pattern} filtered by include/exclude patterns")
     if filtered_by_platform:
-        print(f"{label}: {filtered_by_platform} filtered by platform")
+        Console.system_stat(label, f"{filtered_by_platform} filtered by platform")
 
     if no_filter:
         # --all mode: select every URL without grouping or version dedup
         selected_urls = [url_map[rom.filename] for rom in all_roms if rom.filename in url_map]
         selected_size = sum(size_map.get(rom.filename, 0) for rom in all_roms if rom.filename in url_map)
-        print(f"{label}: --all mode, selecting all {len(selected_urls)} ROMs")
+        Console.system_stat(label, f"--all mode, selecting all {len(selected_urls)} ROMs")
     else:
         # Group by normalized title
         grouped = defaultdict(list)
@@ -7410,7 +7563,7 @@ def filter_teknoparrot_network_roms(rom_urls: List[str],
             normalized = normalize_teknoparrot_title(rom.base_title)
             grouped[normalized].append(rom)
 
-        print(f"{label}: {len(grouped)} unique game titles")
+        Console.system_stat(label, f"{len(grouped)} unique game titles")
 
         # Select best version from each group
         selected_urls = []
@@ -7424,7 +7577,7 @@ def filter_teknoparrot_network_roms(rom_urls: List[str],
                         selected_urls.append(url_map[rom.filename])
                         selected_size += size_map.get(rom.filename, 0)
                         if verbose:
-                            print(f"  [SELECT] {rom.filename} (version: {rom.version or 'N/A'})")
+                            Console.verbose("select", f"{rom.filename} (version: {rom.version or 'N/A'})")
             else:
                 # Select best version
                 best = select_best_teknoparrot_version(roms, region_priority, verbose=verbose)
@@ -7432,13 +7585,13 @@ def filter_teknoparrot_network_roms(rom_urls: List[str],
                     selected_urls.append(url_map[best.filename])
                     selected_size += size_map.get(best.filename, 0)
                     if verbose:
-                        print(f"  [SELECT] {best.filename} (best of {len(roms)} for '{title}')")
+                        Console.verbose("select", f"{best.filename} (best of {len(roms)} for '{title}')")
 
-    print(f"{label}: Selected {len(selected_urls)} ROMs to download ({format_size(selected_size)})")
+    Console.system_stat(label, f"Selected {len(selected_urls)} ROMs to download ({format_size(selected_size)})")
     if total_source_size > 0:
         size_saved = total_source_size - selected_size
         reduction_pct = (size_saved / total_source_size) * 100
-        print(f"{label}: Size reduction: {format_size(size_saved)} saved ({reduction_pct:.1f}%)")
+        Console.system_stat(label, f"Size reduction: {format_size(size_saved)} saved ({reduction_pct:.1f}%)")
 
     return selected_urls, {'source_size': total_source_size, 'selected_size': selected_size}
 
@@ -7507,7 +7660,7 @@ def filter_mame_network_roms(rom_urls: List[str],
         selected_urls = list(url_map.values())
         selected_size = sum(size_map.values())
         included_count = len(selected_urls)
-        print(f"{label}: --all mode, selecting all {len(selected_urls)} ROMs ({format_size(selected_size)})")
+        Console.system_stat(label, f"--all mode, selecting all {len(selected_urls)} ROMs ({format_size(selected_size)})")
     else:
         # Track processed games to avoid duplicates
         processed = set()
@@ -7539,7 +7692,7 @@ def filter_mame_network_roms(rom_urls: List[str],
                 included_count += 1
                 processed.add(rom_name)
                 if verbose:
-                    print(f"  [INCLUDE] {filename} (not in DAT)")
+                    Console.verbose("include", f"{filename} (not in DAT)")
                 continue
 
             # Check if this is a clone - process through parent
@@ -7559,7 +7712,7 @@ def filter_mame_network_roms(rom_urls: List[str],
             if not should_include:
                 excluded_counts[reason] += 1
                 if verbose:
-                    print(f"  [EXCLUDE] {filename}: {reason}")
+                    Console.verbose('exclude', f"{filename}: {reason}")
                 processed.add(rom_name)
                 # Also mark clones as processed
                 for clone in parent_clones.get(rom_name, []):
@@ -7579,34 +7732,34 @@ def filter_mame_network_roms(rom_urls: List[str],
                 selected_size += size_map.get(best_filename, 0)
                 included_count += 1
                 if verbose:
-                    print(f"  [SELECT] {best_filename}: {reason}")
+                    Console.verbose("select", f"{best_filename}: {reason}")
             elif filename in url_map:
                 # Fallback to original if best not available
                 selected_urls.append(url)
                 selected_size += size_map.get(filename, 0)
                 included_count += 1
                 if verbose:
-                    print(f"  [SELECT] {filename}: {reason} (fallback)")
+                    Console.verbose("select", f"{filename}: {reason} (fallback)")
 
             processed.add(rom_name)
             for clone in parent_clones.get(rom_name, []):
                 processed.add(clone)
 
-        print(f"{label}: {len(selected_urls)} ROMs after filtering ({format_size(selected_size)})")
+        Console.system_stat(label, f"{len(selected_urls)} ROMs after filtering ({format_size(selected_size)})")
 
         # Print exclusion summary
         if excluded_counts:
             top_reasons = sorted(excluded_counts.items(), key=lambda x: -x[1])[:5]
             for reason, count in top_reasons:
-                print(f"{label}: {count} filtered by {reason}")
+                Console.system_stat(label, f"{count} filtered by {reason}")
 
-        print(f"{label}: {len(set(processed))} unique games processed")
-        print(f"{label}: Selected {len(selected_urls)} ROMs to download ({format_size(selected_size)})")
+        Console.system_stat(label, f"{len(set(processed))} unique games processed")
+        Console.system_stat(label, f"Selected {len(selected_urls)} ROMs to download ({format_size(selected_size)})")
 
     if total_source_size > 0:
         size_saved = total_source_size - selected_size
         reduction_pct = (size_saved / total_source_size) * 100
-        print(f"{label}: Size reduction: {format_size(size_saved)} saved ({reduction_pct:.1f}%)")
+        Console.system_stat(label, f"Size reduction: {format_size(size_saved)} saved ({reduction_pct:.1f}%)")
 
     return selected_urls, {'source_size': total_source_size, 'selected_size': selected_size}
 
@@ -7670,7 +7823,7 @@ def scan_for_systems(source_dir: str, recursive: bool = False, max_depth: int = 
             entries = list(dir_path.iterdir())
         except PermissionError:
             if verbose:
-                print(f"  [SKIP] Permission denied: {dir_path}")
+                Console.verbose('skip', f"Permission denied: {dir_path}")
             return
 
         # Check if this directory name is a known system
@@ -7679,7 +7832,7 @@ def scan_for_systems(source_dir: str, recursive: bool = False, max_depth: int = 
         active_system = folder_system if is_system_folder else parent_system
 
         if verbose and is_system_folder:
-            print(f"  [DETECT] Folder '{dir_path.name}' -> system '{folder_system}'")
+            Console.verbose('detect', f"Folder '{dir_path.name}' -> system '{folder_system}'")
 
         # Collect ROMs in this directory
         for entry in entries:
@@ -7692,10 +7845,10 @@ def scan_for_systems(source_dir: str, recursive: bool = False, max_depth: int = 
                     if detected:
                         systems[detected].append(entry)
                         if verbose:
-                            print(f"  [DETECT] Extension '{entry.suffix}' -> "
+                            Console.verbose('detect', f"Extension '{entry.suffix}' -> "
                                   f"system '{detected}': {entry.name}")
                     elif verbose:
-                        print(f"  [SKIP] Unrecognized extension: {entry.name}")
+                        Console.verbose('skip', f"Unrecognized extension: {entry.name}")
 
         # Recurse into subdirectories if enabled
         if recursive:
@@ -7707,9 +7860,9 @@ def scan_for_systems(source_dir: str, recursive: bool = False, max_depth: int = 
     scan_directory(source_path, 0, None)
 
     if verbose and systems:
-        print(f"  [DETECT] Summary: {len(systems)} system(s) detected")
+        Console.verbose('detect', f"Summary: {len(systems)} system(s) detected")
         for sys_name, files in sorted(systems.items()):
-            print(f"    {sys_name}: {len(files)} file(s)")
+            Console.text(f"{sys_name}: {len(files)} file(s)", indent=4)
 
     return dict(systems)
 
@@ -7771,12 +7924,12 @@ def filter_roms_from_files(rom_files: list, dest_dir: str, system: str, dry_run:
             if include_patterns and not matches_patterns(filename, include_patterns):
                 filtered_by_pattern += 1
                 if verbose:
-                    print(f"  [SKIP] {filename}: doesn't match include patterns")
+                    Console.verbose("skip", f"{filename}: doesn't match include patterns")
                 continue
             if exclude_patterns and matches_patterns(filename, exclude_patterns):
                 filtered_by_pattern += 1
                 if verbose:
-                    print(f"  [SKIP] {filename}: matches exclude pattern")
+                    Console.verbose("skip", f"{filename}: matches exclude pattern")
                 continue
 
         rom_info = parse_rom_filename(filename)
@@ -7785,26 +7938,26 @@ def filter_roms_from_files(rom_files: list, dest_dir: str, system: str, dry_run:
             # Filter by proto/beta/unlicensed unless explicitly included
             if rom_info.is_proto and exclude_protos:
                 if verbose:
-                    print(f"  [SKIP] {filename}: prototype (excluded via --exclude-protos)")
+                    Console.verbose('skip', f"{filename}: prototype (excluded via --exclude-protos)")
                 continue
             if rom_info.is_beta and not include_betas:
                 if verbose:
-                    print(f"  [SKIP] {filename}: beta (use --include-betas to include)")
+                    Console.verbose('skip', f"{filename}: beta (use --include-betas to include)")
                 continue
             if rom_info.is_unlicensed and not include_unlicensed:
                 if verbose:
-                    print(f"  [SKIP] {filename}: unlicensed (use --include-unlicensed to include)")
+                    Console.verbose('skip', f"{filename}: unlicensed (use --include-unlicensed to include)")
                 continue
 
             # Filter by year if specified (only if year is known)
             if rom_info.year > 0:
                 if year_from and rom_info.year < year_from:
                     if verbose:
-                        print(f"  [SKIP] {filename}: year {rom_info.year} < {year_from}")
+                        Console.verbose('skip', f"{filename}: year {rom_info.year} < {year_from}")
                     continue
                 if year_to and rom_info.year > year_to:
                     if verbose:
-                        print(f"  [SKIP] {filename}: year {rom_info.year} > {year_to}")
+                        Console.verbose('skip', f"{filename}: year {rom_info.year} > {year_to}")
                     continue
 
         all_roms.append(rom_info)
@@ -7813,14 +7966,16 @@ def filter_roms_from_files(rom_files: list, dest_dir: str, system: str, dry_run:
         size_map[filename] = file_size
         total_source_size += file_size
 
-    print(f"\n{system.upper()}: Found {len(all_roms)} total ROMs ({format_size(total_source_size)})")
+    Console.blank()
+    Console.system_stat(system, f"Found {len(all_roms)} total ROMs ({format_size(total_source_size)})")
     if filtered_by_pattern:
-        print(f"{system.upper()}: {filtered_by_pattern} filtered by include/exclude patterns")
+        Console.system_stat(system, f"{filtered_by_pattern} filtered by include/exclude patterns")
 
     if no_filter:
         # --all mode: select every ROM without grouping or filtering
         selected_roms = all_roms
-        print(f"\n{system.upper()}: --all mode, selecting all {len(selected_roms)} ROMs ({format_size(total_source_size)})")
+        Console.blank()
+        Console.system_stat(system, f"--all mode, selecting all {len(selected_roms)} ROMs ({format_size(total_source_size)})")
     else:
         # Group by normalized title
         grouped = defaultdict(list)
@@ -7828,7 +7983,7 @@ def filter_roms_from_files(rom_files: list, dest_dir: str, system: str, dry_run:
             normalized = normalize_title(rom.base_title)
             grouped[normalized].append(rom)
 
-        print(f"{system.upper()}: Found {len(grouped)} unique game titles")
+        Console.system_stat(system, f"Found {len(grouped)} unique game titles")
 
         # Select best ROM from each group (or multiple if keep_regions)
         selected_roms = []
@@ -7844,26 +7999,26 @@ def filter_roms_from_files(rom_files: list, dest_dir: str, system: str, dry_run:
                         if best:
                             selected_roms.extend(_collect_sibling_discs(best, roms))
                             if verbose:
-                                print(f"  [SELECT] {best.filename} ({region} version of '{title}')")
+                                Console.verbose('select', f"{best.filename} ({region} version of '{title}')")
                 # If no regions matched, fall back to best overall
                 if not any(r in selected_roms for r in roms):
                     best = select_best_rom(roms, region_priority, verbose=verbose)
                     if best:
                         selected_roms.extend(_collect_sibling_discs(best, roms))
                         if verbose:
-                            print(f"  [SELECT] {best.filename} (fallback for '{title}')")
+                            Console.verbose('select', f"{best.filename} (fallback for '{title}')")
             else:
                 best = select_best_rom(roms, region_priority, verbose=verbose)
                 if best:
                     selected_roms.extend(_collect_sibling_discs(best, roms))
                     if verbose:
                         candidates = len(roms)
-                        print(f"  [SELECT] {best.filename} (best of {candidates} for '{title}')")
+                        Console.verbose('select', f"{best.filename} (best of {candidates} for '{title}')")
                 else:
                     sample = roms[0].filename if roms else "unknown"
                     skipped_games.append((title, sample))
                     if verbose:
-                        print(f"  [SKIP] No suitable ROM for '{title}' (sample: {sample})")
+                        Console.verbose('skip', f"No suitable ROM for '{title}' (sample: {sample})")
 
         # Apply english-only filter if requested
         if english_only:
@@ -7871,7 +8026,7 @@ def filter_roms_from_files(rom_files: list, dest_dir: str, system: str, dry_run:
             selected_roms = [r for r in selected_roms if r.is_english]
             excluded = pre_english - len(selected_roms)
             if excluded:
-                print(f"{system.upper()}: Excluded {excluded} non-English ROMs")
+                Console.system_stat(system, f"Excluded {excluded} non-English ROMs")
 
         # Post-selection DAT enrichment (CRC only calculated for selected ROMs)
         if crc_to_dat:
@@ -7888,7 +8043,7 @@ def filter_roms_from_files(rom_files: list, dest_dir: str, system: str, dry_run:
                     dat_matched += 1
             save_crc_cache(crc_cache_path, crc_cache)
         if dat_entries:
-            print(f"{system.upper()}: {dat_matched} selected ROMs matched to DAT entries")
+            Console.system_stat(system, f"{dat_matched} selected ROMs matched to DAT entries")
 
         # Apply top-N filter if requested
         if top_n and ratings:
@@ -7898,7 +8053,7 @@ def filter_roms_from_files(rom_files: list, dest_dir: str, system: str, dry_run:
             rated_count = sum(1 for r in selected_roms
                             if normalize_title(r.base_title) in system_ratings)
 
-            print(f"{system.upper()}: Rating data matched {rated_count} of {pre_filter_count} games")
+            Console.system_stat(system, f"Rating data matched {rated_count} of {pre_filter_count} games")
 
             selected_roms = apply_top_n_filter(
                 selected_roms, system_ratings, top_n, include_unrated
@@ -7908,19 +8063,19 @@ def filter_roms_from_files(rom_files: list, dest_dir: str, system: str, dry_run:
             top_label = format_top_label(top_n)
             actual_kept = len(selected_roms)
             if include_unrated:
-                print(f"{system.upper()}: {top_label} selected ({actual_kept} games, {filtered_out} below cutoff)")
+                Console.system_stat(system, f"{top_label} selected ({actual_kept} games, {filtered_out} below cutoff)")
             else:
                 unrated_excluded = pre_filter_count - rated_count
-                print(f"{system.upper()}: {top_label} selected ({actual_kept} games, {filtered_out} below cutoff, {unrated_excluded} unrated excluded)")
+                Console.system_stat(system, f"{top_label} selected ({actual_kept} games, {filtered_out} below cutoff, {unrated_excluded} unrated excluded)")
 
     # Calculate selected size
     selected_size = sum(size_map.get(rom.filename, 0) for rom in selected_roms)
     size_saved = total_source_size - selected_size
 
-    print(f"{system.upper()}: Selected {len(selected_roms)} ROMs ({format_size(selected_size)})")
+    Console.system_stat(system, f"Selected {len(selected_roms)} ROMs ({format_size(selected_size)})")
     if total_source_size > 0:
         reduction_pct = (size_saved / total_source_size) * 100
-        print(f"{system.upper()}: Size reduction: {format_size(size_saved)} saved ({reduction_pct:.1f}%)")
+        Console.system_stat(system, f"Size reduction: {format_size(size_saved)} saved ({reduction_pct:.1f}%)")
 
     if dry_run:
         return selected_roms, {'source_size': total_source_size, 'selected_size': selected_size,
@@ -7947,7 +8102,8 @@ def filter_roms_from_files(rom_files: list, dest_dir: str, system: str, dry_run:
             copied += 1
 
     action_past = {'copy': 'Copied', 'link': 'Linked', 'hardlink': 'Hardlinked', 'move': 'Moved'}
-    print(f"\n{system.upper()}: {action_past.get(transfer_mode, 'Copied')} {copied} ROMs to {dest_path}")
+    Console.blank()
+    Console.system_stat(system, f"{action_past.get(transfer_mode, 'Copied')} {copied} ROMs to {dest_path}")
 
     # Write selection log
     log_path = dest_path / "_selection_log.txt"
@@ -7987,7 +8143,7 @@ def filter_roms_from_files(rom_files: list, dest_dir: str, system: str, dry_run:
             for title, sample in sorted(skipped_games):
                 f.write(f"{title}\n  Sample: {sample}\n\n")
 
-    print(f"{system.upper()}: Selection log written to {log_path}")
+    Console.system_stat(system, f"Selection log written to {log_path}")
 
     return selected_roms, {'source_size': total_source_size, 'selected_size': selected_size,
                            'rom_sizes': size_map}
@@ -8244,14 +8400,14 @@ Pattern examples (--include / --exclude):
 
         Console.section("Folder Aliases")
         for alias, system in sorted(FOLDER_ALIASES.items()):
-            print(f"  {Style.DIM}{alias}{Style.RESET} {SYM_ARROW_RIGHT} {Style.GREEN}{system}{Style.RESET}")
+            print(f"  {Style.DETAIL}{alias}{Style.RESET} {SYM_ARROW_RIGHT} {Style.SUCCESS}{system}{Style.RESET}")
 
         Console.section("File Extensions")
         ext_systems = defaultdict(list)
         for ext, system in EXTENSION_TO_SYSTEM.items():
             ext_systems[system].append(ext)
         for system, exts in sorted(ext_systems.items()):
-            print(f"  {Style.GREEN}{system}{Style.RESET}: {Style.DIM}{', '.join(sorted(exts))}{Style.RESET}")
+            print(f"  {Style.SUCCESS}{system}{Style.RESET}: {Style.DETAIL}{', '.join(sorted(exts))}{Style.RESET}")
         return
 
     # Update DATs mode - standalone operation
@@ -8487,16 +8643,16 @@ Pattern examples (--include / --exclude):
 
     # Validate all sources are accessible before proceeding
     if network_sources:
-        print("Validating sources...")
+        Console.text("Validating sources...")
     source_errors = validate_all_sources(local_sources, network_sources)
     if source_errors:
-        print("\n" + "=" * 60)
-        print("ERROR: One or more sources could not be accessed")
-        print("=" * 60)
+        error_lines = []
         for source, error in source_errors:
-            print(f"  {SYM_CROSS} {source}")
-            print(f"    {error}")
-        print("\nPlease check your source paths/URLs and try again.")
+            error_lines.append(f"{SYM_CROSS} {source}")
+            error_lines.append(f"  {error}")
+        error_lines.append("")
+        error_lines.append("Please check your source paths/URLs and try again.")
+        Console.error_block("ERROR: One or more sources could not be accessed", error_lines)
         sys.exit(1)
 
     # Load config file
@@ -8511,16 +8667,16 @@ Pattern examples (--include / --exclude):
                 config_path = json_config
             else:
                 # Generate default config file on first run
-                print(f"Creating default config file: {config_path}")
+                Console.status("Creating config", str(config_path))
                 generate_default_config(config_path)
 
     config = load_config(config_path) if config_path.exists() else {}
     if config:
-        print(f"Loaded config from: {config_path}")
+        Console.status("Config", str(config_path))
         apply_config_to_args(args, config)
         if args.verbose:
             for key, value in config.items():
-                print(f"  [CONFIG] {key}: {value}")
+                Console.verbose('config', f"{key}: {value}")
 
     # Set default destination (refined/ subfolder where script is located)
     if args.dest is None:
@@ -8554,10 +8710,10 @@ Pattern examples (--include / --exclude):
         transfer_mode = 'copy'
 
     if len(source_paths) > 1:
-        print(f"Sources: {', '.join(str(p) for p in source_paths)}")
+        Console.status("Sources", ', '.join(str(p) for p in source_paths))
     else:
-        print(f"Source: {primary_source}")
-    print(f"Destination: {args.dest}")
+        Console.status("Source", str(primary_source))
+    Console.status("Destination", str(args.dest))
 
     # Default behaviors (inverted from args)
     dry_run = not args.commit
@@ -8570,7 +8726,7 @@ Pattern examples (--include / --exclude):
     # If using network sources, default to no verification (can't verify without downloading first)
     has_network_sources = len(network_sources) > 0
     if has_network_sources and not args.no_verify:
-        print("Note: Verification disabled for network sources (files filtered before download)")
+        Console.info("Verification disabled for network sources (files filtered before download)")
         verify = False
 
     # Show active options
@@ -8601,11 +8757,11 @@ Pattern examples (--include / --exclude):
     if args.verbose:
         options.append("verbose")
     if options:
-        print(f"Options: {', '.join(options)}")
+        Console.status("Options", ', '.join(options))
 
     if dry_run:
-        print("\n*** DRY RUN - No files will be copied, moved, linked, or downloaded ***")
-        print("*** Use --commit to actually transfer files ***\n")
+        Console.text("\n*** DRY RUN - No files will be copied, moved, linked, or downloaded ***")
+        Console.text("*** Use --commit to actually transfer files ***\n")
 
     # Detect available systems from all source directories
     detected = defaultdict(list)
@@ -8674,26 +8830,24 @@ Pattern examples (--include / --exclude):
 
     for network_url in network_sources:
         check_shutdown()
-        print()  # Blank line before network source
+        Console.blank()  # Blank line before network source
 
         # Build auth header for archive.org URLs
         scan_auth_header = None
         if is_archive_org_url(network_url):
             scan_auth_header = get_ia_auth_header(args.ia_access_key, args.ia_secret_key)
             if not scan_auth_header:
-                print("=" * 60)
-                print("ERROR: Archive.org requires authentication")
-                print("=" * 60)
-                print()
-                print("Get your credentials at: https://archive.org/account/s3.php")
-                print()
-                print("Then either set environment variables:")
-                print("  export IA_ACCESS_KEY=your_access_key")
-                print("  export IA_SECRET_KEY=your_secret_key")
-                print()
-                print("Or use command line arguments:")
-                print("  --ia-access-key YOUR_KEY --ia-secret-key YOUR_SECRET")
-                print("=" * 60)
+                Console.error_block("ERROR: Archive.org requires authentication", [
+                    "",
+                    "Get your credentials at: https://archive.org/account/s3.php",
+                    "",
+                    "Then either set environment variables:",
+                    "  export IA_ACCESS_KEY=your_access_key",
+                    "  export IA_SECRET_KEY=your_secret_key",
+                    "",
+                    "Or use command line arguments:",
+                    "  --ia-access-key YOUR_KEY --ia-secret-key YOUR_SECRET",
+                ])
                 sys.exit(1)
 
         # Scan for URLs only (no downloading yet)
@@ -8733,19 +8887,19 @@ Pattern examples (--include / --exclude):
         arcade_systems = ('mame', 'fbneo', 'fba', 'arcade', 'teknoparrot')
         systems_needing_dat = [s for s in all_network_urls.keys() if s not in arcade_systems]
         if systems_needing_dat:
-            print(f"\nDownloading DAT files for {len(systems_needing_dat)} system(s)...")
+            Console.text(f"\nDownloading DAT files for {len(systems_needing_dat)} system(s)...")
             for system in systems_needing_dat:
                 check_shutdown()
                 dat_path = download_libretro_dat(system, dat_dir)
                 if dat_path:
                     dat_entries = parse_dat_file(dat_path)
                     network_dat_entries[system] = dat_entries
-                    print(f"  {system.upper()}: {len(dat_entries)} DAT entries loaded")
+                    Console.system_stat(system, f"{len(dat_entries)} DAT entries loaded")
                     if args.verbose:
                         with open(dat_path, 'r', encoding='utf-8', errors='ignore') as df:
                             first = df.readline().strip()
                         fmt = "XML" if first.startswith('<?xml') or first.startswith('<') else "ClrMamePro"
-                        print(f"  [DAT] {system.upper()}: format={fmt}, entries={len(dat_entries)}, "
+                        Console.verbose('dat', f"{system.upper()}: format={fmt}, entries={len(dat_entries)}, "
                               f"path={dat_path}")
                 elif system in tosec_source_urls:
                     # Fall back to TOSEC DATs from Myrient's /dats/ mirror
@@ -8753,25 +8907,25 @@ Pattern examples (--include / --exclude):
                         tosec_source_urls[system], dat_dir, system)
                     if tosec_entries:
                         network_dat_entries[system] = tosec_entries
-                        print(f"  {system.upper()}: {len(tosec_entries)} TOSEC DAT entries loaded")
+                        Console.system_stat(system, f"{len(tosec_entries)} TOSEC DAT entries loaded")
 
         # Download MAME data (catver.ini + DAT) for MAME/arcade network sources
         mame_network_systems = [s for s in all_network_urls.keys() if s in ('mame', 'fbneo', 'fba', 'arcade')]
         if mame_network_systems:
-            print(f"\nDownloading MAME data for category filtering...")
+            Console.text(f"\nDownloading MAME data for category filtering...")
             catver_path, mame_dat_path = download_mame_data(dat_dir, version=args.mame_version)
             if catver_path and mame_dat_path:
                 mame_categories = parse_catver_ini(str(catver_path), show_progress=True)
                 mame_games = parse_mame_dat(str(mame_dat_path), show_progress=True)
             else:
-                print("  Warning: MAME data not available, category filtering disabled")
+                Console.warning("MAME data not available, category filtering disabled")
 
         # Load T-En DAT files for systems with T-En translation sources
         # These are hosted on Archive.org which requires authentication for download
         # but cached files can be used without auth
         if systems_with_ten_sources:
             ia_auth = get_ia_auth_header(args.ia_access_key, args.ia_secret_key)
-            print(f"\nLoading T-En DAT files for {len(systems_with_ten_sources)} system(s)...")
+            Console.text(f"\nLoading T-En DAT files for {len(systems_with_ten_sources)} system(s)...")
 
             # Check which systems need downloading vs using cache
             systems_to_download = []
@@ -8783,17 +8937,17 @@ Pattern examples (--include / --exclude):
                         network_dat_entries[system].update(ten_dat_entries)
                     else:
                         network_dat_entries[system] = ten_dat_entries
-                    print(f"  {system.upper()}: {len(ten_dat_entries)} T-En DAT entries loaded (cached)")
+                    Console.system_stat(system, f"{len(ten_dat_entries)} T-En DAT entries loaded (cached)")
                     if args.verbose:
                         with open(cached_dat_path, 'r', encoding='utf-8', errors='ignore') as df:
                             first = df.readline().strip()
                         fmt = "XML" if first.startswith('<?xml') or first.startswith('<') else "ClrMamePro"
-                        print(f"  [DAT] {system.upper()}: T-En format={fmt}, "
+                        Console.verbose('dat', f"{system.upper()}: T-En format={fmt}, "
                               f"entries={len(ten_dat_entries)}, path={cached_dat_path}")
                 elif ia_auth:
                     systems_to_download.append(system)
                 else:
-                    print(f"  {system.upper()}: No cached T-En DAT (set IA_ACCESS_KEY/IA_SECRET_KEY to download)")
+                    Console.system_stat(system, "No cached T-En DAT (set IA_ACCESS_KEY/IA_SECRET_KEY to download)")
 
             # Download any non-cached T-En DATs
             if systems_to_download:
@@ -8808,13 +8962,13 @@ Pattern examples (--include / --exclude):
                             network_dat_entries[system].update(ten_dat_entries)
                         else:
                             network_dat_entries[system] = ten_dat_entries
-                        print(f"  {system.upper()}: {len(ten_dat_entries)} T-En DAT entries loaded")
+                        Console.system_stat(system, f"{len(ten_dat_entries)} T-En DAT entries loaded")
                         if args.verbose:
                             with open(ten_dat_path, 'r', encoding='utf-8', errors='ignore') as df:
                                 first = df.readline().strip()
                             fmt = "XML" if first.startswith('<?xml') or first.startswith('<') \
                                 else "ClrMamePro"
-                            print(f"  [DAT] {system.upper()}: T-En format={fmt}, "
+                            Console.verbose('dat', f"{system.upper()}: T-En format={fmt}, "
                                   f"entries={len(ten_dat_entries)}, path={ten_dat_path}")
 
     # Load ratings if --top or --size is used (needed for both network and local filtering)
@@ -8896,7 +9050,7 @@ Pattern examples (--include / --exclude):
                 Console.info(f"Boosting platform exclusives by "
                              f"+{prefer_exclusives} rating points")
                 ratings = boost_exclusive_ratings(ratings, prefer_exclusives)
-        print()
+        Console.blank()
 
     # Step 2: Filter combined URL pool per system (select best ROM across ALL sources)
     download_crc_index = {}  # CRC index for cached network downloads
@@ -8913,7 +9067,8 @@ Pattern examples (--include / --exclude):
         if remaining_size_budget is not None and remaining_size_budget <= 0:
             break
 
-        print(f"\n{system.upper()}: Filtering {len(urls)} remote ROMs from {len(network_sources)} source(s)...")
+        Console.blank()
+        Console.system_stat(system, f"Filtering {len(urls)} remote ROMs from {len(network_sources)} source(s)...")
 
         # Special handling for TeknoParrot (uses version deduplication and platform filtering)
         if system == 'teknoparrot':
@@ -9016,8 +9171,8 @@ Pattern examples (--include / --exclude):
                     matched = len(rated)
                     filtered_out = pre_count - len(filtered_urls)
                     top_label = format_top_label(args.top)
-                    print(f"{system.upper()}: Rating data matched {matched} of {pre_count} games")
-                    print(f"{system.upper()}: {top_label} selected ({len(filtered_urls)} games, {filtered_out} below cutoff)")
+                    Console.system_stat(system, f"Rating data matched {matched} of {pre_count} games")
+                    Console.system_stat(system, f"{top_label} selected ({len(filtered_urls)} games, {filtered_out} below cutoff)")
 
                     # Recalculate size info
                     selected_size = sum(all_url_sizes.get(url, 0) for url in filtered_urls)
@@ -9051,7 +9206,7 @@ Pattern examples (--include / --exclude):
             pre_budget = size_info['selected_size']
             size_info = {'source_size': size_info['source_size'], 'selected_size': selected_size}
             if budget_used < pre_budget:
-                print(f"{system.upper()}: Size budget applied: {len(filtered_urls)} ROMs "
+                Console.system_stat(system, f"Size budget applied: {len(filtered_urls)} ROMs "
                       f"({format_size(selected_size)}, budget remaining: "
                       f"{format_size(remaining_size_budget)})")
 
@@ -9069,31 +9224,29 @@ Pattern examples (--include / --exclude):
                 Console.section(f"{system.upper()} ({len(filtered_urls)} ROMs)")
                 for url in sorted(filtered_urls):
                     filename = get_filename_from_url(url)
-                    print(f"  {filename}")
+                    Console.text(filename, indent=2)
         else:
-            print(f"{system.upper()}: No ROMs remaining after filtering")
+            Console.system_stat(system, "No ROMs remaining after filtering")
 
     # Check if any network sources returned no ROMs
     if empty_network_sources:
         # If ALL network sources are empty and there are no local sources with ROMs, fail
         has_local_roms = bool(detected)
         if len(empty_network_sources) == len(network_sources) and not has_local_roms:
-            print("\n" + "=" * 60)
-            print("ERROR: Network source(s) returned no ROM files")
-            print("=" * 60)
-            for src in empty_network_sources:
-                print(f"  {SYM_CROSS} {src}")
-            print("\nPossible causes:")
-            print("  • URL points to an empty directory")
-            print("  • URL points to a page without ROM download links")
-            print("  • ROM files use unrecognized extensions")
-            print("  • The page format is not supported for scraping")
+            error_lines = [f"{SYM_CROSS} {src}" for src in empty_network_sources]
+            error_lines.append("")
+            error_lines.append("Possible causes:")
+            error_lines.append("  URL points to an empty directory")
+            error_lines.append("  URL points to a page without ROM download links")
+            error_lines.append("  ROM files use unrecognized extensions")
+            error_lines.append("  The page format is not supported for scraping")
+            Console.error_block("ERROR: Network source(s) returned no ROM files", error_lines)
             sys.exit(1)
         else:
             # Just warn about empty sources if we have other data
-            print("\nWarning: The following source(s) returned no ROM files:")
+            Console.warning("The following source(s) returned no ROM files:")
             for src in empty_network_sources:
-                print(f"  • {src}")
+                Console.text(f"• {src}", indent=2)
 
     # Show download summary and prompt for confirmation (only when actually downloading)
     if total_network_files > 0:
@@ -9102,9 +9255,7 @@ Pattern examples (--include / --exclude):
             network_downloads = {}
         else:
             # Show download summary only when committing
-            print("\n" + "=" * 60)
-            print("NETWORK DOWNLOAD SUMMARY")
-            print("=" * 60)
+            Console.header("NETWORK DOWNLOAD SUMMARY")
 
             for system, urls in sorted(network_downloads.items()):
                 # Check how many are already cached
@@ -9123,26 +9274,26 @@ Pattern examples (--include / --exclude):
                 sys_size = network_system_stats.get(system, {}).get('selected_size', 0)
                 size_str = f" ({format_size(sys_size)})" if sys_size > 0 else ""
                 if cached_count > 0:
-                    print(f"  {system}: {len(urls)} files{size_str} ({cached_count} cached, {new_count} to download)")
+                    Console.system_stat(system, f"{len(urls)} files{size_str} ({cached_count} cached, {new_count} to download)")
                 else:
-                    print(f"  {system}: {len(urls)} files{size_str} to download")
+                    Console.system_stat(system, f"{len(urls)} files{size_str} to download")
 
+            Console.blank()
             if total_network_selected_size > 0:
-                print(f"\nTotal: {total_network_files} files ({format_size(total_network_selected_size)})")
+                Console.text(f"Total: {total_network_files} files ({format_size(total_network_selected_size)})", indent=2)
             else:
-                print(f"\nTotal: {total_network_files} files")
-            print(f"Cache directory: {cache_dir}")
+                Console.text(f"Total: {total_network_files} files", indent=2)
+            Console.text(f"Cache directory: {cache_dir}", indent=2)
 
             # Show download tool info
             tool = get_download_tool()
             autotune_note = " (auto-tune enabled)" if args.auto_tune else ""
             if tool == 'aria2c':
-                print(f"Download tool: aria2c{autotune_note}")
+                Console.text(f"Download tool: aria2c{autotune_note}", indent=2)
             elif tool == 'curl':
-                print(f"Download tool: curl{autotune_note}")
+                Console.text(f"Download tool: curl{autotune_note}", indent=2)
             else:
-                print(f"Download tool: Python urllib (sequential)")
-            print("=" * 60)
+                Console.text("Download tool: Python urllib (sequential)", indent=2)
 
     # Step 3: Collect all files to download across all systems
     all_downloads = []  # List of (url, cached_path, system)
@@ -9211,7 +9362,7 @@ Pattern examples (--include / --exclude):
                 median_size = valid_sizes[len(valid_sizes) // 2]
                 size_category = "small" if median_size < AUTOTUNE_SMALL_THRESHOLD else \
                                "large" if median_size > AUTOTUNE_LARGE_THRESHOLD else "medium"
-                print(f"Auto-tune: {size_category} files (median {format_size(median_size)}) {SYM_ARROW_RIGHT} parallel={parallel}, connections={connections}")
+                Console.text(f"Auto-tune: {size_category} files (median {format_size(median_size)}) {SYM_ARROW_RIGHT} parallel={parallel}, connections={connections}")
 
         ui = DownloadUI(
             system_name=system_name,
@@ -9287,41 +9438,41 @@ Pattern examples (--include / --exclude):
         if dry_run:
             if total_network_files > 0:
                 # Network-only dry run: selections already displayed above
-                print(f"\nDry run complete. {total_network_files} ROMs selected "
+                Console.text(f"\nDry run complete. {total_network_files} ROMs selected "
                       f"({format_size(total_network_selected_size)}) from network source(s).")
                 if args.size_bytes is not None:
-                    print(f"Size budget: {format_size(args.size_bytes)}")
-                print("Use --commit to download and transfer files.")
+                    Console.text(f"Size budget: {format_size(args.size_bytes)}")
+                Console.text("Use --commit to download and transfer files.")
             else:
-                print("\nNo ROM files found. No files changed (dry run).")
+                Console.text("\nNo ROM files found. No files changed (dry run).")
             sys.exit(0)
         else:
-            print("\n" + "=" * 60)
-            print("ERROR: No ROM files found in any source")
-            print("=" * 60)
+            error_lines = []
             if local_sources:
-                print("\nLocal sources checked:")
+                error_lines.append("Local sources checked:")
                 for src in local_sources:
-                    print(f"  • {src}")
+                    error_lines.append(f"  {src}")
             if network_sources:
-                print("\nNetwork sources checked:")
+                error_lines.append("Network sources checked:")
                 for src in network_sources:
-                    print(f"  • {src}")
-            print("\nPossible causes:")
-            print("  • Source directory/URL contains no ROM files")
-            print("  • ROM files are in subdirectories not being scanned")
-            print("  • File extensions not recognized (use --list-systems to see supported extensions)")
-            print("  • All ROMs were filtered out by include/exclude patterns")
+                    error_lines.append(f"  {src}")
+            error_lines.append("")
+            error_lines.append("Possible causes:")
+            error_lines.append("  Source directory/URL contains no ROM files")
+            error_lines.append("  ROM files are in subdirectories not being scanned")
+            error_lines.append("  File extensions not recognized (use --list-systems to see supported extensions)")
+            error_lines.append("  All ROMs were filtered out by include/exclude patterns")
             if args.systems:
-                print(f"  • Specified systems ({', '.join(args.systems)}) not found in sources")
+                error_lines.append(f"  Specified systems ({', '.join(args.systems)}) not found in sources")
+            Console.error_block("ERROR: No ROM files found in any source", error_lines)
             sys.exit(1)
 
     if args.systems:
-        print(f"Systems: {', '.join(sorted(detected.keys()))}")
+        Console.text(f"Systems: {', '.join(sorted(detected.keys()))}")
     else:
-        print(f"Detected systems: {', '.join(sorted(detected.keys()))}")
+        Console.text(f"Detected systems: {', '.join(sorted(detected.keys()))}")
 
-    print()
+    Console.blank()
     total_selected = 0
     total_source_size = 0
     total_selected_size = 0
@@ -9354,7 +9505,7 @@ Pattern examples (--include / --exclude):
 
             if network_filtered and rom_files:
                 # Files are already filtered from network - just copy to destination
-                print(f"TEKNOPARROT: Processing {len(rom_files)} pre-filtered ROMs from network...")
+                Console.system_stat("teknoparrot", f"Processing {len(rom_files)} pre-filtered ROMs from network...")
                 dest_path = Path(args.dest) / 'teknoparrot'
                 if not dry_run:
                     dest_path.mkdir(parents=True, exist_ok=True)
@@ -9381,7 +9532,7 @@ Pattern examples (--include / --exclude):
                                 dest_file.unlink()
                             os.symlink(rom_path, dest_file)
                     selected.append(rom_path)
-                    print(f"  {SYM_CHECK} {rom_path.name}")
+                    Console.downloaded(rom_path.name)
 
                 if args.limit is not None:
                     remaining = args.limit - total_selected
@@ -9402,8 +9553,8 @@ Pattern examples (--include / --exclude):
                 total_selected += len(selected)
                 if remaining_size_budget is not None:
                     remaining_size_budget -= selected_size
-                print(f"TEKNOPARROT: Selected {len(selected)} ROMs ({format_size(selected_size)})")
-                print()
+                Console.system_stat("teknoparrot", f"Selected {len(selected)} ROMs ({format_size(selected_size)})")
+                Console.blank()
             else:
                 # Local source - use full directory scanning and filtering
                 # Use consolidated dat_files directory
@@ -9412,7 +9563,7 @@ Pattern examples (--include / --exclude):
                 # Check for existing TeknoParrot DAT
                 tp_dat_path = dat_dir / 'teknoparrot.dat'
                 if not tp_dat_path.exists():
-                    print("TeknoParrot: DAT file not found, downloading...")
+                    Console.system_stat("teknoparrot", "DAT file not found, downloading...")
                     tp_dat_path = download_teknoparrot_dat(dat_dir)
 
                 # Get ROM source directory (check all sources including cache)
@@ -9429,7 +9580,7 @@ Pattern examples (--include / --exclude):
                             rom_source = cache_subdir
                             break
                 if not rom_source:
-                    print("TeknoParrot: ROM directory not found in any source")
+                    Console.system_stat("teknoparrot", "ROM directory not found in any source")
                     continue
 
                 # Parse platform filter args
@@ -9441,7 +9592,7 @@ Pattern examples (--include / --exclude):
                     tp_exclude = {p.strip() for p in args.tp_exclude_platforms.split(',')}
 
                 if tp_dat_path and tp_dat_path.exists():
-                    print(f"TeknoParrot: Using DAT from {tp_dat_path}")
+                    Console.system_stat("teknoparrot", f"Using DAT from {tp_dat_path}")
 
                 result = filter_teknoparrot_roms(
                     str(rom_source),
@@ -9481,8 +9632,8 @@ Pattern examples (--include / --exclude):
                             remaining = top_count - len(selected)
                             selected.extend(unrated_games[:remaining])
                         top_label = format_top_label(args.top)
-                        print(f"TEKNOPARROT: Rating data matched {len(rated)} of {pre_count} games")
-                        print(f"TEKNOPARROT: {top_label} selected ({len(selected)} games, {pre_count - len(selected)} below cutoff)")
+                        Console.system_stat("teknoparrot", f"Rating data matched {len(rated)} of {pre_count} games")
+                        Console.system_stat("teknoparrot", f"{top_label} selected ({len(selected)} games, {pre_count - len(selected)} below cutoff)")
 
                 if args.limit is not None and selected:
                     remaining = args.limit - total_selected
@@ -9512,8 +9663,8 @@ Pattern examples (--include / --exclude):
                     if args.print_roms:
                         Console.section(f"TEKNOPARROT ({len(selected)} ROMs)")
                         for game in sorted(selected, key=lambda g: g.description):
-                            print(f"  {game.name}.zip - {game.description}")
-                print()
+                            Console.text(f"{game.name}.zip - {game.description}", indent=2)
+                Console.blank()
 
         # Special handling for MAME and FBNeo (arcade systems)
         elif system in ('mame', 'fbneo', 'fba', 'arcade'):
@@ -9527,7 +9678,7 @@ Pattern examples (--include / --exclude):
 
             if network_filtered and rom_files:
                 # Files are already filtered from network - just copy to destination
-                print(f"{arcade_system}: Processing {len(rom_files)} pre-filtered ROMs from network...")
+                Console.system_stat(arcade_system.lower(), f"Processing {len(rom_files)} pre-filtered ROMs from network...")
                 dest_path = Path(args.dest) / orig_system
                 if not dry_run:
                     dest_path.mkdir(parents=True, exist_ok=True)
@@ -9554,7 +9705,7 @@ Pattern examples (--include / --exclude):
                                 dest_file.unlink()
                             os.symlink(rom_path, dest_file)
                     selected.append(rom_path)
-                    print(f"  {SYM_CHECK} {rom_path.name}")
+                    Console.downloaded(rom_path.name)
 
                 if args.limit is not None:
                     remaining = args.limit - total_selected
@@ -9575,8 +9726,8 @@ Pattern examples (--include / --exclude):
                 total_selected += len(selected)
                 if remaining_size_budget is not None:
                     remaining_size_budget -= selected_size
-                print(f"{arcade_system}: Selected {len(selected)} ROMs ({format_size(selected_size)})")
-                print()
+                Console.system_stat(arcade_system.lower(), f"Selected {len(selected)} ROMs ({format_size(selected_size)})")
+                Console.blank()
             else:
                 # Local source - use full directory scanning and filtering
                 # Use consolidated dat_files directory
@@ -9617,7 +9768,8 @@ Pattern examples (--include / --exclude):
 
                 # Download missing files (for MAME only - FBNeo uses existing DAT)
                 if system == 'mame' and (not catver_path or not arcade_dat_path):
-                    print(f"\n{arcade_system}: Data files not found, downloading...")
+                    Console.blank()
+                    Console.system_stat(arcade_system.lower(), "Data files not found, downloading...")
                     downloaded_catver, downloaded_dat = download_mame_data(
                         dat_dir,
                         version=args.mame_version
@@ -9629,10 +9781,10 @@ Pattern examples (--include / --exclude):
 
                 # Verify we have required files
                 if not catver_path or not catver_path.exists():
-                    print(f"{arcade_system}: catver.ini not available. Skipping.")
+                    Console.system_stat(arcade_system.lower(), "catver.ini not available. Skipping.")
                     continue
                 if not arcade_dat_path or not arcade_dat_path.exists():
-                    print(f"{arcade_system}: DAT file not available. Skipping.")
+                    Console.system_stat(arcade_system.lower(), "DAT file not available. Skipping.")
                     continue
 
                 # Get ROM source directory (check all sources)
@@ -9642,11 +9794,11 @@ Pattern examples (--include / --exclude):
                         rom_source = sp / system
                         break
                 if not rom_source:
-                    print(f"{arcade_system}: ROM directory not found in any source")
+                    Console.system_stat(arcade_system.lower(), "ROM directory not found in any source")
                     continue
 
-                print(f"{arcade_system}: Using catver.ini from {catver_path}")
-                print(f"{arcade_system}: Using DAT from {arcade_dat_path}")
+                Console.system_stat(arcade_system.lower(), f"Using catver.ini from {catver_path}")
+                Console.system_stat(arcade_system.lower(), f"Using DAT from {arcade_dat_path}")
 
                 result = filter_mame_roms(
                     str(rom_source),
@@ -9683,8 +9835,8 @@ Pattern examples (--include / --exclude):
                             remaining = top_count - len(selected)
                             selected.extend(unrated_games[:remaining])
                         top_label = format_top_label(args.top)
-                        print(f"{arcade_system}: Rating data matched {len(rated)} of {pre_count} games")
-                        print(f"{arcade_system}: {top_label} selected ({len(selected)} games, {pre_count - len(selected)} below cutoff)")
+                        Console.system_stat(arcade_system.lower(), f"Rating data matched {len(rated)} of {pre_count} games")
+                        Console.system_stat(arcade_system.lower(), f"{top_label} selected ({len(selected)} games, {pre_count - len(selected)} below cutoff)")
 
                 if args.limit is not None and selected:
                     remaining = args.limit - total_selected
@@ -9714,8 +9866,8 @@ Pattern examples (--include / --exclude):
                     if args.print_roms:
                         Console.section(f"{system.upper()} ({len(selected)} ROMs)")
                         for game in sorted(selected, key=lambda g: g.description):
-                            print(f"  {game.name}.zip - {game.description}")
-                print()
+                            Console.text(f"{game.name}.zip - {game.description}", indent=2)
+                Console.blank()
         else:
             # DAT verification/matching for non-MAME systems
             dat_entries = None
@@ -9723,26 +9875,26 @@ Pattern examples (--include / --exclude):
                 # Reuse DAT entries from network processing if available
                 if system in network_dat_entries:
                     dat_entries = network_dat_entries[system]
-                    print(f"{system.upper()}: Using cached DAT ({len(dat_entries)} entries)")
+                    Console.system_stat(system, f"Using cached DAT ({len(dat_entries)} entries)")
                 else:
                     dat_dir = Path(args.dat_dir) if args.dat_dir else primary_source / 'dat_files'
                     dat_path = download_libretro_dat(system, dat_dir)
                     if dat_path:
-                        print(f"{system.upper()}: Loading DAT file...")
+                        Console.system_stat(system, "Loading DAT file...")
                         dat_entries = parse_dat_file(dat_path)
-                        print(f"{system.upper()}: Loaded {len(dat_entries)} DAT entries")
+                        Console.system_stat(system, f"Loaded {len(dat_entries)} DAT entries")
                         if args.verbose:
                             with open(dat_path, 'r', encoding='utf-8', errors='ignore') as df:
                                 first = df.readline().strip()
                             fmt = "XML" if first.startswith('<?xml') or first.startswith('<') \
                                 else "ClrMamePro"
-                            print(f"  [DAT] {system.upper()}: format={fmt}, "
+                            Console.verbose('dat', f"{system.upper()}: format={fmt}, "
                                   f"entries={len(dat_entries)}, path={dat_path}")
 
             if verify and dat_entries:
                 verified, unverified, bad = verify_roms_against_dat(rom_files, dat_entries, system,
                                                                    verbose=args.verbose)
-                print(f"{system.upper()}: {len(verified)} verified, {len(unverified)} unknown, {len(bad)} bad")
+                Console.system_stat(system, f"{len(verified)} verified, {len(unverified)} unknown, {len(bad)} bad")
 
                 # Write verification report
                 if not dry_run:
@@ -9775,7 +9927,7 @@ Pattern examples (--include / --exclude):
                             for rom_path in sorted(bad, key=lambda x: x.name):
                                 f.write(f"{rom_path.name}\n")
 
-                    print(f"{system.upper()}: Verification report written to {report_path}")
+                    Console.system_stat(system, f"Verification report written to {report_path}")
 
             result = filter_roms_from_files(
                 rom_files, args.dest, system, dry_run,
@@ -9828,53 +9980,52 @@ Pattern examples (--include / --exclude):
                 if args.playlists:
                     playlist_path = generate_m3u_playlist(system, selected_paths,
                                                           Path(args.dest) / system if not args.flat else Path(args.dest))
-                    print(f"{system.upper()}: Generated playlist: {playlist_path}")
+                    Console.system_stat(system, f"Generated playlist: {playlist_path}")
                 if args.gamelist:
                     gamelist_path = generate_gamelist_xml(system, selected_paths,
                                                           Path(args.dest) / system if not args.flat else Path(args.dest))
-                    print(f"{system.upper()}: Generated gamelist: {gamelist_path}")
+                    Console.system_stat(system, f"Generated gamelist: {gamelist_path}")
                 if args.retroarch_playlists:
                     rom_dir = Path(args.dest) / system if not args.flat else Path(args.dest)
                     playlist_path = generate_retroarch_playlist(system, selected_paths, rom_dir,
                                                                  Path(args.retroarch_playlists))
-                    print(f"{system.upper()}: Generated Retroarch playlist: {playlist_path}")
+                    Console.system_stat(system, f"Generated Retroarch playlist: {playlist_path}")
 
             if selected:
                 total_selected += len(selected)
                 if args.print_roms:
                     Console.section(f"{system.upper()} ({len(selected)} ROMs)")
                     for rom in sorted(selected, key=lambda r: r.filename):
-                        print(f"  {rom.filename}")
-            print()
+                        Console.text(rom.filename, indent=2)
+            Console.blank()
 
     check_shutdown()
-    print("=" * 60)
+    Console.header("RESULTS")
     if args.limit is not None:
-        print(f"Total ROMs selected: {total_selected} (limit: {args.limit})")
+        Console.status("Total ROMs selected", f"{total_selected} (limit: {args.limit})")
     else:
-        print(f"Total ROMs selected: {total_selected}")
+        Console.status("Total ROMs selected", str(total_selected))
     if args.size_bytes is not None:
-        print(f"Total selected size: {format_size(total_selected_size)} (budget: {format_size(args.size_bytes)})")
+        Console.status("Total selected size", f"{format_size(total_selected_size)} (budget: {format_size(args.size_bytes)})")
 
     # Print size summary if we have data
     if system_stats:
-        print()
-        print("SIZE SUMMARY")
-        print("-" * 60)
-        print(f"{'System':<15} {'Source':>12} {'Selected':>12} {'Saved':>12} {'%':>6}")
-        print("-" * 60)
+        Console.blank()
+        Console.table_rule(60, "-")
+        Console.table_header(['System', 'Source', 'Selected', 'Saved', '%'], [15, 12, 12, 12, 6])
+        Console.table_rule(60, "-")
         for sys_name in sorted(system_stats.keys()):
             stats = system_stats[sys_name]
             src = stats['source_size']
             sel = stats['selected_size']
             saved = src - sel
             pct = (saved / src * 100) if src > 0 else 0
-            print(f"{sys_name:<15} {format_size(src):>12} {format_size(sel):>12} {format_size(saved):>12} {pct:>5.1f}%")
-        print("-" * 60)
+            Console.table_row([sys_name, format_size(src), format_size(sel), format_size(saved), f"{pct:.1f}%"], [15, 12, 12, 12, 6])
+        Console.table_rule(60, "-")
         total_saved = total_source_size - total_selected_size
         total_pct = (total_saved / total_source_size * 100) if total_source_size > 0 else 0
-        print(f"{'TOTAL':<15} {format_size(total_source_size):>12} {format_size(total_selected_size):>12} {format_size(total_saved):>12} {total_pct:>5.1f}%")
-        print("=" * 60)
+        Console.table_total(['TOTAL', format_size(total_source_size), format_size(total_selected_size), format_size(total_saved), f"{total_pct:.1f}%"], [15, 12, 12, 12, 6])
+        Console.table_rule(60, "=")
 
 
 if __name__ == '__main__':
