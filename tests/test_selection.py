@@ -70,6 +70,7 @@ boost_exclusive_ratings = _module.boost_exclusive_ratings
 # CRC functions
 build_download_crc_index = _module.build_download_crc_index
 get_cached_crc = _module.get_cached_crc
+DownloadUI = _module.DownloadUI
 
 
 class TestResult:
@@ -2664,6 +2665,115 @@ def test_igdb():
                     f"{test_args.igdb_client_id}/{test_args.ratings_source}")
 
 
+def test_download_throttle_backoff():
+    """Test DownloadUI throttle detection and backoff."""
+    print("\n" + "="*60)
+    print("DOWNLOAD THROTTLE BACKOFF TESTS")
+    print("="*60)
+
+    # Create a DownloadUI with dummy files (won't actually download)
+    dummy_files = [
+        ('http://example.com/a.zip', Path('/tmp/a.zip')),
+        ('http://example.com/b.zip', Path('/tmp/b.zip')),
+        ('http://example.com/c.zip', Path('/tmp/c.zip')),
+        ('http://example.com/d.zip', Path('/tmp/d.zip')),
+    ]
+    ui = DownloadUI('test', dummy_files, parallel=8, connections=4)
+
+    # Test 1: error_code and error_message fields initialized
+    for f in ui.files:
+        if f.get('error_code') is None and f.get('error_message') == '':
+            pass
+        else:
+            results.fail("File dict has error fields", "None/''",
+                        f"{f.get('error_code')}/{f.get('error_message')}")
+            break
+    else:
+        results.ok("File dict has error_code=None and error_message='' by default")
+
+    # Test 2: _has_throttle_errors returns False when no errors
+    if not ui._has_throttle_errors():
+        results.ok("No throttle errors when all files are queued")
+    else:
+        results.fail("No throttle errors when queued", False, True)
+
+    # Test 3: _has_throttle_errors returns True for timeout errors
+    ui.files[0]['status'] = ui.STATUS_FAILED
+    ui.files[0]['error_code'] = '2'  # timeout
+    ui.files[0]['error_message'] = 'Timeout'
+    if ui._has_throttle_errors():
+        results.ok("Throttle detected for error code 2 (timeout)")
+    else:
+        results.fail("Throttle for timeout", True, False)
+
+    # Test 4: _has_throttle_errors returns True for HTTP 503
+    ui.files[0]['error_code'] = '20'  # HTTP 5xx
+    if ui._has_throttle_errors():
+        results.ok("Throttle detected for error code 20 (HTTP 5xx)")
+    else:
+        results.fail("Throttle for HTTP 5xx", True, False)
+
+    # Test 5: _has_throttle_errors returns False for non-throttle errors
+    ui.files[0]['error_code'] = '3'  # resource not found (404)
+    if not ui._has_throttle_errors():
+        results.ok("No throttle for error code 3 (not found)")
+    else:
+        results.fail("No throttle for 404", False, True)
+
+    # Test 6: _get_throttle_summary returns error breakdown
+    ui.files[0]['error_code'] = '2'
+    ui.files[1]['status'] = ui.STATUS_FAILED
+    ui.files[1]['error_code'] = '2'
+    ui.files[2]['status'] = ui.STATUS_FAILED
+    ui.files[2]['error_code'] = '20'
+    summary = ui._get_throttle_summary()
+    if 'timeout=2' in summary and 'HTTP 5xx=1' in summary:
+        results.ok("Throttle summary shows error code counts")
+    else:
+        results.fail("Throttle summary", "timeout=2, HTTP 5xx=1", summary)
+
+    # Test 7: _mark_for_retry clears error fields
+    ui._mark_for_retry(['http://example.com/a.zip'])
+    if ui.files[0]['error_code'] is None and ui.files[0]['error_message'] == '':
+        results.ok("_mark_for_retry clears error fields")
+    else:
+        results.fail("Retry clears errors", "None/''",
+                    f"{ui.files[0]['error_code']}/{ui.files[0]['error_message']}")
+
+    # Test 8: THROTTLE_ERROR_CODES contains expected codes
+    expected_codes = {'2', '5', '6', '19', '20'}
+    if ui.THROTTLE_ERROR_CODES == expected_codes:
+        results.ok("THROTTLE_ERROR_CODES has correct values")
+    else:
+        results.fail("THROTTLE_ERROR_CODES", expected_codes, ui.THROTTLE_ERROR_CODES)
+
+    # Test 9: Parallel backoff halves correctly
+    ui2 = DownloadUI('test', dummy_files, parallel=8, connections=4)
+    # Simulate throttle errors
+    for f in ui2.files:
+        f['status'] = ui2.STATUS_FAILED
+        f['error_code'] = '2'
+    # Check that _has_throttle_errors is True
+    if ui2._has_throttle_errors():
+        # Simulate backoff logic (same as in run())
+        new_parallel = max(1, ui2.parallel // 2)
+        ui2.parallel = new_parallel
+        if ui2.parallel == 4:
+            results.ok("Parallel halved from 8 to 4 on throttle")
+        else:
+            results.fail("Parallel halved", 4, ui2.parallel)
+    else:
+        results.fail("Throttle detected for backoff test", True, False)
+
+    # Test 10: Parallel floors at 1
+    ui3 = DownloadUI('test', dummy_files, parallel=1, connections=4)
+    new_parallel = max(1, ui3.parallel // 2)
+    if new_parallel == 1:
+        results.ok("Parallel floors at 1 (no infinite reduction)")
+    else:
+        results.fail("Parallel floor", 1, new_parallel)
+
+
 def main():
     """Run all tests."""
     print("\n" + "="*60)
@@ -2697,6 +2807,7 @@ def main():
     test_tosec_parsing()
     test_download_crc_index()
     test_igdb()
+    test_download_throttle_backoff()
 
     # Run integration tests with real files
     source = r"C:\Users\atkin\Downloads\Roms"

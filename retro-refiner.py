@@ -1890,6 +1890,10 @@ class DownloadUI:
     STATUS_DONE = 'done'
     STATUS_FAILED = 'failed'
 
+    # aria2c error codes that indicate server throttling/overload
+    # 2=timeout, 5=too slow, 6=network error, 19=HTTP 4xx (429), 20=HTTP 5xx (503)
+    THROTTLE_ERROR_CODES = {'2', '5', '6', '19', '20'}
+
     # ANSI colors for simple mode
     GREEN = '\033[32m'
     BRIGHT_GREEN = '\033[92m'
@@ -1927,6 +1931,8 @@ class DownloadUI:
                 'completed': 0,
                 'speed': 0,
                 'retries': 0,
+                'error_code': None,
+                'error_message': '',
             })
 
         # Stats
@@ -2131,7 +2137,8 @@ class DownloadUI:
             elif status == self.STATUS_FAILED:
                 icon = SYM_CROSS
                 color = curses.color_pair(3)
-                suffix = 'failed'
+                err = f.get('error_code')
+                suffix = f'err {err}' if err else 'failed'
             else:  # queued
                 icon = SYM_CIRCLE
                 color = curses.A_DIM
@@ -2199,7 +2206,7 @@ class DownloadUI:
                     continue
 
             # Get stopped (completed/failed)
-            stopped = self.rpc.get_stopped()
+            stopped = self.rpc.get_stopped(limit=500)
             for dl in stopped:
                 try:
                     files = dl.get('files', [])
@@ -2216,6 +2223,8 @@ class DownloadUI:
                                 f['completed'] = f['size']
                             elif status == 'error':
                                 f['status'] = self.STATUS_FAILED
+                                f['error_code'] = dl.get('errorCode')
+                                f['error_message'] = dl.get('errorMessage', '')
                             break
                 except (KeyError, ValueError):
                     continue
@@ -2483,6 +2492,35 @@ class DownloadUI:
                     failed.append((f['url'], f['path']))
         return failed
 
+    def _has_throttle_errors(self) -> bool:
+        """Check if any failed downloads have throttling-related error codes."""
+        with self.lock:
+            for f in self.files:
+                if f['status'] == self.STATUS_FAILED \
+                        and f.get('error_code') in self.THROTTLE_ERROR_CODES:
+                    return True
+        return False
+
+    def _get_throttle_summary(self) -> str:
+        """Get a summary of throttle-related error codes from failed downloads."""
+        code_counts: Dict[str, int] = {}
+        with self.lock:
+            for f in self.files:
+                if f['status'] == self.STATUS_FAILED and f.get('error_code'):
+                    code = f['error_code']
+                    code_counts[code] = code_counts.get(code, 0) + 1
+        if not code_counts:
+            return ''
+        parts = []
+        code_labels = {
+            '2': 'timeout', '5': 'too slow', '6': 'network error',
+            '19': 'HTTP 4xx', '20': 'HTTP 5xx',
+        }
+        for code, count in sorted(code_counts.items()):
+            label = code_labels.get(code, f'err {code}')
+            parts.append(f"{label}={count}")
+        return ', '.join(parts)
+
     def _mark_for_retry(self, urls: List[str]) -> None:
         """Mark failed downloads for retry by resetting their status."""
         with self.lock:
@@ -2492,6 +2530,8 @@ class DownloadUI:
                     f['status'] = self.STATUS_QUEUED
                     f['completed'] = 0
                     f['speed'] = 0
+                    f['error_code'] = None
+                    f['error_message'] = ''
             # Reset counters
             self.completed_count = sum(1 for f in self.files if f['status'] == self.STATUS_DONE)
             self.failed_count = sum(1 for f in self.files if f['status'] == self.STATUS_FAILED)
@@ -2686,6 +2726,18 @@ class DownloadUI:
             if not failed_downloads:
                 break  # All done or max retries reached
 
+            # Check for throttling and reduce parallelism if needed
+            if self._has_throttle_errors():
+                new_parallel = max(1, self.parallel // 2)
+                if new_parallel < self.parallel:
+                    throttle_info = self._get_throttle_summary()
+                    self.parallel = new_parallel
+                    if not self.detailed_mode:
+                        sys.stdout.write('\r\033[K')
+                    msg = f"  Throttling detected ({throttle_info})"
+                    msg += f" {SYM_ARROW_RIGHT} reducing to {self.parallel} parallel downloads"
+                    print(msg)
+
             # Reset tracking for retry round
             self.last_progress_time = _time.time()
             self.last_completed_count = self.completed_count
@@ -2743,14 +2795,14 @@ class DownloadUI:
             print(f" {self.RED}({failed} failed){self.RESET}")
             # List failed files
             failed_files = [f for f in self.files if f['status'] == self.STATUS_FAILED]
-            if len(failed_files) <= 10:
-                for f in failed_files:
-                    filename = Path(f['url']).name
-                    print(f"    {self.RED}{SYM_CROSS}{self.RESET} {filename}")
-            else:
-                for f in failed_files[:5]:
-                    filename = Path(f['url']).name
-                    print(f"    {self.RED}{SYM_CROSS}{self.RESET} {filename}")
+            show_files = failed_files if len(failed_files) <= 10 else failed_files[:5]
+            for f in show_files:
+                filename = Path(f['url']).name
+                err_info = ''
+                if f.get('error_code'):
+                    err_info = f" [error {f['error_code']}: {f['error_message']}]"
+                print(f"    {self.RED}{SYM_CROSS}{self.RESET} {filename}{err_info}")
+            if len(failed_files) > 10:
                 print(f"    ... and {len(failed_files) - 5} more")
         else:
             print()
@@ -2804,12 +2856,22 @@ class DownloadUI:
             else:
                 f['status'] = self.STATUS_FAILED
 
-        # Retry failed downloads
+        # Retry failed downloads with backoff
         for retry in range(1, self.max_retries + 1):
             failed = [(f['url'], f['path']) for f in self.files
                       if f['status'] == self.STATUS_FAILED and f.get('retries', 0) < self.max_retries]
             if not failed:
                 break
+
+            # Heuristic throttle detection: if >50% failed, reduce parallelism
+            total_attempted = sum(1 for f in self.files if f['status'] != self.STATUS_QUEUED)
+            fail_rate = len(failed) / max(total_attempted, 1)
+            if fail_rate > 0.5:
+                new_parallel = max(1, self.parallel // 2)
+                if new_parallel < self.parallel:
+                    self.parallel = new_parallel
+                    print(f"  High failure rate ({len(failed)}/{total_attempted})"
+                          f" {SYM_ARROW_RIGHT} reducing to {self.parallel} parallel downloads")
 
             print(f"  Retry {retry}/{self.max_retries}: {len(failed)} failed files...")
             for f in self.files:
@@ -2838,16 +2900,15 @@ class DownloadUI:
         print(f"  Downloaded {len(results)}/{len(self.files)} files", end='')
         if failed_count:
             print(f" ({failed_count} failed)")
-            # List failed files
             failed_files = [f for f in self.files if f['status'] == self.STATUS_FAILED]
-            if len(failed_files) <= 10:
-                for f in failed_files:
-                    filename = Path(f['url']).name
-                    print(f"    {SYM_CROSS} {filename}")
-            else:
-                for f in failed_files[:5]:
-                    filename = Path(f['url']).name
-                    print(f"    {SYM_CROSS} {filename}")
+            show_files = failed_files if len(failed_files) <= 10 else failed_files[:5]
+            for f in show_files:
+                filename = Path(f['url']).name
+                err_info = ''
+                if f.get('error_code'):
+                    err_info = f" [error {f['error_code']}: {f['error_message']}]"
+                print(f"    {SYM_CROSS} {filename}{err_info}")
+            if len(failed_files) > 10:
                 print(f"    ... and {len(failed_files) - 5} more")
         else:
             print()
