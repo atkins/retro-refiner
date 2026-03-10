@@ -65,6 +65,7 @@ EXTENSION_TO_SYSTEM = _module.EXTENSION_TO_SYSTEM
 # IGDB
 IGDB_PLATFORM_MAP = _module.IGDB_PLATFORM_MAP
 combine_ratings = _module.combine_ratings
+boost_exclusive_ratings = _module.boost_exclusive_ratings
 
 
 class TestResult:
@@ -2482,6 +2483,61 @@ def test_igdb():
         results.ok("Combined: empty inputs -> empty result")
     else:
         results.fail("Combined empty", "{}", str(empty))
+
+    # Test boost_exclusive_ratings
+    test_ratings = {
+        'nes': {
+            'super mario bros': {'rating': 8.9, 'votes': 1659, 'name': 'Super Mario Bros.'},
+            'tetris': {'rating': 8.0, 'votes': 100, 'name': 'Tetris'},  # Also on GB
+        },
+        'gameboy': {
+            'tetris': {'rating': 8.4, 'votes': 131, 'name': 'Tetris'},  # Also on NES
+            'pokemon red version': {'rating': 8.0, 'votes': 586, 'name': 'Pokemon Red'},
+        },
+    }
+    boosted = boost_exclusive_ratings(test_ratings, boost=1.5)
+
+    # Mario is NES exclusive -> boosted
+    mario_b = boosted['nes']['super mario bros']
+    if abs(mario_b['rating'] - 10.0) < 0.01:  # 8.9 + 1.5 = 10.4 -> capped at 10.0
+        results.ok("Exclusives boost: NES-only game capped at 10.0")
+    else:
+        results.fail("Exclusives boost cap", 10.0, mario_b['rating'])
+
+    # Tetris is cross-platform -> NOT boosted on NES
+    tetris_nes = boosted['nes']['tetris']
+    if tetris_nes['rating'] == 8.0:
+        results.ok("Exclusives boost: cross-platform game unchanged (NES)")
+    else:
+        results.fail("Cross-platform unchanged NES", 8.0, tetris_nes['rating'])
+
+    # Tetris is cross-platform -> NOT boosted on GB
+    tetris_gb = boosted['gameboy']['tetris']
+    if tetris_gb['rating'] == 8.4:
+        results.ok("Exclusives boost: cross-platform game unchanged (GB)")
+    else:
+        results.fail("Cross-platform unchanged GB", 8.4, tetris_gb['rating'])
+
+    # Pokemon is GB exclusive -> boosted
+    pokemon_b = boosted['gameboy']['pokemon red version']
+    if abs(pokemon_b['rating'] - 9.5) < 0.01:  # 8.0 + 1.5
+        results.ok("Exclusives boost: GB-only game boosted to 9.5")
+    else:
+        results.fail("Exclusives boost GB", 9.5, pokemon_b['rating'])
+
+    # Votes preserved
+    if mario_b['votes'] == 1659 and pokemon_b['votes'] == 586:
+        results.ok("Exclusives boost: vote counts preserved")
+    else:
+        results.fail("Votes preserved", "1659/586",
+                    f"{mario_b['votes']}/{pokemon_b['votes']}")
+
+    # Test with boost=0 (no change)
+    no_boost = boost_exclusive_ratings(test_ratings, boost=0)
+    if no_boost['nes']['super mario bros']['rating'] == 8.9:
+        results.ok("Exclusives boost=0: no change")
+    else:
+        results.fail("Boost=0", 8.9, no_boost['nes']['super mario bros']['rating'])
 
     # Test normalize_title matching between IGDB names and ROM filenames
     # IGDB uses clean names like "Super Mario Bros." while ROMs use "Super Mario Bros. (USA).zip"

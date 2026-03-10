@@ -3636,6 +3636,10 @@ english_only: false
 # igdb_client_id:
 # igdb_client_secret:
 
+# Boost platform-exclusive games by N rating points (0-10 scale)
+# Prioritizes games unique to each system over cross-platform releases
+# prefer_exclusives: 1.0
+
 # -----------------------------------------------------------------------------
 # Metadata Filters
 # -----------------------------------------------------------------------------
@@ -3840,6 +3844,8 @@ def apply_config_to_args(args, config: dict):
         'size': 'size',
         # All mode
         'all': 'all',
+        # Exclusives boost
+        'prefer_exclusives': 'prefer_exclusives',
         # IGDB options
         'igdb_client_id': 'igdb_client_id',
         'igdb_client_secret': 'igdb_client_secret',
@@ -6594,6 +6600,53 @@ def format_top_label(top_value) -> str:
     return f"Top {top_str}"
 
 
+def boost_exclusive_ratings(ratings: dict, boost: float = 1.0) -> dict:
+    """Boost ratings for platform-exclusive games.
+
+    Identifies games that appear on only one system in the ratings cache
+    and applies a rating boost to them, making them sort higher in
+    top-N and size-budget filtering.
+
+    Args:
+        ratings: Full ratings dict {system: {title: {rating, votes, name}}}
+        boost: Rating points to add to exclusives (default: 1.0 on 0-10 scale)
+
+    Returns:
+        New ratings dict with boosted exclusive ratings (capped at 10.0)
+    """
+    # Build cross-platform map: {normalized_title: set of systems}
+    title_systems = defaultdict(set)
+    for system, games in ratings.items():
+        for title in games:
+            title_systems[title].add(system)
+
+    # Count exclusives for reporting
+    exclusive_count = 0
+    cross_platform_count = 0
+
+    # Build boosted ratings
+    boosted = {}
+    for system, games in ratings.items():
+        boosted_games = {}
+        for title, entry in games.items():
+            if len(title_systems[title]) == 1:
+                # Exclusive — boost rating
+                boosted_games[title] = {
+                    'rating': min(10.0, entry['rating'] + boost),
+                    'votes': entry['votes'],
+                    'name': entry.get('name', ''),
+                }
+                exclusive_count += 1
+            else:
+                boosted_games[title] = entry
+                cross_platform_count += 1
+        boosted[system] = boosted_games
+
+    Console.detail(f"  Exclusives: {exclusive_count} games boosted by "
+                   f"+{boost}, {cross_platform_count} cross-platform unchanged")
+    return boosted
+
+
 def apply_top_n_filter(roms: List[RomInfo], ratings: dict, top_n,
                        include_unrated: bool = False) -> List[RomInfo]:
     """Filter ROMs to top N by rating.
@@ -7895,6 +7948,9 @@ Pattern examples (--include / --exclude):
                         help='Maximum total ROMs to select across all systems')
     parser.add_argument('--size', type=str, default=None,
                         help='Maximum total size budget across all systems (e.g., 10G, 500M)')
+    parser.add_argument('--prefer-exclusives', type=float, nargs='?', const=1.0, default=None,
+                        help='Boost rating of platform-exclusive games by N points (default: 1.0). '
+                             'Prioritizes games unique to each system over cross-platform releases.')
 
     # Output options
     parser.add_argument('--print', action='store_true', dest='print_roms',
@@ -8684,6 +8740,13 @@ Pattern examples (--include / --exclude):
             total_rated = sum(len(games) for games in ratings.values())
             Console.success(f"Loaded ratings for {total_rated} games "
                             f"across {len(ratings)} systems")
+
+            # Apply exclusives boost if requested
+            prefer_exclusives = getattr(args, 'prefer_exclusives', None)
+            if prefer_exclusives is not None:
+                Console.info(f"Boosting platform exclusives by "
+                             f"+{prefer_exclusives} rating points")
+                ratings = boost_exclusive_ratings(ratings, prefer_exclusives)
         print()
 
     # Step 2: Filter combined URL pool per system (select best ROM across ALL sources)
