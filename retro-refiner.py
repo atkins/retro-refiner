@@ -2046,13 +2046,17 @@ class DownloadUI:
 
     def __init__(self, system_name: str, files: List[Tuple[str, Path]],
                  parallel: int = 4, connections: int = 4, auth_header: Optional[str] = None,
-                 max_retries: int = 3, stall_timeout: int = 60):
+                 max_retries: int = 3, stall_timeout: int = 60,
+                 on_file_complete: Optional[object] = None,
+                 crc_indexer: Optional[object] = None):
         self.system_name = system_name
         self.parallel = parallel
         self.connections = connections
         self.auth_header = auth_header
         self.max_retries = max_retries
         self.stall_timeout = stall_timeout  # seconds without progress = stalled
+        self.on_file_complete = on_file_complete  # callback(filepath) when a file finishes
+        self.crc_indexer = crc_indexer  # BackgroundCrcIndexer for verified count display
         self.rpc: Optional[Aria2cRPC] = None
         self.rpc_available = False
         self.download_thread: Optional[threading.Thread] = None
@@ -2062,6 +2066,7 @@ class DownloadUI:
         self.detailed_mode = False
         self.shutdown_requested = False
         self._old_term_settings = None  # For keyboard input handling
+        self._notified_done = set()  # Track files already notified via callback
 
         # File tracking
         self.files = []
@@ -2164,6 +2169,9 @@ class DownloadUI:
         line += f" {SYM_ARROW}{active} {SYM_CIRCLE}{queued}"  # active, queued
         if failed:
             line += f" {Style.ERROR}{SYM_CROSS}{failed}{Style.RESET}"
+        if self.crc_indexer:
+            verified = self.crc_indexer.verified_count
+            line += f" {Style.SUCCESS}CRC-OK:{verified}{Style.RESET}"
         line += f"  {speed_str}"
         line += f"  [{elapsed_str}<{eta_str}]"
         line += f"  {Style.DETAIL}[i]{Style.RESET}"
@@ -2233,6 +2241,9 @@ class DownloadUI:
         stats_line += f" | Active: {active} | Queued: {queued}"
         if failed:
             stats_line += f" | Failed: {failed}"
+        if self.crc_indexer:
+            verified = self.crc_indexer.verified_count
+            stats_line += f" | CRC-OK: {verified}"
         stdscr.addstr(3, 0, stats_line[:width-1])
 
         # Separator
@@ -2311,6 +2322,18 @@ class DownloadUI:
             pass
 
         stdscr.refresh()
+
+    def _check_new_completions(self) -> None:
+        """Notify on_file_complete callback for any newly completed files."""
+        if not self.on_file_complete:
+            return
+        for f in self.files:
+            if f['status'] == self.STATUS_DONE and f['path'] not in self._notified_done:
+                self._notified_done.add(f['path'])
+                try:
+                    self.on_file_complete(f['path'])
+                except Exception:
+                    pass
 
     def _update_from_rpc(self) -> None:
         """Poll aria2c RPC for download status updates."""
@@ -2392,6 +2415,8 @@ class DownloadUI:
         except Exception:
             self.rpc_available = False
 
+        self._check_new_completions()
+
     def _update_status_from_files_incremental(self) -> None:
         """Update status by checking files on disk (only for non-final states)."""
         for f in self.files:
@@ -2404,6 +2429,7 @@ class DownloadUI:
 
         self.completed_count = sum(1 for f in self.files if f['status'] == self.STATUS_DONE)
         self.failed_count = sum(1 for f in self.files if f['status'] == self.STATUS_FAILED)
+        self._check_new_completions()
 
     def _download_worker(self) -> None:
         """Background thread that runs the actual downloads."""
@@ -2586,6 +2612,7 @@ class DownloadUI:
 
             self.completed_count = sum(1 for f in self.files if f['status'] == self.STATUS_DONE)
             self.failed_count = sum(1 for f in self.files if f['status'] == self.STATUS_FAILED)
+        self._check_new_completions()
 
     def _check_stall(self) -> bool:
         """Check if downloads appear stalled (no progress for stall_timeout seconds).
@@ -2933,9 +2960,13 @@ class DownloadUI:
         # Print final summary
         done = self.completed_count
         failed = self.failed_count
-        print(f"  {Style.SUCCESS}{SYM_CHECK}{Style.RESET} Downloaded {done}/{len(self.files)} files", end='')
+        verified = self.crc_indexer.verified_count if self.crc_indexer else 0
+        summary = f"  {Style.SUCCESS}{SYM_CHECK}{Style.RESET} Downloaded {done}/{len(self.files)} files"
+        if verified:
+            summary += f", {verified} CRC-OK"
         if failed:
-            print(f" {Style.ERROR}({failed} failed){Style.RESET}")
+            summary += f" {Style.ERROR}({failed} failed){Style.RESET}"
+            print(summary)
             # List failed files
             failed_files = [f for f in self.files if f['status'] == self.STATUS_FAILED]
             show_files = failed_files if len(failed_files) <= 10 else failed_files[:5]
@@ -2948,7 +2979,7 @@ class DownloadUI:
             if len(failed_files) > 10:
                 print(f"    ... and {len(failed_files) - 5} more")
         else:
-            Console.blank()
+            print(summary)
 
         # Build result dict
         results = {}
@@ -2998,6 +3029,7 @@ class DownloadUI:
                 f['status'] = self.STATUS_DONE
             else:
                 f['status'] = self.STATUS_FAILED
+        self._check_new_completions()
 
         # Retry failed downloads with backoff
         for retry in range(1, self.max_retries + 1):
@@ -3031,6 +3063,7 @@ class DownloadUI:
                         f['status'] = self.STATUS_DONE
                     else:
                         f['status'] = self.STATUS_FAILED
+            self._check_new_completions()
 
         results = {}
         failed_count = 0
@@ -3040,7 +3073,11 @@ class DownloadUI:
             else:
                 failed_count += 1
 
-        print(f"  Downloaded {len(results)}/{len(self.files)} files", end='')
+        verified = self.crc_indexer.verified_count if self.crc_indexer else 0
+        summary = f"  Downloaded {len(results)}/{len(self.files)} files"
+        if verified:
+            summary += f", {verified} CRC-OK"
+        print(summary, end='')
         if failed_count:
             print(f" ({failed_count} failed)")
             failed_files = [f for f in self.files if f['status'] == self.STATUS_FAILED]
@@ -4865,6 +4902,93 @@ def build_download_crc_index(cache_dir: Path, files: List[Path]) -> dict:
         Console.text(f"CRC indexed: {new_count} new, {cached_count} already indexed")
 
     return index
+
+
+class BackgroundCrcIndexer:
+    """Compute CRC32 checksums in background threads as files finish downloading.
+
+    Receives file paths via submit() (called from DownloadUI's on_file_complete
+    callback) and computes CRCs in a thread pool, so verification overlaps with
+    ongoing downloads instead of running sequentially after all downloads finish.
+    """
+
+    def __init__(self, cache_dir: Path, max_workers: int = 2):
+        self.cache_dir = cache_dir
+        self.index_path = cache_dir / '_crc_index.json'
+        self._lock = threading.Lock()
+        self._index = {}
+        self._executor = ThreadPoolExecutor(max_workers=max_workers)
+        self._futures = []
+        self._new_count = 0
+        self._cached_count = 0
+        self._submitted_count = 0
+
+        # Load existing index
+        if self.index_path.exists():
+            try:
+                with open(self.index_path, 'r', encoding='utf-8') as f:
+                    self._index = json.load(f)
+            except (json.JSONDecodeError, IOError):
+                pass
+
+    @property
+    def verified_count(self) -> int:
+        """Number of files that have completed CRC verification."""
+        with self._lock:
+            return self._new_count + self._cached_count
+
+    def submit(self, filepath: Path) -> None:
+        """Queue a file for background CRC computation."""
+        future = self._executor.submit(self._compute_crc, filepath)
+        with self._lock:
+            self._futures.append(future)
+            self._submitted_count += 1
+
+    def _compute_crc(self, filepath: Path) -> None:
+        """Compute CRC for a single file and store in the index."""
+        if _shutdown_requested or not filepath.exists():
+            return
+        try:
+            stat = filepath.stat()
+        except OSError:
+            return
+        mtime = stat.st_mtime
+        size = stat.st_size
+        key = str(filepath)
+
+        # Skip if already indexed with same mtime+size
+        with self._lock:
+            existing = self._index.get(key)
+            if existing and existing.get('mtime') == mtime and existing.get('size') == size:
+                self._cached_count += 1
+                return
+
+        # Calculate CRC (outside lock — I/O bound)
+        if filepath.suffix.lower() == '.zip':
+            crc = calculate_crc32_from_zip(filepath)
+        else:
+            crc = calculate_crc32(filepath)
+
+        if crc:
+            with self._lock:
+                self._index[key] = {'crc': crc, 'mtime': mtime, 'size': size}
+                self._new_count += 1
+
+    def wait_and_save(self) -> dict:
+        """Wait for all pending CRC computations, save index, return it."""
+        self._executor.shutdown(wait=True)
+
+        # Save index
+        try:
+            with open(self.index_path, 'w', encoding='utf-8') as f:
+                json.dump(self._index, f)
+        except IOError:
+            pass
+
+        if self._new_count > 0:
+            Console.text(f"CRC indexed: {self._new_count} new, {self._cached_count} already indexed")
+
+        return self._index
 
 
 def verify_roms_against_dat(rom_files: List[Path], dat_entries: Dict[str, DatRomEntry],
@@ -9344,6 +9468,7 @@ Pattern examples (--include / --exclude):
 
     # Run single download UI for all files
     cached_files = {}  # url -> path
+    crc_indexer = None
     if all_downloads:
         downloads_to_ui = [(url, path) for url, path, _ in all_downloads]
 
@@ -9376,21 +9501,26 @@ Pattern examples (--include / --exclude):
                                "large" if median_size > AUTOTUNE_LARGE_THRESHOLD else "medium"
                 Console.text(f"Auto-tune: {size_category} files (median {format_size(median_size)}) {SYM_ARROW_RIGHT} parallel={parallel}, connections={connections}")
 
+        # Start background CRC indexer so verification runs during downloads
+        crc_indexer = None
+        if not args.no_verify:
+            crc_indexer = BackgroundCrcIndexer(cache_dir)
+
         ui = DownloadUI(
             system_name=system_name,
             files=downloads_to_ui,
             parallel=parallel,
             connections=connections,
-            auth_header=auth_header
+            auth_header=auth_header,
+            on_file_complete=crc_indexer.submit if crc_indexer else None,
+            crc_indexer=crc_indexer
         )
         cached_files = ui.run()
 
     check_shutdown()
 
-    # Build CRC index for all cached files (downloaded + previously cached)
-    # This makes post-selection verification instant for network-sourced ROMs
-    all_cached_paths = list(cached_files.values()) if cached_files else []
-    # Also include already-cached files that weren't downloaded this run
+    # Submit already-cached files (not downloaded this run) for CRC indexing
+    all_cached_paths = []
     for system, filtered_urls in network_downloads.items():
         for url in filtered_urls:
             if url not in cached_files:
@@ -9407,8 +9537,14 @@ Pattern examples (--include / --exclude):
                     all_cached_paths.append(cached)
 
     if all_cached_paths and not args.no_verify:
-        Console.info("Computing CRC checksums for cached files...")
-        download_crc_index = build_download_crc_index(cache_dir, all_cached_paths)
+        if not crc_indexer:
+            crc_indexer = BackgroundCrcIndexer(cache_dir)
+        for cached_path in all_cached_paths:
+            crc_indexer.submit(cached_path)
+
+    # Wait for all background CRC computations to finish
+    if crc_indexer:
+        download_crc_index = crc_indexer.wait_and_save()
 
     # Process results back into per-system detected lists
     for system, filtered_urls in network_downloads.items():
