@@ -6673,20 +6673,54 @@ def build_igdb_ratings_cache(client_id: str, client_secret: str,
 
     Console.info(f"Fetching IGDB ratings for {len(igdb_systems)} systems...")
 
-    for i, system in enumerate(igdb_systems, 1):
-        Console.detail(f"  [{i}/{len(igdb_systems)}] {system}...")
+    total = len(igdb_systems)
+    total_rated = 0
+    bar_width = 20
+    start_time = _time.time()
+    is_tty = sys.stdout.isatty()
+
+    for i, system in enumerate(igdb_systems):
+        # Render progress bar
+        if is_tty:
+            elapsed = _time.time() - start_time
+            pct = i / total if total > 0 else 0
+            filled = int(bar_width * pct)
+            filled_str = f"{Style.PROGRESS_FILL}{SYM_BLOCK_FULL * filled}{Style.RESET}"
+            empty_str = f"{Style.PROGRESS_EMPTY}{SYM_BLOCK_LIGHT * (bar_width - filled)}{Style.RESET}"
+            bar = filled_str + empty_str
+
+            stats = ""
+            if i > 0 and elapsed > 0:
+                rate = i / elapsed
+                remaining = (total - i) / rate if rate > 0 else 0
+                elapsed_str = f"{int(elapsed)}s"
+                eta_str = f"{int(remaining)}s"
+                stats = f" [{elapsed_str}<{eta_str}, {rate:.1f}sys/s]"
+
+            line = f"\r  IGDB: |{bar}| {i}/{total}  {system}{stats}"
+            print(f"{line:<99}", end='', flush=True)
+
         ratings = fetch_igdb_ratings(system, client_id, token)
         if ratings:
             cache[system] = ratings
-            Console.detail(f"    {len(ratings)} rated games")
+            total_rated += len(ratings)
         _time.sleep(0.25)  # Rate limit between systems
+
+    # Final bar state
+    if is_tty:
+        elapsed = _time.time() - start_time
+        filled_str = f"{Style.PROGRESS_FILL}{SYM_BLOCK_FULL * bar_width}{Style.RESET}"
+        stats = f" [{int(elapsed)}s, {total_rated} games]"
+        line = f"\r  IGDB: |{filled_str}| {total}/{total}{stats}"
+        print(f"{line:<99}")
+    else:
+        Console.text(f"IGDB: fetched {total_rated} games across {total} systems")
 
     # Save cache
     cache_path.parent.mkdir(parents=True, exist_ok=True)
     with open(cache_path, 'w', encoding='utf-8') as f:
         json.dump(cache, f)
 
-    total_rated = sum(len(games) for games in cache.values())
     Console.success(f"IGDB cache saved: {total_rated} games across {len(cache)} systems")
 
     return cache
