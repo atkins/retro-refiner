@@ -4295,14 +4295,15 @@ def run_dedup_analysis(detected, args):
         Console.info(f"PC: {pc_title_count:,} titles (from game lists)")
 
     # Table setup
-    widths = [12, 8, 12, 13, 6]
+    widths = [12, 8, 12, 12, 13, 6]
     Console.blank()
-    Console.table_header(['System', 'Titles', 'Duplicates', 'Reclaimable', '%'], widths)
-    Console.table_rule(55)
+    Console.table_header(['System', 'Titles', 'Size', 'Duplicates', 'Reclaimable', '%'], widths)
+    Console.table_rule(67)
 
     total_dupes = 0
+    total_size = 0
     total_reclaimable = 0
-    system_dupes = {}  # {system: [(title, systems_with), ...]} for verbose
+    system_dupes = {}  # {system: [(title, size, systems_with), ...]} for verbose
 
     # Only process systems in the priority chain (in order)
     active_systems = [s for s in priority_systems if s in system_titles]
@@ -4310,6 +4311,7 @@ def run_dedup_analysis(detected, args):
     for system in active_systems:
         titles_map = system_titles[system]
         title_count = len(titles_map)
+        system_size = sum(titles_map.values())
         duplicates = set()
         reclaimable = 0
 
@@ -4328,17 +4330,19 @@ def run_dedup_analysis(detected, args):
                 for s in active_systems:
                     if title in system_titles.get(s, {}):
                         systems_with.append(s.upper())
-                dupes_list.append((title, systems_with))
+                dupes_list.append((title, titles_map[title], systems_with))
             system_dupes[system] = dupes_list
 
         dupe_count = len(duplicates)
         total_dupes += dupe_count
+        total_size += system_size
         total_reclaimable += reclaimable
 
         pct = (dupe_count / title_count * 100) if title_count > 0 else 0.0
         Console.table_row([
             system.upper(),
             f"{title_count:,}",
+            format_size(system_size),
             str(dupe_count),
             format_size(reclaimable),
             f"{pct:.1f}%"
@@ -4348,8 +4352,11 @@ def run_dedup_analysis(detected, args):
         for title in titles_map:
             claimed_titles.add(title)
 
-    Console.table_rule(55)
-    Console.table_total(['TOTAL', '', str(total_dupes), format_size(total_reclaimable), ''], widths)
+    Console.table_rule(67)
+    Console.table_total([
+        'TOTAL', '', format_size(total_size), str(total_dupes),
+        format_size(total_reclaimable), ''
+    ], widths)
 
     # Verbose: show individual duplicates grouped by system, sorted alphabetically
     if args.verbose and system_dupes:
@@ -4358,8 +4365,8 @@ def run_dedup_analysis(detected, args):
                 continue
             Console.blank()
             Console.subsection(f"  {system.upper()} duplicates:")
-            for title, systems_with in sorted(system_dupes[system]):
-                Console.verbose("DEDUP", f"{title} (on: {', '.join(systems_with)})")
+            for title, size, systems_with in sorted(system_dupes[system]):
+                Console.verbose("DEDUP", f"{title} [{format_size(size)}] (on: {', '.join(systems_with)})")
 
 
 # Default region priority order
