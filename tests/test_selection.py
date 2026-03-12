@@ -67,6 +67,7 @@ IGDB_PLATFORM_MAP = _module.IGDB_PLATFORM_MAP
 combine_ratings = _module.combine_ratings
 boost_exclusive_ratings = _module.boost_exclusive_ratings
 run_dedup_analysis = _module.run_dedup_analysis
+normalize_title_for_dedup = _module.normalize_title_for_dedup
 
 # CRC functions
 build_download_crc_index = _module.build_download_crc_index
@@ -3120,6 +3121,47 @@ def test_dedup_analysis():
             results.ok("Dedup analysis: no overlap shows 0 duplicates")
         else:
             results.fail("Dedup analysis no overlap", "TOTAL shows 0", output)
+
+    # Test 6: Article preservation — "The Bully" (PC) should NOT match "Bully" (PS2)
+    if normalize_title_for_dedup("The Bully") != normalize_title_for_dedup("Bully"):
+        results.ok("Dedup normalization: 'The Bully' != 'Bully' (articles preserved)")
+    else:
+        results.fail("Dedup normalization articles", "different", "same")
+
+    # Verify regular normalize_title still strips articles (same-system grouping)
+    if normalize_title("The Bully") == normalize_title("Bully"):
+        results.ok("Standard normalization: 'The Bully' == 'Bully' (articles stripped)")
+    else:
+        results.fail("Standard normalization articles", "same", "different")
+
+    # Test 7: Article-aware PC seed — "The Bully" in PC list should not flag "Bully" on PS2
+    with tempfile.TemporaryDirectory() as tmpdir:
+        ps2_dir = Path(tmpdir) / "ps2"
+        ps2_dir.mkdir()
+        (ps2_dir / "Bully (USA).zip").write_bytes(b'\x00' * 5000)
+
+        xml_path = Path(tmpdir) / "pc_games.xml"
+        xml_content = """<?xml version="1.0" standalone="yes"?>
+<LaunchBox>
+  <PlaylistGame>
+    <GameTitle>The Bully</GameTitle>
+    <GamePlatform>DOS</GamePlatform>
+  </PlaylistGame>
+</LaunchBox>"""
+        xml_path.write_text(xml_content, encoding='utf-8')
+
+        detected = {'ps2': list(ps2_dir.iterdir())}
+        args = make_args(dedup_priority='pc,ps2', dedup_pc_lists=[str(xml_path)])
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            run_dedup_analysis(detected, args)
+        output = buf.getvalue()
+        # PS2 should show 0 duplicates — "Bully" != "The Bully"
+        lines = [l for l in output.split('\n') if 'PS2' in l and '%' in l]
+        if lines and '0' in lines[0]:
+            results.ok("Dedup analysis: 'The Bully' (PC) does not match 'Bully' (PS2)")
+        else:
+            results.fail("Dedup analysis article false positive", "PS2 shows 0 dupes", output)
 
 
 def main():

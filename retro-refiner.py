@@ -4225,9 +4225,15 @@ def generate_gamelist_xml(_system: str, rom_files: List[Path], dest_path: Path):
     return gamelist_path
 
 
-def parse_pc_game_list(xml_path):
-    """Parse LaunchBox playlist XML to extract normalized game titles."""
+def parse_pc_game_list(xml_path, for_dedup=False):
+    """Parse LaunchBox playlist XML to extract normalized game titles.
+
+    Args:
+        xml_path: Path to the LaunchBox playlist XML file.
+        for_dedup: If True, use dedup-safe normalization (preserves articles).
+    """
     import xml.etree.ElementTree as ET
+    normalizer = normalize_title_for_dedup if for_dedup else normalize_title
     titles = set()
     path = Path(xml_path)
     if not path.exists():
@@ -4236,7 +4242,7 @@ def parse_pc_game_list(xml_path):
     try:
         for _, elem in ET.iterparse(str(path), events=('end',)):
             if elem.tag == 'GameTitle' and elem.text:
-                normalized = normalize_title(elem.text.strip())
+                normalized = normalizer(elem.text.strip())
                 if normalized:
                     titles.add(normalized)
             elem.clear()
@@ -4258,11 +4264,11 @@ def run_dedup_analysis(detected, args):
         Console.warning("No priority systems found in detected ROMs")
         return
 
-    # Load PC game lists as seed
+    # Load PC game lists as seed (using dedup-safe normalization)
     claimed_titles = set()
     if args.dedup_pc_lists:
         for xml_path in args.dedup_pc_lists:
-            titles = parse_pc_game_list(Path(xml_path))
+            titles = parse_pc_game_list(Path(xml_path), for_dedup=True)
             claimed_titles.update(titles)
     pc_title_count = len(claimed_titles)
 
@@ -4272,7 +4278,7 @@ def run_dedup_analysis(detected, args):
         title_sizes = {}
         for f in detected[system]:
             rom = parse_rom_filename(f.name)
-            normalized = normalize_title(rom.base_title)
+            normalized = normalize_title_for_dedup(rom.base_title)
             if normalized:
                 size = f.stat().st_size if f.exists() else 0
                 if normalized in title_sizes:
@@ -5548,6 +5554,29 @@ def normalize_title(title: str) -> str:
             normalized = canonical
 
     return normalized
+
+
+def normalize_title_for_dedup(title: str) -> str:
+    """Normalize a title for cross-platform dedup (preserves leading articles).
+
+    Same as normalize_title() but skips article stripping to avoid false
+    positives like 'The Bully' (DOS) colliding with 'Bully' (PS2).
+    """
+    normalized = title.lower()
+    normalized = unicodedata.normalize('NFKD', normalized)
+    normalized = ''.join(c for c in normalized if not unicodedata.combining(c))
+    # Skip _RE_ARTICLE_COMMA and _RE_ARTICLE_START
+    normalized = _RE_PUNCTUATION.sub(' ', normalized)
+    normalized = _RE_WHITESPACE.sub(' ', normalized)
+    normalized = normalized.strip()
+    for pattern, replacement in _RE_ROMAN_NUMERALS:
+        normalized = pattern.sub(replacement, normalized)
+    title_mappings = load_title_mappings()
+    for variant, canonical in title_mappings.items():
+        if normalized == variant:
+            normalized = canonical
+    return normalized
+
 
 def select_best_rom(roms: List[RomInfo], region_priority: List[str] = None,
                     verbose: bool = False) -> Optional[RomInfo]:
@@ -8320,11 +8349,14 @@ def filter_roms_from_files(rom_files: list, dest_dir: str, system: str, dry_run:
             normalized = normalize_title(rom.base_title)
             grouped[normalized].append(rom)
 
-        # Remove titles claimed by higher-priority systems
+        # Remove titles claimed by higher-priority systems (dedup-safe normalization)
         if exclude_titles:
             dedup_count = 0
             for title in list(grouped.keys()):
-                if title in exclude_titles:
+                # Check any ROM in the group using dedup normalization (preserves articles)
+                sample_rom = grouped[title][0]
+                dedup_key = normalize_title_for_dedup(sample_rom.base_title)
+                if dedup_key in exclude_titles:
                     del grouped[title]
                     dedup_count += 1
                     if verbose:
@@ -9883,7 +9915,7 @@ Pattern examples (--include / --exclude):
         # Load PC game lists as seed
         if args.dedup_pc_lists:
             for xml_path in args.dedup_pc_lists:
-                titles = parse_pc_game_list(Path(xml_path))
+                titles = parse_pc_game_list(Path(xml_path), for_dedup=True)
                 claimed_titles.update(titles)
             pc_title_count = len(claimed_titles)
             Console.info(f"Loaded {pc_title_count} PC game titles for dedup")
@@ -10364,7 +10396,7 @@ Pattern examples (--include / --exclude):
             # Accumulate claimed titles for cross-platform dedup
             if dedup_active and system in dedup_priority_list and selected:
                 for rom in selected:
-                    claimed_titles.add(normalize_title(rom.base_title))
+                    claimed_titles.add(normalize_title_for_dedup(rom.base_title))
 
             if args.limit is not None and selected:
                 remaining = args.limit - total_selected
