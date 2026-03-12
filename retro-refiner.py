@@ -4326,10 +4326,10 @@ def run_dedup_analysis(detected, args):
             for title in duplicates:
                 systems_with = []
                 if pc_title_count > 0 and title in claimed_titles:
-                    systems_with.append('PC')
+                    systems_with.append(('PC', None))
                 for s in active_systems:
                     if title in system_titles.get(s, {}):
-                        systems_with.append(s.upper())
+                        systems_with.append((s.upper(), system_titles[s][title]))
                 dupes_list.append((title, titles_map[title], systems_with))
             system_dupes[system] = dupes_list
 
@@ -4366,7 +4366,13 @@ def run_dedup_analysis(detected, args):
             Console.blank()
             Console.subsection(f"  {system.upper()} duplicates:")
             for title, size, systems_with in sorted(system_dupes[system]):
-                Console.verbose("DEDUP", f"{title} [{format_size(size)}] (on: {', '.join(systems_with)})")
+                parts = []
+                for sname, ssize in systems_with:
+                    if ssize is not None:
+                        parts.append(f"{sname} [{format_size(ssize)}]")
+                    else:
+                        parts.append(sname)
+                Console.verbose("DEDUP", f"{title} (on: {', '.join(parts)})")
 
 
 # Default region priority order
