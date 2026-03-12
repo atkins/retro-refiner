@@ -4369,10 +4369,17 @@ def run_dedup_analysis(detected, args):
                 parts = []
                 for sname, ssize in systems_with:
                     if ssize is not None:
-                        parts.append(f"{sname} [{format_size(ssize)}]")
+                        parts.append(
+                            f"{Style.SYSTEM_NAME}{sname}{Style.RESET} "
+                            f"{Style.DETAIL}[{Style.RESET}{Style.SIZE}{format_size(ssize)}"
+                            f"{Style.RESET}{Style.DETAIL}]{Style.RESET}"
+                        )
                     else:
-                        parts.append(sname)
-                Console.verbose("DEDUP", f"{title} (on: {', '.join(parts)})")
+                        parts.append(f"{Style.SYSTEM_NAME}{sname}{Style.RESET}")
+                label = f"{Style.TAG_DEDUP}[DEDUP]{Style.RESET}"
+                title_text = f"{Style.VALUE}{title}{Style.RESET}"
+                sep = f"{Style.DETAIL}, {Style.RESET}"
+                print(f"  {label} {title_text} {Style.DETAIL}(on: {Style.RESET}{sep.join(parts)}{Style.DETAIL}){Style.RESET}")
 
 
 # Default region priority order
