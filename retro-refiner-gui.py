@@ -146,6 +146,72 @@ def _detect_system_dark_mode():
         return True  # Default to dark on detection failure
 
 
+class Tooltip:
+    """Hover tooltip for any tkinter widget."""
+
+    DELAY_MS = 500  # Delay before showing tooltip
+
+    def __init__(self, widget, text, get_theme=None):
+        self._widget = widget
+        self._text = text
+        self._get_theme = get_theme  # callable returning current theme dict
+        self._tip_window = None
+        self._after_id = None
+        widget.bind('<Enter>', self._schedule, add='+')
+        widget.bind('<Leave>', self._cancel, add='+')
+        widget.bind('<ButtonPress>', self._cancel, add='+')
+
+    def _schedule(self, _event):
+        """Schedule tooltip display after delay."""
+        self._cancel()
+        self._after_id = self._widget.after(self.DELAY_MS, self._show)
+
+    def _cancel(self, _event=None):
+        """Cancel pending tooltip and hide if visible."""
+        if self._after_id:
+            self._widget.after_cancel(self._after_id)
+            self._after_id = None
+        self._hide()
+
+    def _show(self):
+        """Display the tooltip near the widget."""
+        if self._tip_window:
+            return
+        # Position below the widget
+        x = self._widget.winfo_rootx() + 20
+        y = self._widget.winfo_rooty() + self._widget.winfo_height() + 4
+
+        self._tip_window = tw = tk.Toplevel(self._widget)
+        tw.wm_overrideredirect(True)
+
+        # Theme colors
+        if self._get_theme:
+            theme = self._get_theme()
+            bg = theme['entry_bg']
+            fg = theme['entry_fg']
+            border = theme['border_color']
+        else:
+            bg = '#ffffe0'
+            fg = '#000000'
+            border = '#888888'
+
+        tw.wm_geometry(f"+{x}+{y}")
+        frame = tk.Frame(tw, background=border, padx=1, pady=1)
+        frame.pack()
+        label = tk.Label(
+            frame, text=self._text, justify=tk.LEFT,
+            background=bg, foreground=fg,
+            wraplength=350, padx=6, pady=4,
+        )
+        label.pack()
+
+    def _hide(self):
+        """Hide the tooltip."""
+        if self._tip_window:
+            self._tip_window.destroy()
+            self._tip_window = None
+
+
 class QueueWriter:
     """File-like object that pushes writes to a queue for GUI consumption."""
 
@@ -301,6 +367,11 @@ class RetroRefinerGUI:
         self._apply_theme()
         self._poll_queue()
 
+    def _tip(self, widget, text):
+        """Attach a hover tooltip to a widget."""
+        Tooltip(widget, text, get_theme=lambda: DARK_THEME if self._is_dark else LIGHT_THEME)
+        return widget
+
     def _build_ui(self):
         """Build the complete UI layout."""
         # Main container
@@ -364,16 +435,19 @@ class RetroRefinerGUI:
             ctrl_frame, text="Dry Run", command=self._run_dry
         )
         self._dry_btn.pack(side=tk.LEFT, padx=(0, 4))
+        self._tip(self._dry_btn, "Preview what would be selected without transferring any files.")
 
         self._commit_btn = ttk.Button(
             ctrl_frame, text="Run (Commit)", command=self._run_commit
         )
         self._commit_btn.pack(side=tk.LEFT, padx=(0, 4))
+        self._tip(self._commit_btn, "Run with file transfer enabled. Files will be copied/linked/moved to the destination.")
 
         self._cancel_btn = ttk.Button(
             ctrl_frame, text="Cancel", command=self._cancel_run, state=tk.DISABLED
         )
         self._cancel_btn.pack(side=tk.LEFT, padx=(0, 4))
+        self._tip(self._cancel_btn, "Gracefully stop the current run. Processing finishes the current operation then exits.")
 
         ttk.Button(
             ctrl_frame, text="Clear Output", command=self._clear_output
@@ -396,14 +470,19 @@ class RetroRefinerGUI:
         self._notebook.add(tab, text="Sources")
 
         # Source dirs/URLs
-        ttk.Label(tab, text="Source directories / URLs:").grid(
-            row=0, column=0, sticky=tk.W, pady=(0, 2)
-        )
+        self._tip(ttk.Label(tab, text="Source directories / URLs:"), (
+            "Local folders or HTTP/HTTPS URLs containing ROMs. "
+            "You can add multiple sources and they will be merged together."
+        )).grid(row=0, column=0, sticky=tk.W, pady=(0, 2))
         src_frame = ttk.Frame(tab)
         src_frame.grid(row=1, column=0, columnspan=3, sticky=tk.NSEW, pady=(0, 8))
 
         self._source_listbox = tk.Listbox(src_frame, height=4, font=MONO_FONT_SMALL)
         self._source_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        self._tip(self._source_listbox, (
+            "Local folders or HTTP/HTTPS URLs containing ROMs. "
+            "You can add multiple sources and they will be merged together."
+        ))
         self._listboxes.append(self._source_listbox)
         self._listbox_data['source'] = []
 
@@ -421,35 +500,47 @@ class RetroRefinerGUI:
 
         # Destination
         row = 2
-        ttk.Label(tab, text="Destination:").grid(row=row, column=0, sticky=tk.W, pady=2)
+        self._tip(ttk.Label(tab, text="Destination:"), (
+            "Where refined ROMs will be placed. "
+            "Defaults to a 'refined/' folder next to the script if left empty."
+        )).grid(row=row, column=0, sticky=tk.W, pady=2)
         self._vars['dest'] = tk.StringVar()
-        ttk.Entry(tab, textvariable=self._vars['dest'], width=50).grid(
-            row=row, column=1, sticky=tk.EW, padx=4, pady=2
-        )
+        self._tip(ttk.Entry(tab, textvariable=self._vars['dest'], width=50), (
+            "Where refined ROMs will be placed. "
+            "Defaults to a 'refined/' folder next to the script if left empty."
+        )).grid(row=row, column=1, sticky=tk.EW, padx=4, pady=2)
         ttk.Button(tab, text="Browse", command=lambda: self._browse_dir('dest')).grid(
             row=row, column=2, pady=2
         )
 
         # Systems
         row = 3
-        ttk.Label(tab, text="Systems:").grid(row=row, column=0, sticky=tk.W, pady=2)
+        self._tip(ttk.Label(tab, text="Systems:"), (
+            "Comma-separated list of system codes to process (e.g. nes,snes,gba). "
+            "Leave empty to auto-detect from folder names."
+        )).grid(row=row, column=0, sticky=tk.W, pady=2)
         sys_frame = ttk.Frame(tab)
         sys_frame.grid(row=row, column=1, columnspan=2, sticky=tk.EW, pady=2)
         self._vars['systems'] = tk.StringVar()
-        ttk.Entry(sys_frame, textvariable=self._vars['systems']).pack(
-            side=tk.LEFT, fill=tk.X, expand=True
-        )
+        self._tip(ttk.Entry(sys_frame, textvariable=self._vars['systems']), (
+            "Comma-separated list of system codes to process (e.g. nes,snes,gba). "
+            "Leave empty to auto-detect from folder names."
+        )).pack(side=tk.LEFT, fill=tk.X, expand=True)
         ttk.Button(sys_frame, text="Browse...", command=self._browse_systems).pack(
             side=tk.RIGHT, padx=(4, 0)
         )
 
         # Config file
         row = 4
-        ttk.Label(tab, text="Config file:").grid(row=row, column=0, sticky=tk.W, pady=2)
+        self._tip(ttk.Label(tab, text="Config file:"), (
+            "Path to a YAML or JSON config file with default settings. "
+            "CLI/GUI settings override config values. Auto-generated on first commit run."
+        )).grid(row=row, column=0, sticky=tk.W, pady=2)
         self._vars['config'] = tk.StringVar()
-        ttk.Entry(tab, textvariable=self._vars['config'], width=50).grid(
-            row=row, column=1, sticky=tk.EW, padx=4, pady=2
-        )
+        self._tip(ttk.Entry(tab, textvariable=self._vars['config'], width=50), (
+            "Path to a YAML or JSON config file with default settings. "
+            "CLI/GUI settings override config values. Auto-generated on first commit run."
+        )).grid(row=row, column=1, sticky=tk.EW, padx=4, pady=2)
         ttk.Button(tab, text="Browse", command=lambda: self._browse_file(
             'config', [("YAML files", "*.yaml *.yml"), ("All files", "*.*")]
         )).grid(row=row, column=2, pady=2)
@@ -460,21 +551,30 @@ class RetroRefinerGUI:
         check_frame.grid(row=row, column=0, columnspan=3, sticky=tk.W, pady=(8, 2))
 
         self._vars['recursive'] = tk.BooleanVar()
-        ttk.Checkbutton(check_frame, text="Recursive (-r)", variable=self._vars['recursive']).pack(
-            side=tk.LEFT, padx=(0, 12)
-        )
+        cb = ttk.Checkbutton(check_frame, text="Recursive (-r)", variable=self._vars['recursive'])
+        cb.pack(side=tk.LEFT, padx=(0, 12))
+        self._tip(cb, (
+            "Recursively scan subdirectories for ROMs. "
+            "Useful when ROMs are organized in nested folder structures."
+        ))
 
         self._vars['auto_detect'] = tk.BooleanVar()
-        ttk.Checkbutton(check_frame, text="Auto-detect systems", variable=self._vars['auto_detect']).pack(
-            side=tk.LEFT, padx=(0, 12)
-        )
+        cb = ttk.Checkbutton(check_frame, text="Auto-detect systems", variable=self._vars['auto_detect'])
+        cb.pack(side=tk.LEFT, padx=(0, 12))
+        self._tip(cb, (
+            "Identify systems from file extensions instead of folder names. "
+            "Use this when ROMs are in a single flat directory."
+        ))
 
         # Max depth
-        ttk.Label(check_frame, text="Max depth:").pack(side=tk.LEFT)
+        lbl = ttk.Label(check_frame, text="Max depth:")
+        lbl.pack(side=tk.LEFT)
+        self._tip(lbl, "Maximum number of directory levels to scan when recursive mode is enabled.")
         self._vars['max_depth'] = tk.IntVar(value=3)
-        ttk.Spinbox(check_frame, from_=1, to=10, width=4, textvariable=self._vars['max_depth']).pack(
-            side=tk.LEFT, padx=(2, 0)
-        )
+        self._tip(
+            ttk.Spinbox(check_frame, from_=1, to=10, width=4, textvariable=self._vars['max_depth']),
+            "Maximum number of directory levels to scan when recursive mode is enabled."
+        ).pack(side=tk.LEFT, padx=(2, 0))
 
         tab.columnconfigure(1, weight=1)
 
@@ -486,75 +586,102 @@ class RetroRefinerGUI:
         left = ttk.LabelFrame(tab, text="Options", padding=6)
         left.grid(row=0, column=0, sticky=tk.NSEW, padx=(0, 6))
 
-        self._vars['all'] = tk.BooleanVar()
-        ttk.Checkbutton(left, text="Select all (no filter)", variable=self._vars['all']).pack(
-            anchor=tk.W, pady=1
-        )
-        self._vars['exclude_protos'] = tk.BooleanVar()
-        ttk.Checkbutton(left, text="Exclude protos", variable=self._vars['exclude_protos']).pack(
-            anchor=tk.W, pady=1
-        )
-        self._vars['include_betas'] = tk.BooleanVar()
-        ttk.Checkbutton(left, text="Include betas", variable=self._vars['include_betas']).pack(
-            anchor=tk.W, pady=1
-        )
-        self._vars['include_unlicensed'] = tk.BooleanVar()
-        ttk.Checkbutton(left, text="Include unlicensed", variable=self._vars['include_unlicensed']).pack(
-            anchor=tk.W, pady=1
-        )
-        self._vars['english_only'] = tk.BooleanVar()
-        ttk.Checkbutton(left, text="English only", variable=self._vars['english_only']).pack(
-            anchor=tk.W, pady=1
-        )
-        self._vars['verbose'] = tk.BooleanVar()
-        ttk.Checkbutton(left, text="Verbose output (-v)", variable=self._vars['verbose']).pack(
-            anchor=tk.W, pady=1
-        )
+        checks = [
+            ('all', "Select all (no filter)",
+             "Skip all filtering and select every ROM. Overrides 1G1R selection, "
+             "so you get every regional variant instead of just the best one."),
+            ('exclude_protos', "Exclude protos",
+             "Remove prototype ROMs from selection. "
+             "Prototypes are included by default since some are the only version of a game."),
+            ('include_betas', "Include betas",
+             "Include beta/pre-release ROMs. "
+             "These are excluded by default as they are usually incomplete."),
+            ('include_unlicensed', "Include unlicensed",
+             "Include unlicensed and pirate ROM dumps. "
+             "These are excluded by default."),
+            ('english_only', "English only",
+             "Only keep ROMs playable in English: official English releases plus fan translations. "
+             "Drops Japan-only games that have no translation available."),
+            ('verbose', "Verbose output (-v)",
+             "Show detailed filtering decisions in the output: which ROMs were selected, "
+             "skipped, matched by DAT, etc."),
+        ]
+        for key, text, tip in checks:
+            self._vars[key] = tk.BooleanVar()
+            cb = ttk.Checkbutton(left, text=text, variable=self._vars[key])
+            cb.pack(anchor=tk.W, pady=1)
+            self._tip(cb, tip)
 
         # Budget fields
         budget_frame = ttk.LabelFrame(left, text="Budget / Limits", padding=4)
         budget_frame.pack(fill=tk.X, pady=(8, 0))
 
-        for label, key in [("Top N:", "top"), ("Limit:", "limit"), ("Size:", "size"),
-                           ("Prefer exclusives:", "prefer_exclusives")]:
+        budget_tips = {
+            'top': ("Top N:",
+                    "Keep only the top N highest-rated games per system, or a percentage. "
+                    "Examples: 50 (top 50 games) or 10% (top 10%). Requires rating data."),
+            'limit': ("Limit:",
+                      "Maximum total ROMs to select across all systems combined. "
+                      "Selection stops once this count is reached."),
+            'size': ("Size:",
+                     "Maximum total size budget (e.g. 10G, 500M, 1T). "
+                     "Fills the budget with the highest-rated games that fit."),
+            'prefer_exclusives': ("Prefer exclusives:",
+                                  "Boost the rating of platform-exclusive games by this many points "
+                                  "(default: 1.0). Helps prioritize games unique to each system."),
+        }
+        for key, (label, tip) in budget_tips.items():
             f = ttk.Frame(budget_frame)
             f.pack(fill=tk.X, pady=1)
-            ttk.Label(f, text=label, width=18).pack(side=tk.LEFT)
+            self._tip(ttk.Label(f, text=label, width=18), tip).pack(side=tk.LEFT)
             self._vars[key] = tk.StringVar()
-            ttk.Entry(f, textvariable=self._vars[key], width=12).pack(side=tk.LEFT)
+            self._tip(ttk.Entry(f, textvariable=self._vars[key], width=12), tip).pack(side=tk.LEFT)
 
         self._vars['include_unrated'] = tk.BooleanVar()
-        ttk.Checkbutton(budget_frame, text="Include unrated", variable=self._vars['include_unrated']).pack(
-            anchor=tk.W, pady=1
-        )
+        cb = ttk.Checkbutton(budget_frame, text="Include unrated", variable=self._vars['include_unrated'])
+        cb.pack(anchor=tk.W, pady=1)
+        self._tip(cb, (
+            "When using --top, append unrated games after the rated ones. "
+            "Without this, games with no rating data are dropped."
+        ))
 
         # Year range
         year_frame = ttk.Frame(budget_frame)
         year_frame.pack(fill=tk.X, pady=1)
-        ttk.Label(year_frame, text="Year range:").pack(side=tk.LEFT)
+        year_tip = "Filter games by release year. Only games within this range are included."
+        self._tip(ttk.Label(year_frame, text="Year range:"), year_tip).pack(side=tk.LEFT)
         self._vars['year_from'] = tk.StringVar()
-        ttk.Entry(year_frame, textvariable=self._vars['year_from'], width=6).pack(side=tk.LEFT, padx=2)
+        self._tip(ttk.Entry(year_frame, textvariable=self._vars['year_from'], width=6),
+                  year_tip).pack(side=tk.LEFT, padx=2)
         ttk.Label(year_frame, text="to").pack(side=tk.LEFT)
         self._vars['year_to'] = tk.StringVar()
-        ttk.Entry(year_frame, textvariable=self._vars['year_to'], width=6).pack(side=tk.LEFT, padx=2)
+        self._tip(ttk.Entry(year_frame, textvariable=self._vars['year_to'], width=6),
+                  year_tip).pack(side=tk.LEFT, padx=2)
 
         # Genres
         genre_frame = ttk.Frame(budget_frame)
         genre_frame.pack(fill=tk.X, pady=1)
-        ttk.Label(genre_frame, text="Genres:", width=18).pack(side=tk.LEFT)
+        genre_tip = "Comma-separated genre filter (e.g. platformer,rpg). Only games matching these genres are kept."
+        self._tip(ttk.Label(genre_frame, text="Genres:", width=18), genre_tip).pack(side=tk.LEFT)
         self._vars['genres'] = tk.StringVar()
-        ttk.Entry(genre_frame, textvariable=self._vars['genres']).pack(side=tk.LEFT, fill=tk.X, expand=True)
+        self._tip(ttk.Entry(genre_frame, textvariable=self._vars['genres']),
+                  genre_tip).pack(side=tk.LEFT, fill=tk.X, expand=True)
 
         # Right column: include/exclude patterns
         right = ttk.Frame(tab)
         right.grid(row=0, column=1, sticky=tk.NSEW)
 
         # Include patterns
-        ttk.Label(right, text="Include patterns:").pack(anchor=tk.W)
+        inc_tip = (
+            "Glob-style patterns to include. Only ROMs matching at least one pattern are kept. "
+            'Examples: "*Mario*", "*(USA)*", "Super *"'
+        )
+        self._tip(ttk.Label(right, text="Include patterns:"), inc_tip).pack(anchor=tk.W)
         inc_frame = ttk.Frame(right)
         inc_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 6))
         self._include_listbox = tk.Listbox(inc_frame, height=5, font=MONO_FONT_SMALL)
         self._include_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        self._tip(self._include_listbox, inc_tip)
         self._listboxes.append(self._include_listbox)
         self._listbox_data['include'] = []
         inc_btns = ttk.Frame(inc_frame)
@@ -563,11 +690,16 @@ class RetroRefinerGUI:
         ttk.Button(inc_btns, text="Remove", command=lambda: self._remove_pattern('include')).pack(fill=tk.X, pady=1)
 
         # Exclude patterns
-        ttk.Label(right, text="Exclude patterns:").pack(anchor=tk.W)
+        exc_tip = (
+            "Glob-style patterns to exclude. ROMs matching any pattern are removed. "
+            'Examples: "*Beta*", "*(Japan)*", "*Demo*"'
+        )
+        self._tip(ttk.Label(right, text="Exclude patterns:"), exc_tip).pack(anchor=tk.W)
         exc_frame = ttk.Frame(right)
         exc_frame.pack(fill=tk.BOTH, expand=True)
         self._exclude_listbox = tk.Listbox(exc_frame, height=5, font=MONO_FONT_SMALL)
         self._exclude_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        self._tip(self._exclude_listbox, exc_tip)
         self._listboxes.append(self._exclude_listbox)
         self._listbox_data['exclude'] = []
         exc_btns = ttk.Frame(exc_frame)
@@ -583,34 +715,40 @@ class RetroRefinerGUI:
         tab = ttk.Frame(self._notebook, padding=10)
         self._notebook.add(tab, text="Region / Dedup")
 
-        row = 0
-        ttk.Label(tab, text="Region priority:").grid(row=row, column=0, sticky=tk.W, pady=2)
-        self._vars['region_priority'] = tk.StringVar()
-        ttk.Entry(tab, textvariable=self._vars['region_priority'], width=50).grid(
-            row=row, column=1, sticky=tk.EW, padx=4, pady=2
-        )
-
-        row = 1
-        ttk.Label(tab, text="Keep regions:").grid(row=row, column=0, sticky=tk.W, pady=2)
-        self._vars['keep_regions'] = tk.StringVar()
-        ttk.Entry(tab, textvariable=self._vars['keep_regions'], width=50).grid(
-            row=row, column=1, sticky=tk.EW, padx=4, pady=2
-        )
-
-        row = 2
-        ttk.Label(tab, text="Dedup priority:").grid(row=row, column=0, sticky=tk.W, pady=2)
-        self._vars['dedup_priority'] = tk.StringVar()
-        ttk.Entry(tab, textvariable=self._vars['dedup_priority'], width=50).grid(
-            row=row, column=1, sticky=tk.EW, padx=4, pady=2
-        )
+        fields = [
+            (0, "Region priority:", 'region_priority',
+             "Comma-separated region order for version preference (e.g. USA,Europe,Japan). "
+             "The first region listed is most preferred. Default: USA, World, Europe, Australia."),
+            (1, "Keep regions:", 'keep_regions',
+             "Comma-separated regions to keep multiple versions of. "
+             "For example, 'USA,Japan' keeps both the English and Japanese version of each game."),
+            (2, "Dedup priority:", 'dedup_priority',
+             "Cross-platform deduplication: comma-separated system codes, highest priority first "
+             "(e.g. pc,ps2,ps1,gamecube). When the same game exists on multiple systems, "
+             "only the highest-priority version is kept."),
+        ]
+        for row, label, key, tip in fields:
+            self._tip(ttk.Label(tab, text=label), tip).grid(row=row, column=0, sticky=tk.W, pady=2)
+            self._vars[key] = tk.StringVar()
+            self._tip(ttk.Entry(tab, textvariable=self._vars[key], width=50), tip).grid(
+                row=row, column=1, sticky=tk.EW, padx=4, pady=2
+            )
 
         # Dedup PC lists
         row = 3
-        ttk.Label(tab, text="Dedup PC lists:").grid(row=row, column=0, sticky=tk.NW, pady=2)
+        pc_tip = (
+            "LaunchBox XML playlists of PC games to seed the dedup system. "
+            "Games in these lists are treated as already claimed by PC, "
+            "so console versions of the same game are skipped."
+        )
+        self._tip(ttk.Label(tab, text="Dedup PC lists:"), pc_tip).grid(
+            row=row, column=0, sticky=tk.NW, pady=2
+        )
         pc_frame = ttk.Frame(tab)
         pc_frame.grid(row=row, column=1, sticky=tk.NSEW, padx=4, pady=2)
         self._dedup_pc_listbox = tk.Listbox(pc_frame, height=4, font=MONO_FONT_SMALL)
         self._dedup_pc_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        self._tip(self._dedup_pc_listbox, pc_tip)
         self._listboxes.append(self._dedup_pc_listbox)
         self._listbox_data['dedup_pc_lists'] = []
         pc_btns = ttk.Frame(pc_frame)
@@ -625,51 +763,67 @@ class RetroRefinerGUI:
         self._notebook.add(tab, text="Output")
 
         row = 0
-        ttk.Label(tab, text="Transfer mode:").grid(row=row, column=0, sticky=tk.W, pady=2)
+        transfer_tip = (
+            "How files are transferred to the destination. Copy duplicates files, "
+            "Symlink creates symbolic links (saves space), Hardlink creates hard links, "
+            "Move relocates files from source."
+        )
+        self._tip(ttk.Label(tab, text="Transfer mode:"), transfer_tip).grid(
+            row=row, column=0, sticky=tk.W, pady=2
+        )
         self._vars['transfer_mode'] = tk.StringVar(value="Copy")
-        ttk.Combobox(
+        self._tip(ttk.Combobox(
             tab, textvariable=self._vars['transfer_mode'],
             values=["Copy", "Symlink", "Hardlink", "Move"],
             state="readonly", width=15
-        ).grid(row=row, column=1, sticky=tk.W, padx=4, pady=2)
+        ), transfer_tip).grid(row=row, column=1, sticky=tk.W, padx=4, pady=2)
 
         row = 1
         check_frame = ttk.Frame(tab)
         check_frame.grid(row=row, column=0, columnspan=3, sticky=tk.W, pady=4)
 
-        self._vars['flat'] = tk.BooleanVar()
-        ttk.Checkbutton(check_frame, text="Flat output", variable=self._vars['flat']).pack(
-            side=tk.LEFT, padx=(0, 12)
-        )
-        self._vars['print_roms'] = tk.BooleanVar()
-        ttk.Checkbutton(check_frame, text="Print ROMs", variable=self._vars['print_roms']).pack(
-            side=tk.LEFT, padx=(0, 12)
-        )
-        self._vars['playlists'] = tk.BooleanVar()
-        ttk.Checkbutton(check_frame, text="Playlists (.m3u)", variable=self._vars['playlists']).pack(
-            side=tk.LEFT, padx=(0, 12)
-        )
-        self._vars['gamelist'] = tk.BooleanVar()
-        ttk.Checkbutton(check_frame, text="Gamelist (.xml)", variable=self._vars['gamelist']).pack(
-            side=tk.LEFT, padx=(0, 12)
-        )
+        out_checks = [
+            ('flat', "Flat output",
+             "Put all ROMs in a single folder instead of organizing by system subfolders."),
+            ('print_roms', "Print ROMs",
+             "Print selected ROM filenames to the output. Useful for piping to other tools."),
+            ('playlists', "Playlists (.m3u)",
+             "Generate M3U playlist files for each system. Useful for multi-disc games."),
+            ('gamelist', "Gamelist (.xml)",
+             "Generate EmulationStation-compatible gamelist.xml files for each system."),
+        ]
+        for key, text, tip in out_checks:
+            self._vars[key] = tk.BooleanVar()
+            cb = ttk.Checkbutton(check_frame, text=text, variable=self._vars[key])
+            cb.pack(side=tk.LEFT, padx=(0, 12))
+            self._tip(cb, tip)
 
         row = 2
-        ttk.Label(tab, text="RetroArch playlists:").grid(row=row, column=0, sticky=tk.W, pady=2)
-        self._vars['retroarch_playlists'] = tk.StringVar()
-        ttk.Entry(tab, textvariable=self._vars['retroarch_playlists'], width=50).grid(
-            row=row, column=1, sticky=tk.EW, padx=4, pady=2
+        ra_tip = (
+            "Directory to write RetroArch .lpl playlist files. "
+            "Typically your RetroArch playlists folder."
         )
+        self._tip(ttk.Label(tab, text="RetroArch playlists:"), ra_tip).grid(
+            row=row, column=0, sticky=tk.W, pady=2
+        )
+        self._vars['retroarch_playlists'] = tk.StringVar()
+        self._tip(ttk.Entry(tab, textvariable=self._vars['retroarch_playlists'], width=50),
+                  ra_tip).grid(row=row, column=1, sticky=tk.EW, padx=4, pady=2)
         ttk.Button(tab, text="Browse", command=lambda: self._browse_dir('retroarch_playlists')).grid(
             row=row, column=2, pady=2
         )
 
         row = 3
-        ttk.Label(tab, text="Prefer source:").grid(row=row, column=0, sticky=tk.W, pady=2)
-        self._vars['prefer_source'] = tk.StringVar()
-        ttk.Entry(tab, textvariable=self._vars['prefer_source'], width=50).grid(
-            row=row, column=1, sticky=tk.EW, padx=4, pady=2
+        ps_tip = (
+            "When the same ROM exists in multiple sources, prefer the copy from this directory. "
+            "Useful when you have a curated local set and a network fallback."
         )
+        self._tip(ttk.Label(tab, text="Prefer source:"), ps_tip).grid(
+            row=row, column=0, sticky=tk.W, pady=2
+        )
+        self._vars['prefer_source'] = tk.StringVar()
+        self._tip(ttk.Entry(tab, textvariable=self._vars['prefer_source'], width=50),
+                  ps_tip).grid(row=row, column=1, sticky=tk.EW, padx=4, pady=2)
         ttk.Button(tab, text="Browse", command=lambda: self._browse_dir('prefer_source')).grid(
             row=row, column=2, pady=2
         )
@@ -680,52 +834,53 @@ class RetroRefinerGUI:
         tab = ttk.Frame(self._notebook, padding=10)
         self._notebook.add(tab, text="Network")
 
-        row = 0
-        ttk.Label(tab, text="Parallel downloads:").grid(row=row, column=0, sticky=tk.W, pady=2)
-        self._vars['parallel'] = tk.IntVar(value=4)
-        ttk.Spinbox(tab, from_=1, to=32, width=6, textvariable=self._vars['parallel']).grid(
-            row=row, column=1, sticky=tk.W, padx=4, pady=2
-        )
-
-        row = 1
-        ttk.Label(tab, text="Connections/file:").grid(row=row, column=0, sticky=tk.W, pady=2)
-        self._vars['connections'] = tk.StringVar()
-        ttk.Spinbox(tab, from_=1, to=32, width=6, textvariable=self._vars['connections']).grid(
-            row=row, column=1, sticky=tk.W, padx=4, pady=2
-        )
+        spinners = [
+            (0, "Parallel downloads:", 'parallel', tk.IntVar(value=4), 1, 32,
+             "Number of files to download simultaneously. "
+             "Higher values speed up downloads but use more bandwidth."),
+            (1, "Connections/file:", 'connections', tk.StringVar(), 1, 32,
+             "Number of connections per file when using aria2c. "
+             "Higher values can speed up large file downloads. Defaults to match parallel."),
+            (3, "Scan workers:", 'scan_workers', tk.IntVar(value=16), 1, 64,
+             "Number of parallel workers for scanning network directory listings. "
+             "Higher values scan faster but may trigger rate limiting."),
+        ]
+        for row, label, key, var, lo, hi, tip in spinners:
+            self._vars[key] = var
+            self._tip(ttk.Label(tab, text=label), tip).grid(
+                row=row, column=0, sticky=tk.W, pady=2
+            )
+            self._tip(ttk.Spinbox(tab, from_=lo, to=hi, width=6, textvariable=var),
+                      tip).grid(row=row, column=1, sticky=tk.W, padx=4, pady=2)
 
         row = 2
         self._vars['auto_tune'] = tk.BooleanVar(value=True)
-        ttk.Checkbutton(tab, text="Auto-tune parallelism", variable=self._vars['auto_tune']).grid(
-            row=row, column=0, columnspan=2, sticky=tk.W, pady=2
-        )
+        cb = ttk.Checkbutton(tab, text="Auto-tune parallelism", variable=self._vars['auto_tune'])
+        cb.grid(row=row, column=0, columnspan=2, sticky=tk.W, pady=2)
+        self._tip(cb, (
+            "Automatically adjust parallel downloads and connections based on file sizes. "
+            "Uses more connections for large files and fewer for small files."
+        ))
 
-        row = 3
-        ttk.Label(tab, text="Scan workers:").grid(row=row, column=0, sticky=tk.W, pady=2)
-        self._vars['scan_workers'] = tk.IntVar(value=16)
-        ttk.Spinbox(tab, from_=1, to=64, width=6, textvariable=self._vars['scan_workers']).grid(
-            row=row, column=1, sticky=tk.W, padx=4, pady=2
-        )
-
-        row = 4
-        ttk.Label(tab, text="Cache dir:").grid(row=row, column=0, sticky=tk.W, pady=2)
-        self._vars['cache_dir'] = tk.StringVar()
-        ttk.Entry(tab, textvariable=self._vars['cache_dir'], width=50).grid(
-            row=row, column=1, sticky=tk.EW, padx=4, pady=2
-        )
-        ttk.Button(tab, text="Browse", command=lambda: self._browse_dir('cache_dir')).grid(
-            row=row, column=2, pady=2
-        )
-
-        row = 5
-        ttk.Label(tab, text="DAT dir:").grid(row=row, column=0, sticky=tk.W, pady=2)
-        self._vars['dat_dir'] = tk.StringVar()
-        ttk.Entry(tab, textvariable=self._vars['dat_dir'], width=50).grid(
-            row=row, column=1, sticky=tk.EW, padx=4, pady=2
-        )
-        ttk.Button(tab, text="Browse", command=lambda: self._browse_dir('dat_dir')).grid(
-            row=row, column=2, pady=2
-        )
+        dir_fields = [
+            (4, "Cache dir:", 'cache_dir',
+             "Directory for caching downloaded files from network sources. "
+             "Defaults to a cache/ folder in the source directory. Re-runs skip cached files."),
+            (5, "DAT dir:", 'dat_dir',
+             "Directory for No-Intro, Redump, and MAME DAT files used for ROM verification. "
+             "Defaults to dat_files/ in the source directory. Auto-downloaded on first run."),
+        ]
+        for row, label, key, tip in dir_fields:
+            self._tip(ttk.Label(tab, text=label), tip).grid(
+                row=row, column=0, sticky=tk.W, pady=2
+            )
+            self._vars[key] = tk.StringVar()
+            self._tip(ttk.Entry(tab, textvariable=self._vars[key], width=50), tip).grid(
+                row=row, column=1, sticky=tk.EW, padx=4, pady=2
+            )
+            ttk.Button(tab, text="Browse", command=lambda k=key: self._browse_dir(k)).grid(
+                row=row, column=2, pady=2
+            )
 
         tab.columnconfigure(1, weight=1)
 
@@ -737,80 +892,108 @@ class RetroRefinerGUI:
         check_frame = ttk.LabelFrame(tab, text="Options", padding=6)
         check_frame.grid(row=0, column=0, columnspan=3, sticky=tk.EW, pady=(0, 8))
 
-        self._vars['no_verify'] = tk.BooleanVar()
-        ttk.Checkbutton(check_frame, text="No verify", variable=self._vars['no_verify']).pack(
-            side=tk.LEFT, padx=(0, 12)
-        )
-        self._vars['no_dat'] = tk.BooleanVar()
-        ttk.Checkbutton(check_frame, text="No DAT", variable=self._vars['no_dat']).pack(
-            side=tk.LEFT, padx=(0, 12)
-        )
-        self._vars['no_chd'] = tk.BooleanVar()
-        ttk.Checkbutton(check_frame, text="No CHD", variable=self._vars['no_chd']).pack(
-            side=tk.LEFT, padx=(0, 12)
-        )
-        self._vars['no_adult'] = tk.BooleanVar()
-        ttk.Checkbutton(check_frame, text="No adult", variable=self._vars['no_adult']).pack(
-            side=tk.LEFT, padx=(0, 12)
-        )
-        self._vars['tp_all_versions'] = tk.BooleanVar()
-        ttk.Checkbutton(check_frame, text="TP all versions", variable=self._vars['tp_all_versions']).pack(
-            side=tk.LEFT, padx=(0, 12)
-        )
+        adv_checks = [
+            ('no_verify', "No verify",
+             "Skip CRC32 verification of selected ROMs against DAT files. "
+             "Faster but won't flag bad dumps or misnamed files."),
+            ('no_dat', "No DAT",
+             "Use filename parsing instead of DAT file metadata for ROM identification. "
+             "Faster but less accurate for non-standard filenames."),
+            ('no_chd', "No CHD",
+             "Skip copying CHD (compressed hard disk) files for MAME arcade games. "
+             "Saves significant disk space but some games won't work without them."),
+            ('no_adult', "No adult",
+             "Exclude adult/mature-rated MAME arcade games from selection."),
+            ('tp_all_versions', "TP all versions",
+             "Keep all versions of TeknoParrot arcade games instead of just the latest. "
+             "By default, only the newest version of each game is selected."),
+        ]
+        for key, text, tip in adv_checks:
+            self._vars[key] = tk.BooleanVar()
+            cb = ttk.Checkbutton(check_frame, text=text, variable=self._vars[key])
+            cb.pack(side=tk.LEFT, padx=(0, 12))
+            self._tip(cb, tip)
 
         # MAME version
         row = 1
-        ttk.Label(tab, text="MAME version:").grid(row=row, column=0, sticky=tk.W, pady=2)
-        self._vars['mame_version'] = tk.StringVar()
-        ttk.Entry(tab, textvariable=self._vars['mame_version'], width=20).grid(
-            row=row, column=1, sticky=tk.W, padx=4, pady=2
+        mame_tip = (
+            "Specific MAME version to use for DAT downloads (e.g. 0.274). "
+            "Leave empty to auto-detect the latest available version."
         )
+        self._tip(ttk.Label(tab, text="MAME version:"), mame_tip).grid(
+            row=row, column=0, sticky=tk.W, pady=2
+        )
+        self._vars['mame_version'] = tk.StringVar()
+        self._tip(ttk.Entry(tab, textvariable=self._vars['mame_version'], width=20),
+                  mame_tip).grid(row=row, column=1, sticky=tk.W, padx=4, pady=2)
 
         # Ratings source
         row = 2
-        ttk.Label(tab, text="Ratings source:").grid(row=row, column=0, sticky=tk.W, pady=2)
+        ratings_tip = (
+            "Which rating database to use for --top and --size filtering. "
+            "'combined' merges IGDB + LaunchBox (best coverage), "
+            "'igdb' or 'launchbox' uses one source only. "
+            "Default: combined if IGDB credentials are set, else launchbox."
+        )
+        self._tip(ttk.Label(tab, text="Ratings source:"), ratings_tip).grid(
+            row=row, column=0, sticky=tk.W, pady=2
+        )
         self._vars['ratings_source'] = tk.StringVar()
-        ttk.Combobox(
+        self._tip(ttk.Combobox(
             tab, textvariable=self._vars['ratings_source'],
             values=["", "combined", "igdb", "launchbox"],
             state="readonly", width=15
-        ).grid(row=row, column=1, sticky=tk.W, padx=4, pady=2)
+        ), ratings_tip).grid(row=row, column=1, sticky=tk.W, padx=4, pady=2)
 
         # Authentication section
         auth_frame = ttk.LabelFrame(tab, text="Authentication", padding=6)
         auth_frame.grid(row=3, column=0, columnspan=3, sticky=tk.EW, pady=(8, 4))
 
         auth_entries = [
-            ("IA access key:", "ia_access_key", False),
-            ("IA secret key:", "ia_secret_key", True),
-            ("IGDB client ID:", "igdb_client_id", False),
-            ("IGDB client secret:", "igdb_client_secret", True),
+            ("IA access key:", "ia_access_key", False,
+             "Internet Archive S3 access key for authenticated downloads. "
+             "Get credentials at https://archive.org/account/s3.php"),
+            ("IA secret key:", "ia_secret_key", True,
+             "Internet Archive S3 secret key. Keep this private."),
+            ("IGDB client ID:", "igdb_client_id", False,
+             "Twitch/IGDB client ID for game rating data. "
+             "Get free credentials at https://dev.twitch.tv/console"),
+            ("IGDB client secret:", "igdb_client_secret", True,
+             "Twitch/IGDB client secret. Keep this private."),
         ]
-        for i, (label, key, is_secret) in enumerate(auth_entries):
-            ttk.Label(auth_frame, text=label).grid(row=i, column=0, sticky=tk.W, pady=1)
+        for i, (label, key, is_secret, tip) in enumerate(auth_entries):
+            self._tip(ttk.Label(auth_frame, text=label), tip).grid(
+                row=i, column=0, sticky=tk.W, pady=1
+            )
             self._vars[key] = tk.StringVar()
             entry = ttk.Entry(
                 auth_frame, textvariable=self._vars[key], width=40,
                 show='*' if is_secret else ''
             )
             entry.grid(row=i, column=1, sticky=tk.EW, padx=4, pady=1)
+            self._tip(entry, tip)
         auth_frame.columnconfigure(1, weight=1)
 
         # TeknoParrot section
         tp_frame = ttk.LabelFrame(tab, text="TeknoParrot", padding=6)
         tp_frame.grid(row=4, column=0, columnspan=3, sticky=tk.EW, pady=(4, 0))
 
-        ttk.Label(tp_frame, text="Include platforms:").grid(row=0, column=0, sticky=tk.W, pady=1)
-        self._vars['tp_include_platforms'] = tk.StringVar()
-        ttk.Entry(tp_frame, textvariable=self._vars['tp_include_platforms'], width=40).grid(
-            row=0, column=1, sticky=tk.EW, padx=4, pady=1
-        )
-
-        ttk.Label(tp_frame, text="Exclude platforms:").grid(row=1, column=0, sticky=tk.W, pady=1)
-        self._vars['tp_exclude_platforms'] = tk.StringVar()
-        ttk.Entry(tp_frame, textvariable=self._vars['tp_exclude_platforms'], width=40).grid(
-            row=1, column=1, sticky=tk.EW, padx=4, pady=1
-        )
+        tp_fields = [
+            (0, "Include platforms:", 'tp_include_platforms',
+             'Comma-separated TeknoParrot hardware platforms to include '
+             '(e.g. "Sega Nu,Taito Type X2"). Only games on these platforms are kept.'),
+            (1, "Exclude platforms:", 'tp_exclude_platforms',
+             "Comma-separated TeknoParrot hardware platforms to exclude. "
+             "Games on these platforms are removed from selection."),
+        ]
+        for i, label, key, tip in tp_fields:
+            self._tip(ttk.Label(tp_frame, text=label), tip).grid(
+                row=i, column=0, sticky=tk.W, pady=1
+            )
+            self._vars[key] = tk.StringVar()
+            self._tip(ttk.Entry(tp_frame, textvariable=self._vars[key], width=40), tip).grid(
+                row=i, column=1, sticky=tk.EW, padx=4, pady=1
+            )
         tp_frame.columnconfigure(1, weight=1)
 
         tab.columnconfigure(1, weight=1)
