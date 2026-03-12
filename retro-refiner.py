@@ -4265,12 +4265,13 @@ def run_dedup_analysis(detected, args):
         return
 
     # Load PC game lists as seed (using dedup-safe normalization)
-    claimed_titles = set()
+    pc_titles = set()
     if args.dedup_pc_lists:
         for xml_path in args.dedup_pc_lists:
             titles = parse_pc_game_list(Path(xml_path), for_dedup=True)
-            claimed_titles.update(titles)
-    pc_title_count = len(claimed_titles)
+            pc_titles.update(titles)
+    pc_title_count = len(pc_titles)
+    claimed_titles = set(pc_titles)
 
     # Build title sets and size maps for priority systems only
     system_titles = {}  # {system: {normalized_title: total_size_bytes}}
@@ -4331,7 +4332,7 @@ def run_dedup_analysis(detected, args):
             dupes_list = []
             for title in duplicates:
                 systems_with = []
-                if pc_title_count > 0 and title in claimed_titles:
+                if title in pc_titles:
                     systems_with.append(('PC', None))
                 for s in active_systems:
                     if title in system_titles.get(s, {}):
