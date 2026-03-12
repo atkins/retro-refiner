@@ -713,7 +713,7 @@ class RetroRefinerGUI:
 
     def _create_region_tab(self):
         tab = ttk.Frame(self._notebook, padding=10)
-        self._notebook.add(tab, text="Region / Dedup")
+        self._notebook.add(tab, text="Region / Dedupe")
 
         fields = [
             (0, "Region priority:", 'region_priority',
@@ -722,7 +722,7 @@ class RetroRefinerGUI:
             (1, "Keep regions:", 'keep_regions',
              "Comma-separated regions to keep multiple versions of. "
              "For example, 'USA,Japan' keeps both the English and Japanese version of each game."),
-            (2, "Dedup priority:", 'dedup_priority',
+            (2, "Dedupe priority:", 'dedup_priority',
              "Cross-platform deduplication: comma-separated system codes, highest priority first "
              "(e.g. pc,ps2,ps1,gamecube). When the same game exists on multiple systems, "
              "only the highest-priority version is kept."),
@@ -734,14 +734,14 @@ class RetroRefinerGUI:
                 row=row, column=1, sticky=tk.EW, padx=4, pady=2
             )
 
-        # Dedup PC lists
+        # Dedupe PC lists
         row = 3
         pc_tip = (
-            "LaunchBox XML playlists of PC games to seed the dedup system. "
+            "LaunchBox XML playlists of PC games to seed the dedupe system. "
             "Games in these lists are treated as already claimed by PC, "
             "so console versions of the same game are skipped."
         )
-        self._tip(ttk.Label(tab, text="Dedup PC lists:"), pc_tip).grid(
+        self._tip(ttk.Label(tab, text="Dedupe PC lists:"), pc_tip).grid(
             row=row, column=0, sticky=tk.NW, pady=2
         )
         pc_frame = ttk.Frame(tab)
@@ -1151,7 +1151,7 @@ class RetroRefinerGUI:
             if val:
                 argv.extend([arg_name, val])
 
-        # Dedup PC lists
+        # Dedupe PC lists
         for path in self._listbox_data.get('dedup_pc_lists', []):
             argv.extend(['--dedup-pc-lists', path])
 
