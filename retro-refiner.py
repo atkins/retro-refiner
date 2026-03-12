@@ -117,6 +117,7 @@ DEFAULT_THEME = {
     'tag_skip': 'DIM', 'tag_select': 'GREEN', 'tag_filter': 'YELLOW',
     'tag_dat': 'BLUE', 'tag_config': 'MAGENTA', 'tag_detect': 'CYAN',
     'tag_match': 'GREEN', 'tag_include': 'GREEN', 'tag_exclude': 'RED',
+    'tag_dedup': 'MAGENTA',
     # Error blocks
     'error_border': 'RED', 'error_title': 'BRIGHT_RED',
     # Tables
@@ -182,6 +183,7 @@ class Style:
     TAG_MATCH = ''
     TAG_INCLUDE = ''
     TAG_EXCLUDE = ''
+    TAG_DEDUP = ''
     ERROR_BORDER = ''
     ERROR_TITLE = ''
     TABLE_HEADER = ''
@@ -382,7 +384,7 @@ class Console:
             'CONFIG': Style.TAG_CONFIG, 'DETECT': Style.TAG_DETECT,
             'MATCH': Style.TAG_MATCH, 'INCLUDE': Style.TAG_INCLUDE,
             'EXCLUDE': Style.TAG_EXCLUDE, 'CLONE': Style.TAG_SELECT,
-            'VERSION': Style.TAG_FILTER,
+            'VERSION': Style.TAG_FILTER, 'DEDUP': Style.TAG_DEDUP,
         }
         color = tag_colors.get(tag_upper, Style.DETAIL)
         print(f"  {color}[{tag_upper}]{Style.RESET} {Style.DETAIL}{text}{Style.RESET}")
@@ -3881,6 +3883,14 @@ english_only: false
 # Prioritizes games unique to each system over cross-platform releases
 # prefer_exclusives: 1.0
 
+# Cross-platform deduplication
+# Comma-separated system codes, highest priority first
+# Games on higher-priority systems are removed from lower-priority ones
+# dedup_priority: "pc,ps2,ps1,gamecube"
+# dedup_pc_lists:
+#   - /path/to/PC-Windows-Games.xml
+#   - /path/to/PC-DOS-Games.xml
+
 # -----------------------------------------------------------------------------
 # Metadata Filters
 # -----------------------------------------------------------------------------
@@ -4087,6 +4097,9 @@ def apply_config_to_args(args, config: dict):
         'all': 'all',
         # Exclusives boost
         'prefer_exclusives': 'prefer_exclusives',
+        # Cross-platform dedup
+        'dedup_priority': 'dedup_priority',
+        'dedup_pc_lists': 'dedup_pc_lists',
         # IGDB options
         'igdb_client_id': 'igdb_client_id',
         'igdb_client_secret': 'igdb_client_secret',
@@ -4210,6 +4223,143 @@ def generate_gamelist_xml(_system: str, rom_files: List[Path], dest_path: Path):
     with open(gamelist_path, 'w', encoding='utf-8') as f:
         f.write('\n'.join(lines))
     return gamelist_path
+
+
+def parse_pc_game_list(xml_path):
+    """Parse LaunchBox playlist XML to extract normalized game titles."""
+    import xml.etree.ElementTree as ET
+    titles = set()
+    path = Path(xml_path)
+    if not path.exists():
+        Console.warning(f"PC game list not found: {xml_path}")
+        return titles
+    try:
+        for _, elem in ET.iterparse(str(path), events=('end',)):
+            if elem.tag == 'GameTitle' and elem.text:
+                normalized = normalize_title(elem.text.strip())
+                if normalized:
+                    titles.add(normalized)
+            elem.clear()
+    except ET.ParseError as e:
+        Console.warning(f"Failed to parse PC game list {xml_path}: {e}")
+    return titles
+
+
+def run_dedup_analysis(detected, args):
+    """Run standalone cross-platform dedup analysis (filename parsing only)."""
+    arcade_systems = {'mame', 'fbneo', 'fba', 'arcade', 'teknoparrot'}
+
+    # Parse priority list (only analyze systems in the priority chain)
+    dedup_priority_list = [s.strip().lower() for s in args.dedup_priority.split(',')]
+    priority_systems = [s for s in dedup_priority_list
+                        if s != 'pc' and s not in arcade_systems and s in detected]
+
+    if not priority_systems:
+        Console.warning("No priority systems found in detected ROMs")
+        return
+
+    # Load PC game lists as seed
+    claimed_titles = set()
+    if args.dedup_pc_lists:
+        for xml_path in args.dedup_pc_lists:
+            titles = parse_pc_game_list(Path(xml_path))
+            claimed_titles.update(titles)
+    pc_title_count = len(claimed_titles)
+
+    # Build title sets and size maps for priority systems only
+    system_titles = {}  # {system: {normalized_title: total_size_bytes}}
+    for system in priority_systems:
+        title_sizes = {}
+        for f in detected[system]:
+            rom = parse_rom_filename(f.name)
+            normalized = normalize_title(rom.base_title)
+            if normalized:
+                size = f.stat().st_size if f.exists() else 0
+                if normalized in title_sizes:
+                    title_sizes[normalized] += size
+                else:
+                    title_sizes[normalized] = size
+        if title_sizes:
+            system_titles[system] = title_sizes
+
+    # Display results
+    Console.section("CROSS-PLATFORM DEDUP ANALYSIS")
+
+    priority_display = [s.upper() for s in dedup_priority_list]
+    if pc_title_count > 0:
+        priority_display = ['PC'] + [s for s in priority_display if s != 'PC']
+    Console.status("Priority chain", ' > '.join(priority_display))
+
+    if pc_title_count > 0:
+        Console.blank()
+        Console.info(f"PC: {pc_title_count:,} titles (from game lists)")
+
+    # Table setup
+    widths = [12, 8, 12, 13, 6]
+    Console.blank()
+    Console.table_header(['System', 'Titles', 'Duplicates', 'Reclaimable', '%'], widths)
+    Console.table_rule(55)
+
+    total_dupes = 0
+    total_reclaimable = 0
+    system_dupes = {}  # {system: [(title, systems_with), ...]} for verbose
+
+    # Only process systems in the priority chain (in order)
+    active_systems = [s for s in priority_systems if s in system_titles]
+
+    for system in active_systems:
+        titles_map = system_titles[system]
+        title_count = len(titles_map)
+        duplicates = set()
+        reclaimable = 0
+
+        for title, size in titles_map.items():
+            if title in claimed_titles:
+                duplicates.add(title)
+                reclaimable += size
+
+        # Track duplicates per system for verbose output
+        if args.verbose and duplicates:
+            dupes_list = []
+            for title in duplicates:
+                systems_with = []
+                if pc_title_count > 0 and title in claimed_titles:
+                    systems_with.append('PC')
+                for s in active_systems:
+                    if title in system_titles.get(s, {}):
+                        systems_with.append(s.upper())
+                dupes_list.append((title, systems_with))
+            system_dupes[system] = dupes_list
+
+        dupe_count = len(duplicates)
+        total_dupes += dupe_count
+        total_reclaimable += reclaimable
+
+        pct = (dupe_count / title_count * 100) if title_count > 0 else 0.0
+        Console.table_row([
+            system.upper(),
+            f"{title_count:,}",
+            str(dupe_count),
+            format_size(reclaimable),
+            f"{pct:.1f}%"
+        ], widths)
+
+        # Add non-duplicate titles to claimed set for subsequent systems
+        for title in titles_map:
+            claimed_titles.add(title)
+
+    Console.table_rule(55)
+    Console.table_total(['TOTAL', '', str(total_dupes), format_size(total_reclaimable), ''], widths)
+
+    # Verbose: show individual duplicates grouped by system, sorted alphabetically
+    if args.verbose and system_dupes:
+        for system in active_systems:
+            if system not in system_dupes:
+                continue
+            Console.blank()
+            Console.subsection(f"  {system.upper()} duplicates:")
+            for title, systems_with in sorted(system_dupes[system]):
+                Console.verbose("DEDUP", f"{title} (on: {', '.join(systems_with)})")
 
 
 # Default region priority order
@@ -8056,7 +8206,9 @@ def filter_roms_from_files(rom_files: list, dest_dir: str, system: str, dry_run:
                            ratings: dict = None,
                            no_filter: bool = False,
                            english_only: bool = False,
-                           download_crc_index: dict = None):
+                           download_crc_index: dict = None,
+                           exclude_titles: set = None,
+                           no_verify: bool = False):
     """Filter ROMs from a list of file paths.
 
     If dat_entries is provided, uses DAT metadata to enhance/override filename parsing.
@@ -8153,6 +8305,18 @@ def filter_roms_from_files(rom_files: list, dest_dir: str, system: str, dry_run:
             normalized = normalize_title(rom.base_title)
             grouped[normalized].append(rom)
 
+        # Remove titles claimed by higher-priority systems
+        if exclude_titles:
+            dedup_count = 0
+            for title in list(grouped.keys()):
+                if title in exclude_titles:
+                    del grouped[title]
+                    dedup_count += 1
+                    if verbose:
+                        Console.verbose('dedup', f"Skipping '{title}' (claimed by higher-priority system)")
+            if dedup_count:
+                Console.system_stat(system, f"{dedup_count} titles removed by cross-platform dedup")
+
         Console.system_stat(system, f"Found {len(grouped)} unique game titles")
 
         # Select best ROM from each group (or multiple if keep_regions)
@@ -8199,7 +8363,7 @@ def filter_roms_from_files(rom_files: list, dest_dir: str, system: str, dry_run:
                 Console.system_stat(system, f"Excluded {excluded} non-English ROMs")
 
         # Post-selection DAT enrichment (CRC only calculated for selected ROMs)
-        if crc_to_dat:
+        if crc_to_dat and not no_verify:
             for rom in tqdm(selected_roms, desc=f"{system.upper()} Verifying",
                             unit="ROM", leave=False):
                 filepath = file_map.get(rom.filename)
@@ -8426,6 +8590,13 @@ Pattern examples (--include / --exclude):
     parser.add_argument('--prefer-exclusives', type=float, nargs='?', const=1.0, default=None,
                         help='Boost rating of platform-exclusive games by N points (default: 1.0). '
                              'Prioritizes games unique to each system over cross-platform releases.')
+
+    # Cross-platform deduplication
+    parser.add_argument('--dedup-priority', default=None,
+                        help='Cross-platform dedup: comma-separated system codes, highest priority first '
+                             '(e.g., "pc,ps2,ps1,gamecube"). Keeps only the best platform version.')
+    parser.add_argument('--dedup-pc-lists', action='append', default=None,
+                        help='LaunchBox XML playlist of PC games for dedup seeding (can specify multiple)')
 
     # Output options
     parser.add_argument('--print', action='store_true', dest='print_roms',
@@ -8937,13 +9108,17 @@ Pattern examples (--include / --exclude):
     detected = defaultdict(list)
     rom_sources = {}  # Track which source each ROM came from
 
+    # In standalone dedup analysis mode, suppress verbose scan output
+    dedup_analysis_mode = args.dedup_priority and not args.commit
+    scan_verbose = args.verbose and not dedup_analysis_mode
+
     for source_path in source_paths:
         if args.auto_detect or args.systems is None:
             source_detected = scan_for_systems(
                 str(source_path),
                 recursive=args.recursive,
                 max_depth=args.max_depth,
-                verbose=args.verbose
+                verbose=scan_verbose
             )
 
             if args.systems:
@@ -8988,6 +9163,15 @@ Pattern examples (--include / --exclude):
                             detected[system] = [x for x in detected[system] if x.name != f.name]
                             detected[system].append(f)
                             rom_sources[str(f)] = source_path
+
+    # Standalone dedup analysis mode (dry run only)
+    if args.dedup_priority and not args.commit:
+        detected_dict = dict(detected)
+        if detected_dict:
+            run_dedup_analysis(detected_dict, args)
+        else:
+            Console.text("\nNo ROM files found.")
+        return
 
     # Process network sources with optimized filter-before-download flow
     # Step 1: Scan ALL network sources first to collect URLs (no filtering yet)
@@ -9671,7 +9855,32 @@ Pattern examples (--include / --exclude):
             except (json.JSONDecodeError, IOError):
                 pass
 
-    for system in sorted(detected.keys()):
+    # Cross-platform deduplication setup
+    claimed_titles = set()
+    dedup_active = False
+    arcade_systems = {'mame', 'fbneo', 'fba', 'arcade', 'teknoparrot'}
+    pc_title_count = 0
+
+    if args.dedup_priority:
+        dedup_active = True
+        dedup_priority_list = [s.strip().lower() for s in args.dedup_priority.split(',')]
+
+        # Load PC game lists as seed
+        if args.dedup_pc_lists:
+            for xml_path in args.dedup_pc_lists:
+                titles = parse_pc_game_list(Path(xml_path))
+                claimed_titles.update(titles)
+            pc_title_count = len(claimed_titles)
+            Console.info(f"Loaded {pc_title_count} PC game titles for dedup")
+
+        # Reorder: priority systems first (in order), then remaining alphabetically
+        priority_systems = [s for s in dedup_priority_list if s in detected and s != 'pc']
+        other_systems = sorted(s for s in detected if s not in dedup_priority_list)
+        system_order = priority_systems + other_systems
+    else:
+        system_order = sorted(detected.keys())
+
+    for system in system_order:
         check_shutdown()
         if args.limit is not None and total_selected >= args.limit:
             break
@@ -10131,9 +10340,16 @@ Pattern examples (--include / --exclude):
                 ratings=ratings,
                 no_filter=getattr(args, 'all', False),
                 english_only=args.english_only,
-                download_crc_index=download_crc_index
+                download_crc_index=download_crc_index,
+                exclude_titles=claimed_titles if (dedup_active and system in dedup_priority_list) else None,
+                no_verify=args.no_verify
             )
             selected, size_info = result
+
+            # Accumulate claimed titles for cross-platform dedup
+            if dedup_active and system in dedup_priority_list and selected:
+                for rom in selected:
+                    claimed_titles.add(normalize_title(rom.base_title))
 
             if args.limit is not None and selected:
                 remaining = args.limit - total_selected
@@ -10182,6 +10398,14 @@ Pattern examples (--include / --exclude):
             Console.blank()
 
     check_shutdown()
+
+    if dedup_active:
+        Console.section("Cross-Platform Dedup")
+        Console.status("Priority", ' > '.join(s.upper() for s in dedup_priority_list))
+        Console.status("Titles claimed", str(len(claimed_titles)))
+        if pc_title_count:
+            Console.status("PC titles (seed)", str(pc_title_count))
+
     Console.header("RESULTS")
     if args.limit is not None:
         Console.status("Total ROMs selected", f"{total_selected} (limit: {args.limit})")

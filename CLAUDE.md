@@ -53,7 +53,7 @@ All output routes through the `Console` class using semantic color attributes fr
 - `banner()`, `header(text)`, `section(text)`, `subsection(text)` — structural output
 - `success(text)`, `error(text)`, `warning(text)`, `info(text)`, `detail(text)` — status messages
 - `system_stat(system, text)` — `SYSTEM: text` lines with colored system name
-- `verbose(tag, text)` — `  [TAG] text` lines with tag-specific colors (SKIP, SELECT, FILTER, DAT, CONFIG, DETECT, MATCH, INCLUDE, EXCLUDE, CLONE, VERSION)
+- `verbose(tag, text)` — `  [TAG] text` lines with tag-specific colors (SKIP, SELECT, FILTER, DAT, CONFIG, DETECT, MATCH, INCLUDE, EXCLUDE, CLONE, VERSION, DEDUP)
 - `error_block(title, lines)` — bordered error blocks (writes to stderr)
 - `table_header()`, `table_rule()`, `table_row()`, `table_total()` — formatted tables
 - `status(label, value)` — label:value pairs
@@ -69,10 +69,11 @@ All output routes through the `Console` class using semantic color attributes fr
 ### Key data flow
 1. `main()` parses args, loads config, validates sources
 2. `scan_for_systems()` or `scan_network_source_urls()` discovers ROM files per system
-3. For each system: either `filter_roms_from_files()` (console ROMs), `filter_mame_roms()` (arcade), or `filter_teknoparrot_roms()` (TeknoParrot)
-4. Console ROM filtering: `parse_rom_filename()` → `RomInfo` → group by `normalize_title()` → `select_best_rom()` per group → post-selection CRC/DAT enrichment (only selected ROMs)
-5. Budget enforcement (`--top`, `--limit`, `--size`): applied in both the network pre-filtering loop and the local processing loop. `remaining_size_budget` is initialized before the network loop and carries over to the local loop. `apply_size_budget()` uses greedy knapsack: sort by rating desc, then fill budget skipping items too large
-6. Transfer: copy/move/symlink/hardlink based on `--commit` mode
+3. If `--dedup-priority` is set without `--commit`, `run_dedup_analysis()` runs a fast filename-only analysis and exits early. With `--commit`, systems are reordered by priority (highest first), PC game lists are loaded as seed `claimed_titles`, and arcade systems are excluded from dedup
+4. For each system: either `filter_roms_from_files()` (console ROMs), `filter_mame_roms()` (arcade), or `filter_teknoparrot_roms()` (TeknoParrot)
+5. Console ROM filtering: `parse_rom_filename()` → `RomInfo` → group by `normalize_title()` → exclude `claimed_titles` (dedup) → `select_best_rom()` per group → post-selection CRC/DAT enrichment (only selected ROMs) → accumulate selected titles into `claimed_titles`
+6. Budget enforcement (`--top`, `--limit`, `--size`): applied in both the network pre-filtering loop and the local processing loop. `remaining_size_budget` is initialized before the network loop and carries over to the local loop. `apply_size_budget()` uses greedy knapsack: sort by rating desc, then fill budget skipping items too large
+7. Transfer: copy/move/symlink/hardlink based on `--commit` mode
 
 ### Key dataclasses
 - `RomInfo` (line ~4185): Parsed ROM metadata (title, region, language, revision, flags like is_beta/is_proto/is_translation)
@@ -116,7 +117,7 @@ _spec = importlib.util.spec_from_file_location("retro_refiner", Path(__file__).p
 ```
 
 Test files:
-- `tests/test_selection.py` - 259 unit tests: ROM parsing, selection, filtering, config, playlists, transfers, size budget, english-only, multi-disc games, TOSEC naming, systems.json validation, IGDB integration, download throttle backoff
+- `tests/test_selection.py` - 274 unit tests: ROM parsing, selection, filtering, config, playlists, transfers, size budget, english-only, multi-disc games, TOSEC naming, systems.json validation, IGDB integration, download throttle backoff, cross-platform dedup, standalone dedup analysis
 - `tests/test_bandwidth.py` - Benchmark tool for download performance tuning
 - `tests/test_network_sources.py` - Functional tests for network source operations
 
@@ -152,6 +153,10 @@ CRC/DAT enrichment runs only on selected ROMs (post-selection pass in `filter_ro
 - `DownloadUI` uses curses on Unix, falls back on Windows
 - Windows cp1252 console cannot render Unicode symbols — always use `SYM_*` constants
 - Colors respect `NO_COLOR` env var (https://no-color.org/) and non-TTY detection
+
+## Local Data Files (not in git)
+
+- `data/AllPCGames.xml` — LaunchBox playlist XML containing the user's Windows game library. Used for local reference/testing. Excluded via `.gitignore`.
 
 ## XML Parsing Caveat
 

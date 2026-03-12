@@ -66,11 +66,15 @@ EXTENSION_TO_SYSTEM = _module.EXTENSION_TO_SYSTEM
 IGDB_PLATFORM_MAP = _module.IGDB_PLATFORM_MAP
 combine_ratings = _module.combine_ratings
 boost_exclusive_ratings = _module.boost_exclusive_ratings
+run_dedup_analysis = _module.run_dedup_analysis
 
 # CRC functions
 build_download_crc_index = _module.build_download_crc_index
 get_cached_crc = _module.get_cached_crc
 DownloadUI = _module.DownloadUI
+
+# Dedup
+parse_pc_game_list = _module.parse_pc_game_list
 
 
 class TestResult:
@@ -2774,6 +2778,350 @@ def test_download_throttle_backoff():
         results.fail("Parallel floor", 1, new_parallel)
 
 
+def test_cross_platform_dedup():
+    """Test cross-platform deduplication features."""
+    print("\n" + "="*60)
+    print("CROSS-PLATFORM DEDUP TESTS")
+    print("="*60)
+
+    # Test 1: parse_pc_game_list with valid XML
+    with tempfile.TemporaryDirectory() as tmpdir:
+        xml_path = Path(tmpdir) / "test_pc_games.xml"
+        xml_content = """<?xml version="1.0" standalone="yes"?>
+<LaunchBox>
+  <Playlist>
+    <Name>TestPlaylist</Name>
+  </Playlist>
+  <PlaylistGame>
+    <GameTitle>Resident Evil 4</GameTitle>
+    <GamePlatform>Windows</GamePlatform>
+  </PlaylistGame>
+  <PlaylistGame>
+    <GameTitle>Final Fantasy VII</GameTitle>
+    <GamePlatform>Windows</GamePlatform>
+  </PlaylistGame>
+  <PlaylistGame>
+    <GameTitle>Street Fighter II</GameTitle>
+    <GamePlatform>Windows</GamePlatform>
+  </PlaylistGame>
+</LaunchBox>"""
+        xml_path.write_text(xml_content, encoding='utf-8')
+        titles = parse_pc_game_list(xml_path)
+        if len(titles) == 3:
+            results.ok("parse_pc_game_list extracts 3 titles from XML")
+        else:
+            results.fail("parse_pc_game_list title count", 3, len(titles))
+
+        # Titles should be normalized
+        expected = normalize_title("Resident Evil 4")
+        if expected in titles:
+            results.ok("parse_pc_game_list normalizes titles")
+        else:
+            results.fail("parse_pc_game_list normalization", f"'{expected}' in titles", str(titles))
+
+    # Test 2: parse_pc_game_list with missing file
+    missing_titles = parse_pc_game_list(Path("/nonexistent/path.xml"))
+    if len(missing_titles) == 0:
+        results.ok("parse_pc_game_list returns empty set for missing file")
+    else:
+        results.fail("parse_pc_game_list missing file", 0, len(missing_titles))
+
+    # Test 3: exclude_titles basic - ROM excluded when title is in exclude set
+    with tempfile.TemporaryDirectory() as tmpdir:
+        rom_dir = Path(tmpdir) / "roms"
+        rom_dir.mkdir()
+        dest_dir = Path(tmpdir) / "dest"
+        dest_dir.mkdir()
+
+        filenames = [
+            "Resident Evil (USA).zip",
+            "Zelda (USA).zip",
+            "Mario (USA).zip",
+        ]
+        rom_paths = []
+        for fn in filenames:
+            p = rom_dir / fn
+            p.write_bytes(b'\x00' * 100)
+            rom_paths.append(p)
+
+        exclude = {normalize_title("Resident Evil")}
+        selected, _ = filter_roms_from_files(
+            rom_paths, str(dest_dir), "ps1", dry_run=True,
+            region_priority=DEFAULT_REGION_PRIORITY,
+            exclude_titles=exclude
+        )
+        selected_titles = {normalize_title(r.base_title) for r in selected}
+        if normalize_title("Resident Evil") not in selected_titles:
+            results.ok("exclude_titles removes claimed title")
+        else:
+            results.fail("exclude_titles removes claimed title", "not in selected", str(selected_titles))
+
+        if len(selected) == 2:
+            results.ok("exclude_titles keeps unclaimed titles")
+        else:
+            results.fail("exclude_titles keeps unclaimed", 2, len(selected))
+
+    # Test 4: exclude_titles no match - non-matching titles don't remove anything
+    with tempfile.TemporaryDirectory() as tmpdir:
+        rom_dir = Path(tmpdir) / "roms"
+        rom_dir.mkdir()
+        dest_dir = Path(tmpdir) / "dest"
+        dest_dir.mkdir()
+
+        filenames = [
+            "Zelda (USA).zip",
+            "Mario (USA).zip",
+        ]
+        rom_paths = []
+        for fn in filenames:
+            p = rom_dir / fn
+            p.write_bytes(b'\x00' * 100)
+            rom_paths.append(p)
+
+        exclude = {normalize_title("Resident Evil")}
+        selected, _ = filter_roms_from_files(
+            rom_paths, str(dest_dir), "ps1", dry_run=True,
+            region_priority=DEFAULT_REGION_PRIORITY,
+            exclude_titles=exclude
+        )
+        if len(selected) == 2:
+            results.ok("exclude_titles with no matches keeps all ROMs")
+        else:
+            results.fail("exclude_titles no match", 2, len(selected))
+
+    # Test 5: exclude_titles None and empty set don't affect behavior
+    with tempfile.TemporaryDirectory() as tmpdir:
+        rom_dir = Path(tmpdir) / "roms"
+        rom_dir.mkdir()
+        dest_dir = Path(tmpdir) / "dest"
+        dest_dir.mkdir()
+
+        filenames = ["Zelda (USA).zip", "Mario (USA).zip"]
+        rom_paths = []
+        for fn in filenames:
+            p = rom_dir / fn
+            p.write_bytes(b'\x00' * 100)
+            rom_paths.append(p)
+
+        selected_none, _ = filter_roms_from_files(
+            rom_paths, str(dest_dir), "ps1", dry_run=True,
+            region_priority=DEFAULT_REGION_PRIORITY,
+            exclude_titles=None
+        )
+        selected_empty, _ = filter_roms_from_files(
+            rom_paths, str(dest_dir), "ps1", dry_run=True,
+            region_priority=DEFAULT_REGION_PRIORITY,
+            exclude_titles=set()
+        )
+        if len(selected_none) == 2 and len(selected_empty) == 2:
+            results.ok("exclude_titles=None and empty set don't affect results")
+        else:
+            results.fail("exclude_titles None/empty", "2, 2",
+                        f"{len(selected_none)}, {len(selected_empty)}")
+
+    # Test 6: Title accumulation across systems (simulates main loop)
+    with tempfile.TemporaryDirectory() as tmpdir:
+        # System A: PS2
+        rom_dir_a = Path(tmpdir) / "roms_a"
+        rom_dir_a.mkdir()
+        dest_dir = Path(tmpdir) / "dest"
+        dest_dir.mkdir()
+
+        for fn in ["Resident Evil (USA).zip", "Zelda (USA).zip"]:
+            (rom_dir_a / fn).write_bytes(b'\x00' * 100)
+
+        # System B: PS1
+        rom_dir_b = Path(tmpdir) / "roms_b"
+        rom_dir_b.mkdir()
+        for fn in ["Resident Evil (USA).zip", "Mario (USA).zip"]:
+            (rom_dir_b / fn).write_bytes(b'\x00' * 100)
+
+        # Process system A first (higher priority)
+        claimed = set()
+        selected_a, _ = filter_roms_from_files(
+            list(rom_dir_a.iterdir()), str(dest_dir), "ps2", dry_run=True,
+            region_priority=DEFAULT_REGION_PRIORITY,
+            exclude_titles=claimed
+        )
+        # Accumulate titles from system A
+        for rom in selected_a:
+            claimed.add(normalize_title(rom.base_title))
+
+        # Process system B with claimed titles
+        selected_b, _ = filter_roms_from_files(
+            list(rom_dir_b.iterdir()), str(dest_dir), "ps1", dry_run=True,
+            region_priority=DEFAULT_REGION_PRIORITY,
+            exclude_titles=claimed
+        )
+
+        if len(selected_a) == 2:
+            results.ok("Dedup accumulation: system A selects all its ROMs")
+        else:
+            results.fail("Dedup accumulation system A", 2, len(selected_a))
+
+        selected_b_titles = {normalize_title(r.base_title) for r in selected_b}
+        if normalize_title("Resident Evil") not in selected_b_titles:
+            results.ok("Dedup accumulation: system B excludes claimed title")
+        else:
+            results.fail("Dedup accumulation excludes claimed", "RE not in B", str(selected_b_titles))
+
+        if len(selected_b) == 1:
+            results.ok("Dedup accumulation: system B keeps only unclaimed title")
+        else:
+            results.fail("Dedup accumulation system B count", 1, len(selected_b))
+
+
+def test_dedup_analysis():
+    """Test standalone dedup analysis mode."""
+    print("\n" + "="*60)
+    print("DEDUP ANALYSIS TESTS")
+    print("="*60)
+    import argparse
+    import io
+    from contextlib import redirect_stdout
+
+    # Helper to create mock args
+    def make_args(**kwargs):
+        args = argparse.Namespace()
+        args.dedup_priority = kwargs.get('dedup_priority', 'ps2,psx')
+        args.dedup_pc_lists = kwargs.get('dedup_pc_lists', None)
+        args.verbose = kwargs.get('verbose', False)
+        return args
+
+    # Test 1: Basic flow with overlapping filenames
+    with tempfile.TemporaryDirectory() as tmpdir:
+        ps2_dir = Path(tmpdir) / "ps2"
+        ps2_dir.mkdir()
+        psx_dir = Path(tmpdir) / "psx"
+        psx_dir.mkdir()
+
+        for fn in ["Resident Evil (USA).zip", "Zelda (USA).zip"]:
+            (ps2_dir / fn).write_bytes(b'\x00' * 1000)
+        for fn in ["Resident Evil (USA).zip", "Mario (USA).zip"]:
+            (psx_dir / fn).write_bytes(b'\x00' * 2000)
+
+        detected = {
+            'ps2': list(ps2_dir.iterdir()),
+            'psx': list(psx_dir.iterdir()),
+        }
+        args = make_args(dedup_priority='ps2,psx')
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            run_dedup_analysis(detected, args)
+        results.ok("Dedup analysis: basic flow completes without error")
+
+    # Test 2: Priority ordering — PS2 claimed before PSX
+    with tempfile.TemporaryDirectory() as tmpdir:
+        ps2_dir = Path(tmpdir) / "ps2"
+        ps2_dir.mkdir()
+        psx_dir = Path(tmpdir) / "psx"
+        psx_dir.mkdir()
+
+        # Both systems have "Resident Evil"
+        (ps2_dir / "Resident Evil (USA).zip").write_bytes(b'\x00' * 1000)
+        (ps2_dir / "Zelda (USA).zip").write_bytes(b'\x00' * 1000)
+        (psx_dir / "Resident Evil (USA).zip").write_bytes(b'\x00' * 2000)
+        (psx_dir / "Mario (USA).zip").write_bytes(b'\x00' * 2000)
+
+        detected = {
+            'ps2': list(ps2_dir.iterdir()),
+            'psx': list(psx_dir.iterdir()),
+        }
+        args = make_args(dedup_priority='ps2,psx')
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            run_dedup_analysis(detected, args)
+        output = buf.getvalue()
+        # PS2 should have 0 duplicates (processed first), PSX should have 1
+        lines = [l for l in output.split('\n') if 'PSX' in l and '%' in l]
+        if lines and '1' in lines[0]:
+            results.ok("Dedup analysis: priority ordering — PSX shows duplicate from PS2")
+        else:
+            results.fail("Dedup analysis priority", "PSX shows 1 dupe", output)
+
+    # Test 3: PC seed causes removals from priority systems
+    with tempfile.TemporaryDirectory() as tmpdir:
+        ps2_dir = Path(tmpdir) / "ps2"
+        ps2_dir.mkdir()
+        (ps2_dir / "Resident Evil 4 (USA).zip").write_bytes(b'\x00' * 5000)
+        (ps2_dir / "Zelda (USA).zip").write_bytes(b'\x00' * 3000)
+
+        # Create PC game list XML
+        xml_path = Path(tmpdir) / "pc_games.xml"
+        xml_content = """<?xml version="1.0" standalone="yes"?>
+<LaunchBox>
+  <PlaylistGame>
+    <GameTitle>Resident Evil 4</GameTitle>
+    <GamePlatform>Windows</GamePlatform>
+  </PlaylistGame>
+</LaunchBox>"""
+        xml_path.write_text(xml_content, encoding='utf-8')
+
+        detected = {'ps2': list(ps2_dir.iterdir())}
+        args = make_args(dedup_priority='pc,ps2', dedup_pc_lists=[str(xml_path)])
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            run_dedup_analysis(detected, args)
+        output = buf.getvalue()
+        # PS2 should show 1 duplicate (Resident Evil 4 is on PC)
+        lines = [l for l in output.split('\n') if 'PS2' in l and '%' in l]
+        if lines and '1' in lines[0]:
+            results.ok("Dedup analysis: PC seed causes duplicate in PS2")
+        else:
+            results.fail("Dedup analysis PC seed", "PS2 shows 1 dupe", output)
+
+    # Test 4: Arcade systems are excluded
+    with tempfile.TemporaryDirectory() as tmpdir:
+        mame_dir = Path(tmpdir) / "mame"
+        mame_dir.mkdir()
+        (mame_dir / "sf2.zip").write_bytes(b'\x00' * 1000)
+
+        snes_dir = Path(tmpdir) / "snes"
+        snes_dir.mkdir()
+        (snes_dir / "Street Fighter II (USA).zip").write_bytes(b'\x00' * 1000)
+
+        detected = {
+            'mame': list(mame_dir.iterdir()),
+            'snes': list(snes_dir.iterdir()),
+        }
+        args = make_args(dedup_priority='snes')
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            run_dedup_analysis(detected, args)
+        output = buf.getvalue()
+        # MAME should not appear in the table at all
+        if 'MAME' not in output:
+            results.ok("Dedup analysis: arcade systems excluded from analysis")
+        else:
+            results.fail("Dedup analysis arcade exclusion", "no MAME in output", output)
+
+    # Test 5: No overlap — systems with unique titles show 0 duplicates
+    with tempfile.TemporaryDirectory() as tmpdir:
+        ps2_dir = Path(tmpdir) / "ps2"
+        ps2_dir.mkdir()
+        (ps2_dir / "Zelda (USA).zip").write_bytes(b'\x00' * 1000)
+
+        psx_dir = Path(tmpdir) / "psx"
+        psx_dir.mkdir()
+        (psx_dir / "Mario (USA).zip").write_bytes(b'\x00' * 1000)
+
+        detected = {
+            'ps2': list(ps2_dir.iterdir()),
+            'psx': list(psx_dir.iterdir()),
+        }
+        args = make_args(dedup_priority='ps2,psx')
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            run_dedup_analysis(detected, args)
+        output = buf.getvalue()
+        # Both should show 0 duplicates — total should be 0
+        total_lines = [l for l in output.split('\n') if 'TOTAL' in l]
+        if total_lines and '0' in total_lines[0]:
+            results.ok("Dedup analysis: no overlap shows 0 duplicates")
+        else:
+            results.fail("Dedup analysis no overlap", "TOTAL shows 0", output)
+
+
 def main():
     """Run all tests."""
     print("\n" + "="*60)
@@ -2808,6 +3156,8 @@ def main():
     test_download_crc_index()
     test_igdb()
     test_download_throttle_backoff()
+    test_cross_platform_dedup()
+    test_dedup_analysis()
 
     # Run integration tests with real files
     source = r"C:\Users\atkin\Downloads\Roms"
