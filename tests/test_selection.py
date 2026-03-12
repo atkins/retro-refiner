@@ -66,8 +66,8 @@ EXTENSION_TO_SYSTEM = _module.EXTENSION_TO_SYSTEM
 IGDB_PLATFORM_MAP = _module.IGDB_PLATFORM_MAP
 combine_ratings = _module.combine_ratings
 boost_exclusive_ratings = _module.boost_exclusive_ratings
-run_dedup_analysis = _module.run_dedup_analysis
-normalize_title_for_dedup = _module.normalize_title_for_dedup
+run_dedupe_analysis = _module.run_dedupe_analysis
+normalize_title_for_dedupe = _module.normalize_title_for_dedupe
 
 # CRC functions
 build_download_crc_index = _module.build_download_crc_index
@@ -2779,7 +2779,7 @@ def test_download_throttle_backoff():
         results.fail("Parallel floor", 1, new_parallel)
 
 
-def test_cross_platform_dedup():
+def test_cross_platform_dedupe():
     """Test cross-platform deduplication features."""
     print("\n" + "="*60)
     print("CROSS-PLATFORM DEDUP TESTS")
@@ -2972,7 +2972,7 @@ def test_cross_platform_dedup():
             results.fail("Dedup accumulation system B count", 1, len(selected_b))
 
 
-def test_dedup_analysis():
+def test_dedupe_analysis():
     """Test standalone dedup analysis mode."""
     print("\n" + "="*60)
     print("DEDUP ANALYSIS TESTS")
@@ -2984,8 +2984,8 @@ def test_dedup_analysis():
     # Helper to create mock args
     def make_args(**kwargs):
         args = argparse.Namespace()
-        args.dedup_priority = kwargs.get('dedup_priority', 'ps2,psx')
-        args.dedup_pc_lists = kwargs.get('dedup_pc_lists', None)
+        args.dedupe_priority = kwargs.get('dedupe_priority', 'ps2,psx')
+        args.dedupe_pc_lists = kwargs.get('dedupe_pc_lists', None)
         args.verbose = kwargs.get('verbose', False)
         return args
 
@@ -3005,10 +3005,10 @@ def test_dedup_analysis():
             'ps2': list(ps2_dir.iterdir()),
             'psx': list(psx_dir.iterdir()),
         }
-        args = make_args(dedup_priority='ps2,psx')
+        args = make_args(dedupe_priority='ps2,psx')
         buf = io.StringIO()
         with redirect_stdout(buf):
-            run_dedup_analysis(detected, args)
+            run_dedupe_analysis(detected, args)
         results.ok("Dedup analysis: basic flow completes without error")
 
     # Test 2: Priority ordering — PS2 claimed before PSX
@@ -3028,10 +3028,10 @@ def test_dedup_analysis():
             'ps2': list(ps2_dir.iterdir()),
             'psx': list(psx_dir.iterdir()),
         }
-        args = make_args(dedup_priority='ps2,psx')
+        args = make_args(dedupe_priority='ps2,psx')
         buf = io.StringIO()
         with redirect_stdout(buf):
-            run_dedup_analysis(detected, args)
+            run_dedupe_analysis(detected, args)
         output = buf.getvalue()
         # PS2 should have 0 duplicates (processed first), PSX should have 1
         lines = [l for l in output.split('\n') if 'PSX' in l and '%' in l]
@@ -3059,10 +3059,10 @@ def test_dedup_analysis():
         xml_path.write_text(xml_content, encoding='utf-8')
 
         detected = {'ps2': list(ps2_dir.iterdir())}
-        args = make_args(dedup_priority='pc,ps2', dedup_pc_lists=[str(xml_path)])
+        args = make_args(dedupe_priority='pc,ps2', dedupe_pc_lists=[str(xml_path)])
         buf = io.StringIO()
         with redirect_stdout(buf):
-            run_dedup_analysis(detected, args)
+            run_dedupe_analysis(detected, args)
         output = buf.getvalue()
         # PS2 should show 1 duplicate (Resident Evil 4 is on PC)
         lines = [l for l in output.split('\n') if 'PS2' in l and '%' in l]
@@ -3085,10 +3085,10 @@ def test_dedup_analysis():
             'mame': list(mame_dir.iterdir()),
             'snes': list(snes_dir.iterdir()),
         }
-        args = make_args(dedup_priority='snes')
+        args = make_args(dedupe_priority='snes')
         buf = io.StringIO()
         with redirect_stdout(buf):
-            run_dedup_analysis(detected, args)
+            run_dedupe_analysis(detected, args)
         output = buf.getvalue()
         # MAME should not appear in the table at all
         if 'MAME' not in output:
@@ -3110,10 +3110,10 @@ def test_dedup_analysis():
             'ps2': list(ps2_dir.iterdir()),
             'psx': list(psx_dir.iterdir()),
         }
-        args = make_args(dedup_priority='ps2,psx')
+        args = make_args(dedupe_priority='ps2,psx')
         buf = io.StringIO()
         with redirect_stdout(buf):
-            run_dedup_analysis(detected, args)
+            run_dedupe_analysis(detected, args)
         output = buf.getvalue()
         # Both should show 0 duplicates — total should be 0
         total_lines = [l for l in output.split('\n') if 'TOTAL' in l]
@@ -3123,7 +3123,7 @@ def test_dedup_analysis():
             results.fail("Dedup analysis no overlap", "TOTAL shows 0", output)
 
     # Test 6: Article preservation — "The Bully" (PC) should NOT match "Bully" (PS2)
-    if normalize_title_for_dedup("The Bully") != normalize_title_for_dedup("Bully"):
+    if normalize_title_for_dedupe("The Bully") != normalize_title_for_dedupe("Bully"):
         results.ok("Dedup normalization: 'The Bully' != 'Bully' (articles preserved)")
     else:
         results.fail("Dedup normalization articles", "different", "same")
@@ -3151,10 +3151,10 @@ def test_dedup_analysis():
         xml_path.write_text(xml_content, encoding='utf-8')
 
         detected = {'ps2': list(ps2_dir.iterdir())}
-        args = make_args(dedup_priority='pc,ps2', dedup_pc_lists=[str(xml_path)])
+        args = make_args(dedupe_priority='pc,ps2', dedupe_pc_lists=[str(xml_path)])
         buf = io.StringIO()
         with redirect_stdout(buf):
-            run_dedup_analysis(detected, args)
+            run_dedupe_analysis(detected, args)
         output = buf.getvalue()
         # PS2 should show 0 duplicates — "Bully" != "The Bully"
         lines = [l for l in output.split('\n') if 'PS2' in l and '%' in l]
@@ -3198,8 +3198,8 @@ def main():
     test_download_crc_index()
     test_igdb()
     test_download_throttle_backoff()
-    test_cross_platform_dedup()
-    test_dedup_analysis()
+    test_cross_platform_dedupe()
+    test_dedupe_analysis()
 
     # Run integration tests with real files
     source = r"C:\Users\atkin\Downloads\Roms"
