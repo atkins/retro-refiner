@@ -20,6 +20,11 @@ python -m pylint retro-refiner.py
 ```
 CI runs pylint across Python 3.8/3.9/3.10 (see `.github/workflows/pylint.yml`). The `.pylintrc` disables complexity checks since this is a large single-file script by design. Current score: **10.00/10** — avoid introducing new warnings.
 
+### GUI
+```bash
+python retro-refiner-gui.py
+```
+
 ### Dry run (preview only)
 ```bash
 python retro-refiner.py -s /path/to/roms
@@ -31,6 +36,16 @@ python retro-refiner.py -s /path/to/roms --commit
 ```
 
 ## Architecture
+
+### GUI (`retro-refiner-gui.py`)
+Tkinter-based GUI wrapper that provides a tabbed settings interface for all ~60 CLI arguments. Zero external dependencies (tkinter is stdlib). Key design:
+- **Import:** Uses the same `importlib` pattern as tests to import `retro-refiner.py` as a module
+- **Output capture:** Redirects `sys.stdout`/`sys.stderr` to a `QueueWriter` that feeds a `queue.Queue`. GUI polls every 50ms via `root.after()`. `\r` carriage returns trigger line replacement for progress bars
+- **Threading:** `main()` runs in a daemon thread. Cancel sets `_module._shutdown_requested = True` (GIL-atomic). Catches `SystemExit` from `main()`'s `sys.exit()` paths
+- **Colors disabled:** `Style.disable()` called after import since `isatty()` returns `False`
+- **Layout:** 6 tabs (Sources, Filtering, Region/Dedup, Output, Network, Advanced) + bottom panel (progress bar, scrollable output, Dry Run/Commit/Cancel buttons)
+- **Theming:** Light/dark theme with OS detection (Windows registry, macOS `defaults`, Linux `gsettings`). Toggle button in bottom control bar. `DARK_THEME`/`LIGHT_THEME` dicts define all colors; `_apply_theme()` updates output text, listboxes, and all ttk widget styles including hover/active states
+- **No changes to `retro-refiner.py`** — the GUI is purely a wrapper
 
 ### Single-file design
 Everything lives in `retro-refiner.py` with no external dependencies. YAML parsing, progress bars, and all network handling are built-in. System definitions are externalized to `data/systems.json`. The file is organized into major sections separated by `# ===` comment banners:
@@ -126,13 +141,15 @@ Maintenance tools:
 
 ## Common Modification Points
 
+- **New CLI argument**: Add to `argparse` in `main()` AND add a corresponding widget in `retro-refiner-gui.py` (in the appropriate tab's `_create_*_tab()` method) AND add the arg mapping in `_build_argv()`
 - **New system**: Add entry to `data/systems.json` with `name` and relevant fields (`extensions`, `folder_aliases`, `dat_name`, etc.)
 - **New title mapping**: Add to `data/title_mappings.json` (lowercase, no punctuation, Arabic numerals)
 - **New filter pattern**: Add to `RERELEASE_PATTERNS` or `COMPILATION_PATTERNS` (pre-compiled `re.compile()` lists at module level)
 - **New MAME category**: Edit `MAME_INCLUDE_CATEGORIES` / `MAME_EXCLUDE_CATEGORIES` sets
 - **New Console output**: Use an existing `Console` method — never add raw `print()` for user-facing output
 - **New verbose tag**: Add the tag name to the `tag_colors` dict in `Console.verbose()` and to `DEFAULT_THEME`
-- **Theme change**: Edit `DEFAULT_THEME` dict — maps semantic role names to `Style` base color attribute names
+- **Theme change (CLI)**: Edit `DEFAULT_THEME` dict — maps semantic role names to `Style` base color attribute names
+- **Theme change (GUI)**: Edit `DARK_THEME`/`LIGHT_THEME` dicts in `retro-refiner-gui.py` — `_apply_theme()` applies them to all widgets
 
 ## Performance Patterns
 

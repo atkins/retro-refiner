@@ -143,6 +143,20 @@ Quick links: [Installation](https://github.com/atkins/retro-refiner/wiki/Install
 - Python 3.10+
 - No external dependencies (YAML parsing and progress bars are built-in)
 
+## GUI
+
+Retro-Refiner includes a graphical interface with all the same options as the command line:
+
+```bash
+python retro-refiner-gui.py
+```
+
+- Tabbed settings for all ~60 CLI options (Sources, Filtering, Region/Dedup, Output, Network, Advanced)
+- Real-time scrollable output with progress bars
+- Dry Run and Commit modes with cancel support
+- Light/dark theme with automatic OS detection
+- No additional dependencies (uses tkinter from the Python standard library)
+
 ## Quick Start
 
 ### Basic Usage
