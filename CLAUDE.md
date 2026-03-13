@@ -43,7 +43,7 @@ Tkinter-based GUI wrapper that provides a tabbed settings interface for all ~60 
 - **Output capture:** Redirects `sys.stdout`/`sys.stderr` to a `QueueWriter` that feeds a `queue.Queue`. GUI polls every 50ms via `root.after()`. `\r` carriage returns trigger line replacement for progress bars
 - **Threading:** `main()` runs in a daemon thread. Cancel sets `_module._shutdown_requested = True` (GIL-atomic). Catches `SystemExit` from `main()`'s `sys.exit()` paths
 - **Colors disabled:** `Style.disable()` called after import since `isatty()` returns `False`
-- **Layout:** 6 tabs (Sources, Filtering, Region/Dedup, Output, Network, Advanced) + bottom panel (progress bar, scrollable output, Dry Run/Commit/Cancel buttons)
+- **Layout:** 4 tabs (Setup, Selection, Output, Advanced) + command preview line + bottom panel (progress bar, scrollable output with welcome text, Preview/Commit/Cancel/Clear/Copy buttons, auto-scroll toggle, Save/Load settings, theme toggle, elapsed timer)
 - **Theming:** Light/dark theme with OS detection (Windows registry, macOS `defaults`, Linux `gsettings`). Toggle button in bottom control bar. `DARK_THEME`/`LIGHT_THEME` dicts define all colors; `_apply_theme()` updates output text, listboxes, and all ttk widget styles including hover/active states
 - **No changes to `retro-refiner.py`** — the GUI is purely a wrapper
 
@@ -84,7 +84,7 @@ All output routes through the `Console` class using semantic color attributes fr
 ### Key data flow
 1. `main()` parses args, loads config, validates sources
 2. `scan_for_systems()` or `scan_network_source_urls()` discovers ROM files per system
-3. If `--dedup-priority` is set without `--commit`, `run_dedup_analysis()` runs a fast filename-only analysis and exits early. With `--commit`, systems are reordered by priority (highest first), PC game lists are loaded as seed `claimed_titles`, and arcade systems are excluded from dedup
+3. If `--dedupe-priority` is set without `--commit`, `run_dedupe_analysis()` runs a fast filename-only analysis and exits early. With `--dedupe-delete --commit`, it runs analysis then deletes duplicate files in-place from source directories (with confirmation prompt). With `--commit` alone (no `--dedupe-delete`), systems are reordered by priority (highest first), PC game lists are loaded as seed `claimed_titles`, and arcade systems are excluded from dedup
 4. For each system: either `filter_roms_from_files()` (console ROMs), `filter_mame_roms()` (arcade), or `filter_teknoparrot_roms()` (TeknoParrot)
 5. Console ROM filtering: `parse_rom_filename()` → `RomInfo` → group by `normalize_title()` → exclude `claimed_titles` (dedup) → `select_best_rom()` per group → post-selection CRC/DAT enrichment (only selected ROMs) → accumulate selected titles into `claimed_titles`
 6. Budget enforcement (`--top`, `--limit`, `--size`): applied in both the network pre-filtering loop and the local processing loop. `remaining_size_budget` is initialized before the network loop and carries over to the local loop. `apply_size_budget()` uses greedy knapsack: sort by rating desc, then fill budget skipping items too large

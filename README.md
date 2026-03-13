@@ -616,6 +616,13 @@ Each system folder contains `_selection_log.txt` with:
 | `--igdb-client-id` | IGDB/Twitch client ID (or set `IGDB_CLIENT_ID` env var) |
 | `--igdb-client-secret` | IGDB/Twitch client secret (or set `IGDB_CLIENT_SECRET` env var) |
 
+### Cross-Platform Dedupe
+| Option | Description |
+|--------|-------------|
+| `--dedupe-priority` | Remove cross-platform duplicates by priority order (e.g., `"pc,ps2,ps1,gamecube"`) |
+| `--dedupe-pc-lists` | LaunchBox XML playlist of PC games for dedupe seeding (can specify multiple) |
+| `--dedupe-delete` | Delete duplicate ROM files from source directories in-place (requires `--dedupe-priority` and `--commit`) |
+
 ### Export Options
 | Option | Description |
 |--------|-------------|

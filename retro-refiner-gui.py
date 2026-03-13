@@ -12,6 +12,7 @@ import queue
 import subprocess
 import sys
 import threading
+import time
 import tkinter as tk
 import tkinter.simpledialog  # pylint: disable=unused-import  # accessed via tk.simpledialog
 from tkinter import ttk, filedialog, messagebox
@@ -75,6 +76,14 @@ DARK_THEME = {
     'focus_color': '#0078d4',
     'trough_color': '#2d2d2d',
     'combo_hover_bg': '#505050',
+    'accent_bg': '#0078d4',
+    'accent_fg': '#ffffff',
+    'accent_hover_bg': '#1a8ad4',
+    'accent_pressed_bg': '#005a9e',
+    'sublabel_fg': '#888888',
+    'preview_bg': '#252526',
+    'preview_fg': '#888888',
+    'welcome_fg': '#666666',
     'ttk_theme_base': 'clam',
 }
 
@@ -107,6 +116,14 @@ LIGHT_THEME = {
     'focus_color': '#0078d4',
     'trough_color': '#e0e0e0',
     'combo_hover_bg': '#c8c8c8',
+    'accent_bg': '#0078d4',
+    'accent_fg': '#ffffff',
+    'accent_hover_bg': '#1a8ad4',
+    'accent_pressed_bg': '#005a9e',
+    'sublabel_fg': '#777777',
+    'preview_bg': '#f5f5f5',
+    'preview_fg': '#777777',
+    'welcome_fg': '#aaaaaa',
     'ttk_theme_base': 'clam',
 }
 
@@ -347,6 +364,8 @@ class RetroRefinerGUI:
         self._running = False
         self._worker_thread = None
         self._output_queue = queue.Queue()
+        self._start_time = None
+        self._progress_is_indeterminate = False
 
         # Track all widget variables for argv construction
         self._vars = {}
@@ -358,13 +377,31 @@ class RetroRefinerGUI:
         self._exclude_listbox = None
         self._dedup_pc_listbox = None
 
+        # Dedupe-dependent widgets (disabled when priority is empty)
+        self._dedupe_dependent_widgets = []
+        self._dedup_add_btn = None
+        self._dedup_remove_btn = None
+        self._dedupe_delete_cb = None
+        self._welcome_shown = False
+
         # Theme state
         self._is_dark = _detect_system_dark_mode()
         self._listboxes = []  # All Listbox widgets for theme updates
         self._canvases = []   # All Canvas widgets for theme updates
 
+        # Suppress preview updates during initial build
+        self._building = True
         self._build_ui()
+        self._building = False
+
         self._apply_theme()
+        self._update_button_states()
+        self._update_preview()
+
+        # Add variable traces for live preview updates
+        for var in self._vars.values():
+            var.trace_add('write', lambda *_: self._update_preview())
+
         self._poll_queue()
 
     def _tip(self, widget, text):
@@ -386,11 +423,23 @@ class RetroRefinerGUI:
         self._notebook.pack(fill=tk.BOTH, expand=True)
 
         self._create_sources_tab()
-        self._create_filtering_tab()
-        self._create_region_tab()
+        self._create_selection_tab()
         self._create_output_tab()
-        self._create_network_tab()
         self._create_advanced_tab()
+
+        # Command preview line
+        preview_frame = ttk.Frame(main_pane)
+        main_pane.add(preview_frame, weight=0)
+
+        self._preview_var = tk.StringVar(value="")
+        self._preview_entry = tk.Entry(
+            preview_frame, textvariable=self._preview_var,
+            font=MONO_FONT_SMALL, state='readonly', readonlybackground='#252526',
+            fg='#888888', relief=tk.FLAT, bd=1,
+        )
+        self._preview_entry.pack(fill=tk.X, pady=(2, 2))
+        self._tip(self._preview_entry,
+                  "Command preview: shows the CLI arguments that will be passed to retro-refiner.")
 
         # Bottom: output + controls
         bottom_frame = ttk.Frame(main_pane)
@@ -427,18 +476,30 @@ class RetroRefinerGUI:
         self._output_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
 
+        # Insert welcome text
+        self._output_text.configure(state=tk.NORMAL)
+        self._output_text.insert(
+            tk.END,
+            "Getting started: Add a source folder or URL in the Setup tab, "
+            "then click Preview to see what will be selected.\n\n"
+            "Tip: Hover over any widget for a description of what it does."
+        )
+        self._output_text.configure(state=tk.DISABLED)
+        self._welcome_shown = True
+
         # Control buttons
         ctrl_frame = ttk.Frame(bottom_frame)
         ctrl_frame.pack(fill=tk.X, pady=(6, 0))
 
         self._dry_btn = ttk.Button(
-            ctrl_frame, text="Dry Run", command=self._run_dry
+            ctrl_frame, text="Preview", command=self._run_dry
         )
         self._dry_btn.pack(side=tk.LEFT, padx=(0, 4))
         self._tip(self._dry_btn, "Preview what would be selected without transferring any files.")
 
         self._commit_btn = ttk.Button(
-            ctrl_frame, text="Run (Commit)", command=self._run_commit
+            ctrl_frame, text="Run (Commit)", command=self._run_commit,
+            style='Accent.TButton'
         )
         self._commit_btn.pack(side=tk.LEFT, padx=(0, 4))
         self._tip(self._commit_btn, "Run with file transfer enabled. Files will be copied/linked/moved to the destination.")
@@ -450,24 +511,51 @@ class RetroRefinerGUI:
         self._tip(self._cancel_btn, "Gracefully stop the current run. Processing finishes the current operation then exits.")
 
         ttk.Button(
-            ctrl_frame, text="Clear Output", command=self._clear_output
+            ctrl_frame, text="Clear", command=self._clear_output
         ).pack(side=tk.LEFT, padx=(0, 4))
 
-        self._status_var = tk.StringVar(value="Ready")
-        ttk.Label(ctrl_frame, textvariable=self._status_var).pack(
-            side=tk.RIGHT, padx=(8, 0)
-        )
+        ttk.Button(
+            ctrl_frame, text="Copy", command=self._copy_output
+        ).pack(side=tk.LEFT, padx=(0, 4))
 
+        # Auto-scroll checkbox
+        self._auto_scroll = tk.BooleanVar(value=True)
+        cb = ttk.Checkbutton(ctrl_frame, text="Auto-scroll", variable=self._auto_scroll)
+        cb.pack(side=tk.LEFT, padx=(8, 4))
+        self._tip(cb, "Automatically scroll to the bottom as new output appears.")
+
+        # Right side controls
         self._theme_btn = ttk.Button(
-            ctrl_frame, text="Light", command=self._toggle_theme, width=6
+            ctrl_frame, text="Theme: Dark", command=self._toggle_theme, width=12
         )
         self._theme_btn.pack(side=tk.RIGHT, padx=(0, 4))
+
+        self._tip(self._theme_btn, "Toggle between dark and light themes.")
+
+        # Save / Load settings
+        load_btn = ttk.Button(ctrl_frame, text="Load", command=self._load_settings)
+        load_btn.pack(side=tk.RIGHT, padx=(0, 4))
+        self._tip(load_btn, "Load GUI settings from a previously saved YAML file.")
+
+        save_btn = ttk.Button(ctrl_frame, text="Save", command=self._save_settings)
+        save_btn.pack(side=tk.RIGHT, padx=(0, 4))
+        self._tip(save_btn, "Save current GUI settings to a YAML file for later reuse.")
+
+        # Status and elapsed time
+        self._elapsed_var = tk.StringVar(value="")
+        ttk.Label(ctrl_frame, textvariable=self._elapsed_var, width=10).pack(
+            side=tk.RIGHT, padx=(0, 4)
+        )
+        self._status_var = tk.StringVar(value="Ready")
+        ttk.Label(ctrl_frame, textvariable=self._status_var).pack(
+            side=tk.RIGHT, padx=(4, 0)
+        )
 
     # ── Tab builders ──────────────────────────────────────────────────
 
     def _create_sources_tab(self):
         tab = ttk.Frame(self._notebook, padding=10)
-        self._notebook.add(tab, text="Sources")
+        self._notebook.add(tab, text="Setup")
 
         # Source dirs/URLs
         self._tip(ttk.Label(tab, text="Source directories / URLs:"), (
@@ -477,7 +565,7 @@ class RetroRefinerGUI:
         src_frame = ttk.Frame(tab)
         src_frame.grid(row=1, column=0, columnspan=3, sticky=tk.NSEW, pady=(0, 8))
 
-        self._source_listbox = tk.Listbox(src_frame, height=4, font=MONO_FONT_SMALL)
+        self._source_listbox = tk.Listbox(src_frame, height=6, font=MONO_FONT_SMALL)
         self._source_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         self._tip(self._source_listbox, (
             "Local folders or HTTP/HTTPS URLs containing ROMs. "
@@ -492,6 +580,9 @@ class RetroRefinerGUI:
             fill=tk.X, pady=1
         )
         ttk.Button(src_btn_frame, text="Add URL", command=self._add_source_url).pack(
+            fill=tk.X, pady=1
+        )
+        ttk.Button(src_btn_frame, text="Edit", command=self._edit_source).pack(
             fill=tk.X, pady=1
         )
         ttk.Button(src_btn_frame, text="Remove", command=self._remove_source).pack(
@@ -578,42 +669,64 @@ class RetroRefinerGUI:
 
         tab.columnconfigure(1, weight=1)
 
-    def _create_filtering_tab(self):
+    def _create_selection_tab(self):
+        """Create the Selection tab (merged Filtering + Region/Dedupe)."""
         tab = ttk.Frame(self._notebook, padding=10)
-        self._notebook.add(tab, text="Filtering")
+        self._notebook.add(tab, text="Selection")
 
-        # Left column: checkbuttons
-        left = ttk.LabelFrame(tab, text="Options", padding=6)
+        # ── Left column: options + budget ──
+        left = ttk.Frame(tab)
         left.grid(row=0, column=0, sticky=tk.NSEW, padx=(0, 6))
 
+        # ROM selection options
+        opt_frame = ttk.LabelFrame(left, text="ROM Selection", padding=6)
+        opt_frame.pack(fill=tk.X)
+
         checks = [
-            ('all', "Select all (no filter)",
+            ('all', "Select all (no filter)", "Keep every ROM variant, skip 1G1R selection",
              "Skip all filtering and select every ROM. Overrides 1G1R selection, "
              "so you get every regional variant instead of just the best one."),
-            ('exclude_protos', "Exclude protos",
+            ('exclude_protos', "Exclude protos", None,
              "Remove prototype ROMs from selection. "
              "Prototypes are included by default since some are the only version of a game."),
+            ('english_only', "English only", "Drop Japan-only games with no translation",
+             "Only keep ROMs playable in English: official English releases plus fan translations. "
+             "Drops Japan-only games that have no translation available."),
+            ('verbose', "Verbose output (-v)", None,
+             "Show detailed filtering decisions in the output: which ROMs were selected, "
+             "skipped, matched by DAT, etc."),
+        ]
+        for key, text, subtitle, tip in checks:
+            self._vars[key] = tk.BooleanVar()
+            f = ttk.Frame(opt_frame)
+            f.pack(anchor=tk.W, fill=tk.X)
+            cb = ttk.Checkbutton(f, text=text, variable=self._vars[key])
+            cb.pack(anchor=tk.W)
+            self._tip(cb, tip)
+            if subtitle:
+                sl = ttk.Label(f, text=subtitle, style='Sub.TLabel')
+                sl.pack(anchor=tk.W, padx=(24, 0))
+
+        # Include normally-excluded section
+        inc_exc_frame = ttk.LabelFrame(opt_frame, text="Include normally-excluded", padding=4)
+        inc_exc_frame.pack(fill=tk.X, pady=(6, 0))
+
+        inc_checks = [
             ('include_betas', "Include betas",
              "Include beta/pre-release ROMs. "
              "These are excluded by default as they are usually incomplete."),
             ('include_unlicensed', "Include unlicensed",
              "Include unlicensed and pirate ROM dumps. "
              "These are excluded by default."),
-            ('english_only', "English only",
-             "Only keep ROMs playable in English: official English releases plus fan translations. "
-             "Drops Japan-only games that have no translation available."),
-            ('verbose', "Verbose output (-v)",
-             "Show detailed filtering decisions in the output: which ROMs were selected, "
-             "skipped, matched by DAT, etc."),
         ]
-        for key, text, tip in checks:
+        for key, text, tip in inc_checks:
             self._vars[key] = tk.BooleanVar()
-            cb = ttk.Checkbutton(left, text=text, variable=self._vars[key])
+            cb = ttk.Checkbutton(inc_exc_frame, text=text, variable=self._vars[key])
             cb.pack(anchor=tk.W, pady=1)
             self._tip(cb, tip)
 
-        # Budget fields
-        budget_frame = ttk.LabelFrame(left, text="Budget / Limits", padding=4)
+        # Budget / Limits
+        budget_frame = ttk.LabelFrame(left, text="Budget / Limits", padding=6)
         budget_frame.pack(fill=tk.X, pady=(8, 0))
 
         budget_tips = {
@@ -667,7 +780,7 @@ class RetroRefinerGUI:
         self._tip(ttk.Entry(genre_frame, textvariable=self._vars['genres']),
                   genre_tip).pack(side=tk.LEFT, fill=tk.X, expand=True)
 
-        # Right column: include/exclude patterns
+        # ── Right column: patterns + region/dedupe ──
         right = ttk.Frame(tab)
         right.grid(row=0, column=1, sticky=tk.NSEW)
 
@@ -679,7 +792,7 @@ class RetroRefinerGUI:
         self._tip(ttk.Label(right, text="Include patterns:"), inc_tip).pack(anchor=tk.W)
         inc_frame = ttk.Frame(right)
         inc_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 6))
-        self._include_listbox = tk.Listbox(inc_frame, height=5, font=MONO_FONT_SMALL)
+        self._include_listbox = tk.Listbox(inc_frame, height=4, font=MONO_FONT_SMALL)
         self._include_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         self._tip(self._include_listbox, inc_tip)
         self._listboxes.append(self._include_listbox)
@@ -696,8 +809,8 @@ class RetroRefinerGUI:
         )
         self._tip(ttk.Label(right, text="Exclude patterns:"), exc_tip).pack(anchor=tk.W)
         exc_frame = ttk.Frame(right)
-        exc_frame.pack(fill=tk.BOTH, expand=True)
-        self._exclude_listbox = tk.Listbox(exc_frame, height=5, font=MONO_FONT_SMALL)
+        exc_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 6))
+        self._exclude_listbox = tk.Listbox(exc_frame, height=4, font=MONO_FONT_SMALL)
         self._exclude_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         self._tip(self._exclude_listbox, exc_tip)
         self._listboxes.append(self._exclude_listbox)
@@ -707,13 +820,9 @@ class RetroRefinerGUI:
         ttk.Button(exc_btns, text="Add", command=lambda: self._add_pattern('exclude')).pack(fill=tk.X, pady=1)
         ttk.Button(exc_btns, text="Remove", command=lambda: self._remove_pattern('exclude')).pack(fill=tk.X, pady=1)
 
-        tab.columnconfigure(0, weight=1)
-        tab.columnconfigure(1, weight=1)
-        tab.rowconfigure(0, weight=1)
-
-    def _create_region_tab(self):
-        tab = ttk.Frame(self._notebook, padding=10)
-        self._notebook.add(tab, text="Region / Dedupe")
+        # ── Region / Dedupe section ──
+        region_frame = ttk.LabelFrame(right, text="Region / Dedupe", padding=6)
+        region_frame.pack(fill=tk.X, pady=(0, 0))
 
         fields = [
             (0, "Region priority:", 'region_priority',
@@ -722,54 +831,90 @@ class RetroRefinerGUI:
             (1, "Keep regions:", 'keep_regions',
              "Comma-separated regions to keep multiple versions of. "
              "For example, 'USA,Japan' keeps both the English and Japanese version of each game."),
-            (2, "Dedupe priority:", 'dedup_priority',
-             "Cross-platform deduplication: comma-separated system codes, highest priority first "
-             "(e.g. pc,ps2,ps1,gamecube). When the same game exists on multiple systems, "
-             "only the highest-priority version is kept."),
         ]
         for row, label, key, tip in fields:
-            self._tip(ttk.Label(tab, text=label), tip).grid(row=row, column=0, sticky=tk.W, pady=2)
+            self._tip(ttk.Label(region_frame, text=label), tip).grid(row=row, column=0, sticky=tk.W, pady=1)
             self._vars[key] = tk.StringVar()
-            self._tip(ttk.Entry(tab, textvariable=self._vars[key], width=50), tip).grid(
-                row=row, column=1, sticky=tk.EW, padx=4, pady=2
+            self._tip(ttk.Entry(region_frame, textvariable=self._vars[key]), tip).grid(
+                row=row, column=1, sticky=tk.EW, padx=4, pady=1
             )
 
+        # Dedupe section with description
+        dedupe_sep = ttk.Separator(region_frame, orient=tk.HORIZONTAL)
+        dedupe_sep.grid(row=2, column=0, columnspan=2, sticky=tk.EW, pady=(6, 4))
+
+        dedupe_desc = ttk.Label(
+            region_frame,
+            text="Remove games that exist on multiple platforms,\nkeeping only the highest-priority version.",
+            style='Sub.TLabel'
+        )
+        dedupe_desc.grid(row=3, column=0, columnspan=2, sticky=tk.W, pady=(0, 4))
+
+        dedup_tip = (
+            "Cross-platform deduplication: comma-separated system codes, highest priority first "
+            "(e.g. pc,ps2,ps1,gamecube). When the same game exists on multiple systems, "
+            "only the highest-priority version is kept."
+        )
+        self._tip(ttk.Label(region_frame, text="Dedupe priority:"), dedup_tip).grid(
+            row=4, column=0, sticky=tk.W, pady=1
+        )
+        self._vars['dedup_priority'] = tk.StringVar()
+        self._vars['dedup_priority'].trace_add('write', lambda *_: self._update_dedupe_state())
+        self._tip(ttk.Entry(region_frame, textvariable=self._vars['dedup_priority']), dedup_tip).grid(
+            row=4, column=1, sticky=tk.EW, padx=4, pady=1
+        )
+
         # Dedupe PC lists
-        row = 3
         pc_tip = (
             "LaunchBox XML playlists of PC games to seed the dedupe system. "
             "Games in these lists are treated as already claimed by PC, "
             "so console versions of the same game are skipped."
         )
-        self._tip(ttk.Label(tab, text="Dedupe PC lists:"), pc_tip).grid(
-            row=row, column=0, sticky=tk.NW, pady=2
-        )
-        pc_frame = ttk.Frame(tab)
-        pc_frame.grid(row=row, column=1, sticky=tk.NSEW, padx=4, pady=2)
-        self._dedup_pc_listbox = tk.Listbox(pc_frame, height=4, font=MONO_FONT_SMALL)
+        pc_label = self._tip(ttk.Label(region_frame, text="PC lists:"), pc_tip)
+        pc_label.grid(row=5, column=0, sticky=tk.NW, pady=2)
+        self._dedupe_dependent_widgets.append(pc_label)
+
+        pc_frame = ttk.Frame(region_frame)
+        pc_frame.grid(row=5, column=1, sticky=tk.NSEW, padx=4, pady=2)
+        self._dedup_pc_listbox = tk.Listbox(pc_frame, height=3, font=MONO_FONT_SMALL)
         self._dedup_pc_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         self._tip(self._dedup_pc_listbox, pc_tip)
         self._listboxes.append(self._dedup_pc_listbox)
         self._listbox_data['dedup_pc_lists'] = []
+        self._dedupe_dependent_widgets.append(self._dedup_pc_listbox)
+
         pc_btns = ttk.Frame(pc_frame)
         pc_btns.pack(side=tk.RIGHT, padx=(4, 0))
-        ttk.Button(pc_btns, text="Add", command=self._add_dedup_pc_list).pack(fill=tk.X, pady=1)
-        ttk.Button(pc_btns, text="Remove", command=self._remove_dedup_pc_list).pack(fill=tk.X, pady=1)
+        self._dedup_add_btn = ttk.Button(pc_btns, text="Add", command=self._add_dedup_pc_list)
+        self._dedup_add_btn.pack(fill=tk.X, pady=1)
+        self._dedupe_dependent_widgets.append(self._dedup_add_btn)
+        self._dedup_remove_btn = ttk.Button(pc_btns, text="Remove", command=self._remove_dedup_pc_list)
+        self._dedup_remove_btn.pack(fill=tk.X, pady=1)
+        self._dedupe_dependent_widgets.append(self._dedup_remove_btn)
 
         # Dedupe delete checkbox
-        row = 4
         dedupe_del_tip = (
             "Delete duplicate ROM files from source directories in-place instead of "
             "copying selected ROMs to a new destination. Saves disk space by removing "
             "lower-priority versions directly. Requires Dedupe priority to be set."
         )
         self._vars['dedupe_delete'] = tk.BooleanVar()
-        cb = ttk.Checkbutton(tab, text="Delete duplicates in-place",
-                             variable=self._vars['dedupe_delete'])
-        cb.grid(row=row, column=0, columnspan=2, sticky=tk.W, pady=4)
-        self._tip(cb, dedupe_del_tip)
+        self._dedupe_delete_cb = ttk.Checkbutton(
+            region_frame, text="Delete duplicates in-place",
+            variable=self._vars['dedupe_delete']
+        )
+        self._dedupe_delete_cb.grid(row=6, column=0, columnspan=2, sticky=tk.W, pady=(2, 0))
+        self._tip(self._dedupe_delete_cb, dedupe_del_tip)
+        self._dedupe_dependent_widgets.append(self._dedupe_delete_cb)
 
+        region_frame.columnconfigure(1, weight=1)
+
+        # Initialize dedupe state
+        self._update_dedupe_state()
+
+        tab.columnconfigure(0, weight=1)
         tab.columnconfigure(1, weight=1)
+        tab.rowconfigure(0, weight=1)
 
     def _create_output_tab(self):
         tab = ttk.Frame(self._notebook, padding=10)
@@ -843,67 +988,74 @@ class RetroRefinerGUI:
 
         tab.columnconfigure(1, weight=1)
 
-    def _create_network_tab(self):
+    def _create_advanced_tab(self):
+        """Create the Advanced tab (merged Network + Advanced)."""
         tab = ttk.Frame(self._notebook, padding=10)
-        self._notebook.add(tab, text="Network")
+        self._notebook.add(tab, text="Advanced")
+
+        # ── Network section ──
+        net_frame = ttk.LabelFrame(tab, text="Network", padding=6)
+        net_frame.grid(row=0, column=0, columnspan=3, sticky=tk.EW, pady=(0, 8))
+
+        # Spinners row
+        spin_frame = ttk.Frame(net_frame)
+        spin_frame.pack(fill=tk.X)
 
         spinners = [
-            (0, "Parallel downloads:", 'parallel', tk.IntVar(value=4), 1, 32,
+            ("Parallel downloads:", 'parallel', tk.IntVar(value=4), 1, 32,
              "Number of files to download simultaneously. "
              "Higher values speed up downloads but use more bandwidth."),
-            (1, "Connections/file:", 'connections', tk.StringVar(), 1, 32,
+            ("Connections/file:", 'connections', tk.StringVar(), 1, 32,
              "Number of connections per file when using aria2c. "
              "Higher values can speed up large file downloads. Defaults to match parallel."),
-            (3, "Scan workers:", 'scan_workers', tk.IntVar(value=16), 1, 64,
+            ("Scan workers:", 'scan_workers', tk.IntVar(value=16), 1, 64,
              "Number of parallel workers for scanning network directory listings. "
              "Higher values scan faster but may trigger rate limiting."),
         ]
-        for row, label, key, var, lo, hi, tip in spinners:
+        for i, (label, key, var, lo, hi, tip) in enumerate(spinners):
             self._vars[key] = var
-            self._tip(ttk.Label(tab, text=label), tip).grid(
-                row=row, column=0, sticky=tk.W, pady=2
+            self._tip(ttk.Label(spin_frame, text=label), tip).grid(
+                row=0, column=i * 2, sticky=tk.W, padx=(0 if i == 0 else 12, 0)
             )
-            self._tip(ttk.Spinbox(tab, from_=lo, to=hi, width=6, textvariable=var),
-                      tip).grid(row=row, column=1, sticky=tk.W, padx=4, pady=2)
+            self._tip(ttk.Spinbox(spin_frame, from_=lo, to=hi, width=5, textvariable=var),
+                      tip).grid(row=0, column=i * 2 + 1, sticky=tk.W, padx=(4, 0))
 
-        row = 2
+        # Auto-tune checkbox
         self._vars['auto_tune'] = tk.BooleanVar(value=True)
-        cb = ttk.Checkbutton(tab, text="Auto-tune parallelism", variable=self._vars['auto_tune'])
-        cb.grid(row=row, column=0, columnspan=2, sticky=tk.W, pady=2)
+        cb = ttk.Checkbutton(net_frame, text="Auto-tune parallelism", variable=self._vars['auto_tune'])
+        cb.pack(anchor=tk.W, pady=(4, 2))
         self._tip(cb, (
             "Automatically adjust parallel downloads and connections based on file sizes. "
             "Uses more connections for large files and fewer for small files."
         ))
 
+        # Directory fields
+        dir_frame = ttk.Frame(net_frame)
+        dir_frame.pack(fill=tk.X, pady=(2, 0))
         dir_fields = [
-            (4, "Cache dir:", 'cache_dir',
+            (0, "Cache dir:", 'cache_dir',
              "Directory for caching downloaded files from network sources. "
              "Defaults to a cache/ folder in the source directory. Re-runs skip cached files."),
-            (5, "DAT dir:", 'dat_dir',
+            (1, "DAT dir:", 'dat_dir',
              "Directory for No-Intro, Redump, and MAME DAT files used for ROM verification. "
              "Defaults to dat_files/ in the source directory. Auto-downloaded on first run."),
         ]
         for row, label, key, tip in dir_fields:
-            self._tip(ttk.Label(tab, text=label), tip).grid(
-                row=row, column=0, sticky=tk.W, pady=2
+            self._tip(ttk.Label(dir_frame, text=label), tip).grid(
+                row=row, column=0, sticky=tk.W, pady=1
             )
             self._vars[key] = tk.StringVar()
-            self._tip(ttk.Entry(tab, textvariable=self._vars[key], width=50), tip).grid(
-                row=row, column=1, sticky=tk.EW, padx=4, pady=2
+            self._tip(ttk.Entry(dir_frame, textvariable=self._vars[key], width=50), tip).grid(
+                row=row, column=1, sticky=tk.EW, padx=4, pady=1
             )
-            ttk.Button(tab, text="Browse", command=lambda k=key: self._browse_dir(k)).grid(
-                row=row, column=2, pady=2
+            ttk.Button(dir_frame, text="Browse", command=lambda k=key: self._browse_dir(k)).grid(
+                row=row, column=2, pady=1
             )
+        dir_frame.columnconfigure(1, weight=1)
 
-        tab.columnconfigure(1, weight=1)
-
-    def _create_advanced_tab(self):
-        tab = ttk.Frame(self._notebook, padding=10)
-        self._notebook.add(tab, text="Advanced")
-
-        # Checkbuttons
+        # ── Options section ──
         check_frame = ttk.LabelFrame(tab, text="Options", padding=6)
-        check_frame.grid(row=0, column=0, columnspan=3, sticky=tk.EW, pady=(0, 8))
+        check_frame.grid(row=1, column=0, columnspan=3, sticky=tk.EW, pady=(0, 8))
 
         adv_checks = [
             ('no_verify', "No verify",
@@ -931,7 +1083,7 @@ class RetroRefinerGUI:
             self._tip(cb, tip)
 
         # MAME version
-        row = 1
+        row = 2
         mame_tip = (
             "Specific MAME version to use for DAT downloads (e.g. 0.274). "
             "Leave empty to auto-detect the latest available version."
@@ -944,7 +1096,7 @@ class RetroRefinerGUI:
                   mame_tip).grid(row=row, column=1, sticky=tk.W, padx=4, pady=2)
 
         # Ratings source
-        row = 2
+        row = 3
         ratings_tip = (
             "Which rating database to use for --top and --size filtering. "
             "'combined' merges IGDB + LaunchBox (best coverage), "
@@ -963,7 +1115,7 @@ class RetroRefinerGUI:
 
         # Authentication section
         auth_frame = ttk.LabelFrame(tab, text="Authentication", padding=6)
-        auth_frame.grid(row=3, column=0, columnspan=3, sticky=tk.EW, pady=(8, 4))
+        auth_frame.grid(row=4, column=0, columnspan=3, sticky=tk.EW, pady=(8, 4))
 
         auth_entries = [
             ("IA access key:", "ia_access_key", False,
@@ -992,7 +1144,7 @@ class RetroRefinerGUI:
 
         # TeknoParrot section
         tp_frame = ttk.LabelFrame(tab, text="TeknoParrot", padding=6)
-        tp_frame.grid(row=4, column=0, columnspan=3, sticky=tk.EW, pady=(4, 0))
+        tp_frame.grid(row=5, column=0, columnspan=3, sticky=tk.EW, pady=(4, 0))
 
         tp_fields = [
             (0, "Include platforms:", 'tp_include_platforms',
@@ -1032,17 +1184,53 @@ class RetroRefinerGUI:
         if dlg.result is not None:
             self._vars['systems'].set(dlg.result)
 
+    @staticmethod
+    def _source_display(path):
+        """Format a source path/URL for display with a type prefix."""
+        if path.startswith(('http://', 'https://')):
+            return f"[HTTP]  {path}"
+        return f"[LOCAL] {path}"
+
+    @staticmethod
+    def _source_raw(display_text):
+        """Strip the display prefix to get the raw source path/URL."""
+        for prefix in ('[HTTP]  ', '[LOCAL] '):
+            if display_text.startswith(prefix):
+                return display_text[len(prefix):]
+        return display_text
+
     def _add_source_folder(self):
         path = filedialog.askdirectory()
         if path:
             self._listbox_data['source'].append(path)
-            self._source_listbox.insert(tk.END, path)
+            self._source_listbox.insert(tk.END, self._source_display(path))
+            self._update_button_states()
+            self._update_preview()
 
     def _add_source_url(self):
         url = tk.simpledialog.askstring("Add URL", "Enter source URL:", parent=self.root)
         if url and url.strip():
             self._listbox_data['source'].append(url.strip())
-            self._source_listbox.insert(tk.END, url.strip())
+            self._source_listbox.insert(tk.END, self._source_display(url.strip()))
+            self._update_button_states()
+            self._update_preview()
+
+    def _edit_source(self):
+        """Edit the selected source entry."""
+        sel = self._source_listbox.curselection()
+        if not sel:
+            return
+        idx = sel[0]
+        current = self._listbox_data['source'][idx]
+        new_value = tk.simpledialog.askstring(
+            "Edit Source", "Edit source path/URL:",
+            initialvalue=current, parent=self.root
+        )
+        if new_value and new_value.strip():
+            self._listbox_data['source'][idx] = new_value.strip()
+            self._source_listbox.delete(idx)
+            self._source_listbox.insert(idx, self._source_display(new_value.strip()))
+            self._update_preview()
 
     def _remove_source(self):
         sel = self._source_listbox.curselection()
@@ -1050,6 +1238,8 @@ class RetroRefinerGUI:
             idx = sel[0]
             self._source_listbox.delete(idx)
             self._listbox_data['source'].pop(idx)
+            self._update_button_states()
+            self._update_preview()
 
     def _add_pattern(self, key):
         pattern = tk.simpledialog.askstring(
@@ -1059,6 +1249,7 @@ class RetroRefinerGUI:
             self._listbox_data[key].append(pattern.strip())
             listbox = self._include_listbox if key == 'include' else self._exclude_listbox
             listbox.insert(tk.END, pattern.strip())
+            self._update_preview()
 
     def _remove_pattern(self, key):
         listbox = self._include_listbox if key == 'include' else self._exclude_listbox
@@ -1067,6 +1258,7 @@ class RetroRefinerGUI:
             idx = sel[0]
             listbox.delete(idx)
             self._listbox_data[key].pop(idx)
+            self._update_preview()
 
     def _add_dedup_pc_list(self):
         path = filedialog.askopenfilename(
@@ -1075,6 +1267,7 @@ class RetroRefinerGUI:
         if path:
             self._listbox_data['dedup_pc_lists'].append(path)
             self._dedup_pc_listbox.insert(tk.END, path)
+            self._update_preview()
 
     def _remove_dedup_pc_list(self):
         sel = self._dedup_pc_listbox.curselection()
@@ -1082,6 +1275,150 @@ class RetroRefinerGUI:
             idx = sel[0]
             self._dedup_pc_listbox.delete(idx)
             self._listbox_data['dedup_pc_lists'].pop(idx)
+            self._update_preview()
+
+    def _has_sources(self):
+        """Return True if at least one source is configured."""
+        return bool(self._listbox_data.get('source'))
+
+    def _update_dedupe_state(self):
+        """Enable/disable dedupe-dependent widgets based on whether priority is set."""
+        has_priority = bool(self._vars.get('dedup_priority', tk.StringVar()).get().strip())
+        state = tk.NORMAL if has_priority else tk.DISABLED
+        for widget in self._dedupe_dependent_widgets:
+            try:
+                widget.configure(state=state)
+            except tk.TclError:
+                pass  # Some widgets don't support state
+        self._update_preview()
+
+    # ── Command preview ──────────────────────────────────────────────
+
+    def _update_preview(self):
+        """Update the command preview line with current settings."""
+        if self._building:
+            return
+        try:
+            argv = self._build_argv(commit=False)
+            # Skip 'retro-refiner' prefix for brevity
+            preview = ' '.join(argv[1:]) if len(argv) > 1 else '(add a source to get started)'
+            self._preview_var.set(preview)
+        except Exception:  # pylint: disable=broad-except
+            self._preview_var.set('')
+
+    # ── Save / Load settings ─────────────────────────────────────────
+
+    def _save_settings(self):
+        """Export current GUI settings as a YAML config file."""
+        path = filedialog.asksaveasfilename(
+            defaultextension=".yaml",
+            filetypes=[("YAML files", "*.yaml *.yml"), ("All files", "*.*")],
+            initialfile="retro-refiner-gui-settings.yaml"
+        )
+        if not path:
+            return
+        lines = ["# Retro-Refiner GUI settings export\n"]
+        # Sources
+        sources = self._listbox_data.get('source', [])
+        if sources:
+            lines.append("sources:")
+            for src in sources:
+                lines.append(f'  - "{src}"')
+        # String vars
+        for key, var in sorted(self._vars.items()):
+            val = var.get()
+            if isinstance(val, bool):
+                if val:
+                    lines.append(f"{key}: true")
+            elif isinstance(val, int):
+                lines.append(f"{key}: {val}")
+            elif isinstance(val, str) and val.strip():
+                lines.append(f'{key}: "{val.strip()}"')
+        # Listbox data (patterns, pc lists)
+        for key in ('include', 'exclude', 'dedup_pc_lists'):
+            items = self._listbox_data.get(key, [])
+            if items:
+                lines.append(f"{key}:")
+                for item in items:
+                    lines.append(f'  - "{item}"')
+        Path(path).write_text('\n'.join(lines), encoding='utf-8')
+        self._status_var.set(f"Saved: {Path(path).name}")
+
+    def _load_settings(self):
+        """Import GUI settings from a YAML config file."""
+        path = filedialog.askopenfilename(
+            filetypes=[("YAML files", "*.yaml *.yml"), ("All files", "*.*")]
+        )
+        if not path:
+            return
+        try:
+            text = Path(path).read_text(encoding='utf-8')
+        except OSError as exc:
+            messagebox.showerror("Load Error", str(exc))
+            return
+        # Clear existing state before loading
+        for key in ('source', 'include', 'exclude', 'dedup_pc_lists'):
+            self._listbox_data[key] = []
+        self._source_listbox.delete(0, tk.END)
+        self._include_listbox.delete(0, tk.END)
+        self._exclude_listbox.delete(0, tk.END)
+        self._dedup_pc_listbox.delete(0, tk.END)
+        for var in self._vars.values():
+            if isinstance(var, tk.BooleanVar):
+                var.set(False)
+            elif isinstance(var, tk.IntVar):
+                pass  # Keep defaults (parallel=4, etc.)
+            elif isinstance(var, tk.StringVar):
+                var.set('')
+        # Restore defaults that aren't empty
+        self._vars['transfer_mode'].set('Copy')
+        self._vars['auto_tune'].set(True)
+
+        # Simple YAML parsing (key: value and key:\n  - item)
+        current_list_key = None
+        for line in text.split('\n'):
+            stripped = line.strip()
+            if not stripped or stripped.startswith('#'):
+                current_list_key = None
+                continue
+            if stripped.startswith('- '):
+                # List item
+                val = stripped[2:].strip().strip('"').strip("'")
+                if current_list_key == 'sources':
+                    self._listbox_data.setdefault('source', []).append(val)
+                    self._source_listbox.insert(tk.END, self._source_display(val))
+                elif current_list_key in self._listbox_data:
+                    self._listbox_data[current_list_key].append(val)
+                    if current_list_key == 'include':
+                        self._include_listbox.insert(tk.END, val)
+                    elif current_list_key == 'exclude':
+                        self._exclude_listbox.insert(tk.END, val)
+                    elif current_list_key == 'dedup_pc_lists':
+                        self._dedup_pc_listbox.insert(tk.END, val)
+                continue
+            if ':' in stripped:
+                key, _, val = stripped.partition(':')
+                key = key.strip()
+                val = val.strip().strip('"').strip("'")
+                if not val:
+                    # List header
+                    current_list_key = key
+                    continue
+                current_list_key = None
+                if key in self._vars:
+                    var = self._vars[key]
+                    if isinstance(var, tk.BooleanVar):
+                        var.set(val.lower() in ('true', '1', 'yes'))
+                    elif isinstance(var, tk.IntVar):
+                        try:
+                            var.set(int(val))
+                        except ValueError:
+                            pass
+                    else:
+                        var.set(val)
+        self._update_button_states()
+        self._update_preview()
+        self._status_var.set(f"Loaded: {Path(path).name}")
 
     # ── Build argv ────────────────────────────────────────────────────
 
@@ -1277,14 +1614,36 @@ class RetroRefinerGUI:
     def _start_run(self, commit):
         """Launch the worker thread."""
         # Validate that at least one source is specified
-        if not self._listbox_data.get('source'):
+        if not self._has_sources():
             messagebox.showwarning("No Source", "Please add at least one source directory or URL.")
             return
 
+        # Pre-run validation warnings
+        warnings = []
+        if self._vars['dedupe_delete'].get() and not self._vars['dedup_priority'].get().strip():
+            warnings.append("'Delete duplicates in-place' is checked but no dedupe priority is set. "
+                            "The delete option will have no effect.")
+        if warnings:
+            msg = '\n\n'.join(warnings) + '\n\nContinue anyway?'
+            if not messagebox.askyesno("Configuration Warning", msg):
+                return
+
+        # Clear welcome text on first run
+        if self._welcome_shown:
+            self._clear_output()
+            self._welcome_shown = False
+
         self._running = True
+        self._start_time = time.monotonic()
         self._update_button_states()
         self._progress_var.set(0)
         self._status_var.set("Running...")
+        self._elapsed_var.set("0:00")
+
+        # Start indeterminate progress bar
+        self._progress_bar.configure(mode='indeterminate')
+        self._progress_bar.start(15)
+        self._progress_is_indeterminate = True
 
         # Reset shutdown flag from any previous run
         _module._shutdown_requested = False  # pylint: disable=protected-access
@@ -1322,6 +1681,13 @@ class RetroRefinerGUI:
     def _on_run_complete(self):
         """Called on the main thread when the worker finishes."""
         self._running = False
+
+        # Stop indeterminate animation if still running
+        if self._progress_is_indeterminate:
+            self._progress_bar.stop()
+            self._progress_bar.configure(mode='determinate')
+            self._progress_is_indeterminate = False
+
         self._update_button_states()
         # pylint: disable=protected-access
         if _module._shutdown_requested:
@@ -1332,15 +1698,22 @@ class RetroRefinerGUI:
             self._status_var.set("Completed")
         self._progress_var.set(100)
 
+        # Show final elapsed time
+        if self._start_time:
+            elapsed = time.monotonic() - self._start_time
+            self._elapsed_var.set(self._format_elapsed(elapsed))
+            self._start_time = None
+
     def _update_button_states(self):
-        """Enable/disable buttons based on running state."""
+        """Enable/disable buttons based on running state and source availability."""
+        has_sources = self._has_sources()
         if self._running:
             self._dry_btn.configure(state=tk.DISABLED)
             self._commit_btn.configure(state=tk.DISABLED)
             self._cancel_btn.configure(state=tk.NORMAL)
         else:
-            self._dry_btn.configure(state=tk.NORMAL)
-            self._commit_btn.configure(state=tk.NORMAL)
+            self._dry_btn.configure(state=tk.NORMAL if has_sources else tk.DISABLED)
+            self._commit_btn.configure(state=tk.NORMAL if has_sources else tk.DISABLED)
             self._cancel_btn.configure(state=tk.DISABLED)
 
     def _clear_output(self):
@@ -1348,6 +1721,23 @@ class RetroRefinerGUI:
         self._output_text.configure(state=tk.NORMAL)
         self._output_text.delete('1.0', tk.END)
         self._output_text.configure(state=tk.DISABLED)
+
+    def _copy_output(self):
+        """Copy output text content to the system clipboard."""
+        content = self._output_text.get('1.0', tk.END).strip()
+        if content:
+            self.root.clipboard_clear()
+            self.root.clipboard_append(content)
+            self._status_var.set("Copied to clipboard")
+
+    @staticmethod
+    def _format_elapsed(seconds):
+        """Format elapsed seconds as M:SS or H:MM:SS."""
+        m, s = divmod(int(seconds), 60)
+        if m >= 60:
+            h, m = divmod(m, 60)
+            return f"{h}:{m:02d}:{s:02d}"
+        return f"{m}:{s:02d}"
 
     # ── Theme ─────────────────────────────────────────────────────────
 
@@ -1359,7 +1749,8 @@ class RetroRefinerGUI:
     def _apply_theme(self):
         """Apply the current theme to all widgets."""
         theme = DARK_THEME if self._is_dark else LIGHT_THEME
-        self._theme_btn.configure(text="Light" if self._is_dark else "Dark")
+        theme_name = "Dark" if self._is_dark else "Light"
+        self._theme_btn.configure(text=f"Theme: {theme_name}")
 
         # Output text widget
         self._output_text.configure(
@@ -1381,6 +1772,12 @@ class RetroRefinerGUI:
         for canvas in self._canvases:
             canvas.configure(bg=theme['canvas_bg'])
 
+        # Command preview entry
+        self._preview_entry.configure(
+            readonlybackground=theme['preview_bg'],
+            fg=theme['preview_fg'],
+        )
+
         # Configure ttk styles for themed widgets
         s = ttk.Style()
 
@@ -1398,6 +1795,10 @@ class RetroRefinerGUI:
         s.configure('TLabelframe.Label', background=theme['frame_bg'],
                      foreground=theme['label_fg'])
 
+        # Subtitle label style
+        s.configure('Sub.TLabel', background=theme['frame_bg'],
+                     foreground=theme['sublabel_fg'], font=('TkDefaultFont', 8))
+
         # Buttons
         s.configure('TButton', background=theme['button_bg'],
                      foreground=theme['button_fg'], bordercolor=bc,
@@ -1409,6 +1810,20 @@ class RetroRefinerGUI:
                          ('active', theme['button_hover_bg'])],
               lightcolor=[('pressed', theme['button_pressed_bg']),
                           ('active', theme['button_hover_bg'])])
+
+        # Accent button style (for Commit button)
+        s.configure('Accent.TButton', background=theme['accent_bg'],
+                     foreground=theme['accent_fg'], bordercolor=theme['accent_bg'],
+                     darkcolor=theme['accent_bg'], lightcolor=theme['accent_bg'])
+        s.map('Accent.TButton',
+              background=[('disabled', theme['button_bg']),
+                          ('pressed', theme['accent_pressed_bg']),
+                          ('active', theme['accent_hover_bg'])],
+              foreground=[('disabled', theme['button_fg'])],
+              darkcolor=[('pressed', theme['accent_pressed_bg']),
+                         ('active', theme['accent_hover_bg'])],
+              lightcolor=[('pressed', theme['accent_pressed_bg']),
+                          ('active', theme['accent_hover_bg'])])
 
         # Checkbuttons
         s.configure('TCheckbutton', background=theme['frame_bg'],
@@ -1478,6 +1893,9 @@ class RetroRefinerGUI:
         s.configure('Sash', sashthickness=6, gripcount=0,
                      background=theme['frame_bg'])
 
+        # Separator
+        s.configure('TSeparator', background=bc)
+
         # Window background
         self.root.configure(bg=theme['window_bg'])
 
@@ -1486,7 +1904,7 @@ class RetroRefinerGUI:
     def _poll_queue(self):
         """Drain the output queue into the Text widget (called every 50ms)."""
         try:
-            autoscroll = self._output_text.yview()[1] >= 0.95
+            autoscroll = self._auto_scroll.get() and self._output_text.yview()[1] >= 0.95
             batch_count = 0
 
             while batch_count < 200:  # Process up to 200 items per poll
@@ -1513,6 +1931,11 @@ class RetroRefinerGUI:
             if autoscroll and batch_count > 0:
                 self._output_text.see(tk.END)
 
+            # Update elapsed time while running
+            if self._running and self._start_time:
+                elapsed = time.monotonic() - self._start_time
+                self._elapsed_var.set(self._format_elapsed(elapsed))
+
         except Exception:
             pass  # Don't crash the poll loop
 
@@ -1525,6 +1948,13 @@ class RetroRefinerGUI:
             if '(' in text and '%)' in text:
                 pct_str = text.split('(')[-1].split('%')[0]
                 pct = float(pct_str)
+
+                # Switch from indeterminate to determinate on first percentage
+                if self._progress_is_indeterminate:
+                    self._progress_bar.stop()
+                    self._progress_bar.configure(mode='determinate')
+                    self._progress_is_indeterminate = False
+
                 self._progress_var.set(pct)
                 # Extract label if present after the percentage
                 after_pct = text.split('%)')[1].strip() if '%)' in text else ''
