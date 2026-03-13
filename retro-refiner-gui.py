@@ -896,6 +896,9 @@ class RetroRefinerGUI:
             ('no_verify', "No verify",
              "Skip CRC32 verification of selected ROMs against DAT files. "
              "Faster but won't flag bad dumps or misnamed files."),
+            ('no_cache', "No cache",
+             "Skip all file caching (CRC checksums, download cache, ratings). "
+             "Downloads go directly to destination, saving disk space."),
             ('no_dat', "No DAT",
              "Use filename parsing instead of DAT file metadata for ROM identification. "
              "Faster but less accurate for non-standard filenames."),
@@ -1214,6 +1217,8 @@ class RetroRefinerGUI:
         # Advanced booleans
         if self._vars['no_verify'].get():
             argv.append('--no-verify')
+        if self._vars['no_cache'].get():
+            argv.append('--no-cache')
         if self._vars['no_dat'].get():
             argv.append('--no-dat')
         if self._vars['no_chd'].get():

@@ -3919,6 +3919,10 @@ english_only: false
 # Faster but less accurate
 no_verify: false
 
+# Skip all file caching (CRC checksums, download cache, ratings cache)
+# Forces fresh computation/download each run
+no_cache: false
+
 # Use filename parsing instead of DAT metadata
 # Faster but less accurate region detection
 no_dat: false
@@ -4068,6 +4072,7 @@ def apply_config_to_args(args, config: dict):
         'retroarch_playlists': 'retroarch_playlists',
         'prefer_source': 'prefer_source',
         'no_verify': 'no_verify',
+        'no_cache': 'no_cache',
         'no_dat': 'no_dat',
         'update_dats': 'update_dats',
         'no_chd': 'no_chd',
@@ -8257,7 +8262,9 @@ def filter_roms_from_files(rom_files: list, dest_dir: str, system: str, dry_run:
                            english_only: bool = False,
                            download_crc_index: dict = None,
                            exclude_titles: set = None,
-                           no_verify: bool = False):
+                           no_verify: bool = False,
+                           no_cache: bool = False,
+                           skip_transfer: bool = False):
     """Filter ROMs from a list of file paths.
 
     If dat_entries is provided, uses DAT metadata to enhance/override filename parsing.
@@ -8274,9 +8281,9 @@ def filter_roms_from_files(rom_files: list, dest_dir: str, system: str, dry_run:
     crc_to_dat = dat_entries or {}
     dat_matched = 0
 
-    # Load persistent CRC cache
+    # Load persistent CRC cache (skip when --no-cache)
     crc_cache_path = dest_path / '_crc_cache.json'
-    crc_cache = load_crc_cache(crc_cache_path) if crc_to_dat else {}
+    crc_cache = load_crc_cache(crc_cache_path) if crc_to_dat and not no_cache else {}
 
     # Parse all ROMs
     all_roms = []
@@ -8427,7 +8434,8 @@ def filter_roms_from_files(rom_files: list, dest_dir: str, system: str, dry_run:
                     if dat_entry.region != 'Unknown':
                         rom.region = dat_entry.region
                     dat_matched += 1
-            save_crc_cache(crc_cache_path, crc_cache)
+            if not no_cache:
+                save_crc_cache(crc_cache_path, crc_cache)
         if dat_entries:
             Console.system_stat(system, f"{dat_matched} selected ROMs matched to DAT entries")
 
@@ -8467,29 +8475,43 @@ def filter_roms_from_files(rom_files: list, dest_dir: str, system: str, dry_run:
         return selected_roms, {'source_size': total_source_size, 'selected_size': selected_size,
                                'rom_sizes': size_map}
 
-    # Create destination directory (clear existing files first for non-flat)
-    if not flat_output:
-        if dest_path.exists():
-            for old_file in dest_path.iterdir():
-                if old_file.is_file():
-                    old_file.unlink()
+    # Create destination directory and transfer/clean up files
     dest_path.mkdir(parents=True, exist_ok=True)
 
-    # Transfer selected ROMs
-    copied = 0
-    action_verb = {'copy': 'Copying', 'link': 'Linking', 'hardlink': 'Hardlinking', 'move': 'Moving'}
-    for rom in tqdm(selected_roms, desc=f"{system.upper()} {action_verb.get(transfer_mode, 'Copying')}", unit="ROM", leave=False):
-        if _shutdown_requested:
-            break
-        src = file_map.get(rom.filename)
-        if src and src.exists():
-            dst = dest_path / rom.filename
-            transfer_file(src, dst, transfer_mode)
-            copied += 1
+    if skip_transfer:
+        # Files already downloaded directly to dest — remove non-selected files
+        selected_filenames = {rom.filename for rom in selected_roms}
+        removed = 0
+        for old_file in dest_path.iterdir():
+            if old_file.is_file() and old_file.name not in selected_filenames \
+                    and not old_file.name.startswith('_'):
+                old_file.unlink()
+                removed += 1
+        Console.blank()
+        Console.system_stat(system, f"{len(selected_roms)} ROMs in {dest_path} ({removed} non-selected removed)")
+    else:
+        # Clear existing files first (for non-flat output)
+        if not flat_output:
+            if dest_path.exists():
+                for old_file in dest_path.iterdir():
+                    if old_file.is_file():
+                        old_file.unlink()
 
-    action_past = {'copy': 'Copied', 'link': 'Linked', 'hardlink': 'Hardlinked', 'move': 'Moved'}
-    Console.blank()
-    Console.system_stat(system, f"{action_past.get(transfer_mode, 'Copied')} {copied} ROMs to {dest_path}")
+        # Transfer selected ROMs
+        copied = 0
+        action_verb = {'copy': 'Copying', 'link': 'Linking', 'hardlink': 'Hardlinking', 'move': 'Moving'}
+        for rom in tqdm(selected_roms, desc=f"{system.upper()} {action_verb.get(transfer_mode, 'Copying')}", unit="ROM", leave=False):
+            if _shutdown_requested:
+                break
+            src = file_map.get(rom.filename)
+            if src and src.exists():
+                dst = dest_path / rom.filename
+                transfer_file(src, dst, transfer_mode)
+                copied += 1
+
+        action_past = {'copy': 'Copied', 'link': 'Linked', 'hardlink': 'Hardlinked', 'move': 'Moved'}
+        Console.blank()
+        Console.system_stat(system, f"{action_past.get(transfer_mode, 'Copied')} {copied} ROMs to {dest_path}")
 
     # Write selection log
     log_path = dest_path / "_selection_log.txt"
@@ -8675,6 +8697,8 @@ Pattern examples (--include / --exclude):
                         help='Exclude adult/mature MAME games (included by default)')
     parser.add_argument('--no-verify', action='store_true',
                         help='Skip ROM verification against DAT files')
+    parser.add_argument('--no-cache', action='store_true',
+                        help='Skip all file caching (CRC, download, ratings)')
     parser.add_argument('--no-dat', action='store_true',
                         help='Use filename parsing instead of DAT metadata')
     parser.add_argument('--update-dats', action='store_true',
@@ -9149,6 +9173,8 @@ Pattern examples (--include / --exclude):
         options.append(f"years: {year_range}")
     if args.verbose:
         options.append("verbose")
+    if args.no_cache:
+        options.append("no cache")
     if options:
         Console.status("Options", ', '.join(options))
 
@@ -9397,7 +9423,8 @@ Pattern examples (--include / --exclude):
                 Console.warning("LaunchBox data not found. Downloading...")
                 if not download_launchbox_data(dat_dir_ratings):
                     return {}
-            return load_ratings_cache(dat_dir_ratings)
+            return load_ratings_cache(dat_dir_ratings,
+                                      force_rebuild=args.no_cache)
 
         # Helper: load IGDB ratings
         def _load_igdb():
@@ -9405,6 +9432,7 @@ Pattern examples (--include / --exclude):
                 dat_dir_ratings,
                 client_id=getattr(args, 'igdb_client_id', None),
                 client_secret=getattr(args, 'igdb_client_secret', None),
+                force_rebuild=args.no_cache,
                 systems=list(IGDB_PLATFORM_MAP.keys()),
             )
 
@@ -9702,7 +9730,7 @@ Pattern examples (--include / --exclude):
                 Console.text("Download tool: Python urllib (sequential)", indent=2)
 
     # Step 3: Collect all files to download across all systems
-    all_downloads = []  # List of (url, cached_path, system)
+    all_downloads = []  # List of (url, download_path, system)
     url_to_system = {}  # Map url -> system for result processing
 
     for system, filtered_urls in network_downloads.items():
@@ -9714,20 +9742,30 @@ Pattern examples (--include / --exclude):
             filename = urllib.request.unquote(url_clean.split('/')[-1])
             filename = re.sub(r'[<>:"/\\|?*]', '_', filename) or 'unknown_file'
 
-            url_path = url_clean.replace('://', '/').split('/', 1)[1] if '://' in url_clean else url_clean
-            path_parts = [p for p in url_path.split('/') if p]
-            subdir = path_parts[-2] if len(path_parts) >= 2 else 'misc'
-            subdir = re.sub(r'[<>:"/\\|?*]', '_', subdir)
+            if args.no_cache:
+                # Download directly to destination directory
+                if args.flat:
+                    download_dir = Path(args.dest)
+                else:
+                    download_dir = Path(args.dest) / system
+                download_dir.mkdir(parents=True, exist_ok=True)
+                download_path = download_dir / filename
+            else:
+                # Download to cache directory
+                url_path = url_clean.replace('://', '/').split('/', 1)[1] if '://' in url_clean else url_clean
+                path_parts = [p for p in url_path.split('/') if p]
+                subdir = path_parts[-2] if len(path_parts) >= 2 else 'misc'
+                subdir = re.sub(r'[<>:"/\\|?*]', '_', subdir)
 
-            cache_subdir = cache_dir / subdir
-            cache_subdir.mkdir(parents=True, exist_ok=True)
-            cached_path = cache_subdir / filename
+                cache_subdir = cache_dir / subdir
+                cache_subdir.mkdir(parents=True, exist_ok=True)
+                download_path = cache_subdir / filename
 
             url_to_system[url] = system
 
-            # Skip already cached
-            if not cached_path.exists():
-                all_downloads.append((url, cached_path, system))
+            # Skip already downloaded (unless --no-cache)
+            if args.no_cache or not download_path.exists():
+                all_downloads.append((url, download_path, system))
 
     # Sort alphabetically by filename
     all_downloads.sort(key=lambda x: x[1].name.lower())
@@ -9773,7 +9811,7 @@ Pattern examples (--include / --exclude):
 
         # Start background CRC indexer so verification runs during downloads
         crc_indexer = None
-        if not args.no_verify:
+        if not args.no_verify and not args.no_cache:
             crc_indexer = BackgroundCrcIndexer(cache_dir)
 
         ui = DownloadUI(
@@ -9806,7 +9844,7 @@ Pattern examples (--include / --exclude):
                 if cached.exists():
                     all_cached_paths.append(cached)
 
-    if all_cached_paths and not args.no_verify:
+    if all_cached_paths and not args.no_verify and not args.no_cache:
         if not crc_indexer:
             crc_indexer = BackgroundCrcIndexer(cache_dir)
         for cached_path in all_cached_paths:
@@ -9826,17 +9864,24 @@ Pattern examples (--include / --exclude):
             if url in cached_files:
                 cached = cached_files[url]
             else:
-                # Check if already cached on disk
                 url_clean = url.split('?')[0].split('#')[0]
                 filename = urllib.request.unquote(url_clean.split('/')[-1])
                 filename = re.sub(r'[<>:"/\\|?*]', '_', filename) or 'unknown_file'
 
-                url_path = url_clean.replace('://', '/').split('/', 1)[1] if '://' in url_clean else url_clean
-                path_parts = [p for p in url_path.split('/') if p]
-                subdir = path_parts[-2] if len(path_parts) >= 2 else 'misc'
-                subdir = re.sub(r'[<>:"/\\|?*]', '_', subdir)
+                if args.no_cache:
+                    # Files downloaded directly to destination
+                    if args.flat:
+                        cached = Path(args.dest) / filename
+                    else:
+                        cached = Path(args.dest) / system / filename
+                else:
+                    # Check if already cached on disk
+                    url_path = url_clean.replace('://', '/').split('/', 1)[1] if '://' in url_clean else url_clean
+                    path_parts = [p for p in url_path.split('/') if p]
+                    subdir = path_parts[-2] if len(path_parts) >= 2 else 'misc'
+                    subdir = re.sub(r'[<>:"/\\|?*]', '_', subdir)
+                    cached = cache_dir / subdir / filename
 
-                cached = cache_dir / subdir / filename
                 if not cached.exists():
                     continue
 
@@ -9898,7 +9943,7 @@ Pattern examples (--include / --exclude):
     # remaining_size_budget carries over from network phase (initialized before network loop)
 
     # Load existing CRC index from cache if not already populated
-    if not download_crc_index and not args.no_verify:
+    if not download_crc_index and not args.no_verify and not args.no_cache:
         crc_index_path = cache_dir / '_crc_index.json'
         if crc_index_path.exists():
             try:
@@ -9925,10 +9970,9 @@ Pattern examples (--include / --exclude):
             pc_title_count = len(claimed_titles)
             Console.info(f"Loaded {pc_title_count} PC game titles for dedupe")
 
-        # Reorder: priority systems first (in order), then remaining alphabetically
+        # Only process priority systems (in order) — skip systems not in the list
         priority_systems = [s for s in dedupe_priority_list if s in detected and s != 'pc']
-        other_systems = sorted(s for s in detected if s not in dedupe_priority_list)
-        system_order = priority_systems + other_systems
+        system_order = priority_systems
     else:
         system_order = sorted(detected.keys())
 
@@ -9943,8 +9987,9 @@ Pattern examples (--include / --exclude):
         # Special handling for TeknoParrot
         if system == 'teknoparrot':
             # Check if files came from network sources (already pre-filtered)
-            # Network files are stored in cache and were filtered by filter_teknoparrot_network_roms()
-            network_filtered = any(str(f).startswith(str(cache_dir)) for f in rom_files if hasattr(f, '__str__'))
+            # Network files are stored in cache (or dest with --no-cache)
+            network_filtered = (system in network_downloads) or \
+                any(str(f).startswith(str(cache_dir)) for f in rom_files if hasattr(f, '__str__'))
 
             if network_filtered and rom_files:
                 # Files are already filtered from network - just copy to destination
@@ -9965,7 +10010,7 @@ Pattern examples (--include / --exclude):
                     selected_size += file_size
 
                     dest_file = dest_path / rom_path.name
-                    if not dry_run:
+                    if not dry_run and rom_path.resolve() != dest_file.resolve():
                         if transfer_mode == 'copy':
                             shutil.copy2(rom_path, dest_file)
                         elif transfer_mode == 'move':
@@ -10117,7 +10162,8 @@ Pattern examples (--include / --exclude):
                 system = 'fbneo'  # Normalize to fbneo
 
             # Check if files came from network sources (already pre-filtered)
-            network_filtered = any(str(f).startswith(str(cache_dir)) for f in rom_files if hasattr(f, '__str__'))
+            network_filtered = (system in network_downloads) or \
+                any(str(f).startswith(str(cache_dir)) for f in rom_files if hasattr(f, '__str__'))
 
             if network_filtered and rom_files:
                 # Files are already filtered from network - just copy to destination
@@ -10138,7 +10184,7 @@ Pattern examples (--include / --exclude):
                     selected_size += file_size
 
                     dest_file = dest_path / rom_path.name
-                    if not dry_run:
+                    if not dry_run and rom_path.resolve() != dest_file.resolve():
                         if transfer_mode == 'copy':
                             shutil.copy2(rom_path, dest_file)
                         elif transfer_mode == 'move':
@@ -10394,7 +10440,9 @@ Pattern examples (--include / --exclude):
                 english_only=args.english_only,
                 download_crc_index=download_crc_index,
                 exclude_titles=claimed_titles if (dedupe_active and system in dedupe_priority_list) else None,
-                no_verify=args.no_verify
+                no_verify=args.no_verify or dedupe_active,
+                no_cache=args.no_cache,
+                skip_transfer=args.no_cache and system in network_downloads
             )
             selected, size_info = result
 
