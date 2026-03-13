@@ -3890,6 +3890,8 @@ english_only: false
 # dedupe_pc_lists:
 #   - /path/to/PC-Windows-Games.xml
 #   - /path/to/PC-DOS-Games.xml
+# Delete duplicate files from source directories in-place (requires --commit)
+# dedupe_delete: false
 
 # -----------------------------------------------------------------------------
 # Metadata Filters
@@ -4105,6 +4107,7 @@ def apply_config_to_args(args, config: dict):
         # Cross-platform dedupe
         'dedupe_priority': 'dedupe_priority',
         'dedupe_pc_lists': 'dedupe_pc_lists',
+        'dedupe_delete': 'dedupe_delete',
         # IGDB options
         'igdb_client_id': 'igdb_client_id',
         'igdb_client_secret': 'igdb_client_secret',
@@ -4256,8 +4259,8 @@ def parse_pc_game_list(xml_path, for_dedupe=False):
     return titles
 
 
-def run_dedupe_analysis(detected, args):
-    """Run standalone cross-platform dedupe analysis (filename parsing only)."""
+def run_dedupe_analysis(detected, args, delete=False, confirm=True):
+    """Run cross-platform dedupe analysis and optionally delete duplicates in-place."""
     arcade_systems = {'mame', 'fbneo', 'fba', 'arcade', 'teknoparrot'}
 
     # Parse priority list (only analyze systems in the priority chain)
@@ -4282,10 +4285,12 @@ def run_dedupe_analysis(detected, args):
     pc_title_count = len(pc_title_sources)
     claimed_titles = set(pc_title_sources)
 
-    # Build title sets and size maps for priority systems only
+    # Build title sets, size maps, and file maps for priority systems
     system_titles = {}  # {system: {normalized_title: total_size_bytes}}
+    system_title_files = {}  # {system: {normalized_title: [file_paths]}} (delete mode only)
     for system in priority_systems:
         title_sizes = {}
+        title_files = {} if delete else None
         for f in detected[system]:
             rom = parse_rom_filename(f.name)
             normalized = normalize_title_for_dedupe(rom.base_title)
@@ -4295,11 +4300,16 @@ def run_dedupe_analysis(detected, args):
                     title_sizes[normalized] += size
                 else:
                     title_sizes[normalized] = size
+                if delete:
+                    title_files.setdefault(normalized, []).append(f)
         if title_sizes:
             system_titles[system] = title_sizes
+            if delete:
+                system_title_files[system] = title_files
 
     # Display results
-    Console.section("CROSS-PLATFORM DEDUPE ANALYSIS")
+    header = "CROSS-PLATFORM DEDUPE DELETE" if delete else "CROSS-PLATFORM DEDUPE ANALYSIS"
+    Console.section(header)
 
     priority_display = [s.upper() for s in dedupe_priority_list]
     if pc_title_count > 0:
@@ -4320,6 +4330,7 @@ def run_dedupe_analysis(detected, args):
     total_size = 0
     total_reclaimable = 0
     system_dupes = {}  # {system: [(title, size, systems_with), ...]} for verbose
+    files_to_delete = {}  # {system: [file_paths]} for delete mode
 
     # Only process systems in the priority chain (in order)
     active_systems = [s for s in priority_systems if s in system_titles]
@@ -4335,6 +4346,13 @@ def run_dedupe_analysis(detected, args):
             if title in claimed_titles:
                 duplicates.add(title)
                 reclaimable += size
+
+        # Collect files to delete for this system
+        if delete and duplicates:
+            delete_list = []
+            for title in duplicates:
+                delete_list.extend(system_title_files.get(system, {}).get(title, []))
+            files_to_delete[system] = delete_list
 
         # Track duplicates per system for verbose output
         if args.verbose and duplicates:
@@ -4391,6 +4409,44 @@ def run_dedupe_analysis(detected, args):
                 print(f"  {Style.TAG_DEDUPE}[DEDUPE]{Style.RESET} "
                       f"{Style.WHITE}{title}{Style.RESET} "
                       f"{Style.DETAIL}(on: {f'{Style.DETAIL}, '.join(parts)}{Style.DETAIL}){Style.RESET}")
+
+    # Delete duplicate files in-place
+    if delete and files_to_delete:
+        total_file_count = sum(len(fl) for fl in files_to_delete.values())
+        if confirm:
+            Console.blank()
+            Console.warning(f"This will permanently delete {total_file_count} duplicate files "
+                            f"({format_size(total_reclaimable)}) from source directories.")
+            try:
+                response = input("  Continue? [y/N] ")
+            except (EOFError, KeyboardInterrupt):
+                response = ''
+            if response.lower() not in ('y', 'yes'):
+                Console.info("Cancelled")
+                return
+        Console.blank()
+        total_deleted = 0
+        total_freed = 0
+        for system in active_systems:
+            if system not in files_to_delete:
+                continue
+            deleted = 0
+            freed = 0
+            for f in files_to_delete[system]:
+                if f.exists():
+                    freed += f.stat().st_size
+                    f.unlink()
+                    deleted += 1
+                    if args.verbose:
+                        Console.verbose('dedupe', f"Deleted {f.name}")
+            total_deleted += deleted
+            total_freed += freed
+            Console.system_stat(system, f"Deleted {deleted} duplicate files ({format_size(freed)})")
+        Console.blank()
+        Console.success(f"Deleted {total_deleted} files, freed {format_size(total_freed)}")
+    elif delete:
+        Console.blank()
+        Console.info("No duplicate files to delete")
 
 
 # Default region priority order
@@ -8656,6 +8712,9 @@ Pattern examples (--include / --exclude):
                              '(e.g., "pc,ps2,ps1,gamecube"). Keeps only the best platform version.')
     parser.add_argument('--dedupe-pc-lists', action='append', default=None,
                         help='LaunchBox XML playlist of PC games for dedupe seeding (can specify multiple)')
+    parser.add_argument('--dedupe-delete', action='store_true',
+                        help='Delete duplicate ROM files from source directories in-place '
+                             '(requires --dedupe-priority and --commit)')
 
     # Output options
     parser.add_argument('--print', action='store_true', dest='print_roms',
@@ -9080,6 +9139,14 @@ Pattern examples (--include / --exclude):
             for key, value in config.items():
                 Console.verbose('config', f"{key}: {value}")
 
+    # Validate --dedupe-delete requires --dedupe-priority and --commit
+    if args.dedupe_delete and not args.dedupe_priority:
+        Console.error("--dedupe-delete requires --dedupe-priority")
+        sys.exit(1)
+    if args.dedupe_delete and not args.commit:
+        Console.error("--dedupe-delete requires --commit")
+        sys.exit(1)
+
     # Set default destination (refined/ subfolder where script is located)
     if args.dest is None:
         script_dir = Path(__file__).parent.resolve()
@@ -9227,11 +9294,12 @@ Pattern examples (--include / --exclude):
                             detected[system].append(f)
                             rom_sources[str(f)] = source_path
 
-    # Standalone dedupe analysis mode (dry run only)
-    if args.dedupe_priority and not args.commit:
+    # Standalone dedupe analysis / delete mode
+    if args.dedupe_priority and (not args.commit or args.dedupe_delete):
         detected_dict = dict(detected)
         if detected_dict:
-            run_dedupe_analysis(detected_dict, args)
+            run_dedupe_analysis(detected_dict, args, delete=args.dedupe_delete,
+                                confirm=not getattr(args, 'yes', False))
         else:
             Console.text("\nNo ROM files found.")
         return

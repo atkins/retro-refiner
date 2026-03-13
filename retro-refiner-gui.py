@@ -756,6 +756,19 @@ class RetroRefinerGUI:
         ttk.Button(pc_btns, text="Add", command=self._add_dedup_pc_list).pack(fill=tk.X, pady=1)
         ttk.Button(pc_btns, text="Remove", command=self._remove_dedup_pc_list).pack(fill=tk.X, pady=1)
 
+        # Dedupe delete checkbox
+        row = 4
+        dedupe_del_tip = (
+            "Delete duplicate ROM files from source directories in-place instead of "
+            "copying selected ROMs to a new destination. Saves disk space by removing "
+            "lower-priority versions directly. Requires Dedupe priority to be set."
+        )
+        self._vars['dedupe_delete'] = tk.BooleanVar()
+        cb = ttk.Checkbutton(tab, text="Delete duplicates in-place",
+                             variable=self._vars['dedupe_delete'])
+        cb.grid(row=row, column=0, columnspan=2, sticky=tk.W, pady=4)
+        self._tip(cb, dedupe_del_tip)
+
         tab.columnconfigure(1, weight=1)
 
     def _create_output_tab(self):
@@ -1140,7 +1153,7 @@ class RetroRefinerGUI:
             'genres': '--genres',
             'region_priority': '--region-priority',
             'keep_regions': '--keep-regions',
-            'dedup_priority': '--dedup-priority',
+            'dedup_priority': '--dedupe-priority',
             'mame_version': '--mame-version',
             'ia_access_key': '--ia-access-key',
             'ia_secret_key': '--ia-secret-key',
@@ -1156,7 +1169,9 @@ class RetroRefinerGUI:
 
         # Dedupe PC lists
         for path in self._listbox_data.get('dedup_pc_lists', []):
-            argv.extend(['--dedup-pc-lists', path])
+            argv.extend(['--dedupe-pc-lists', path])
+        if self._vars['dedupe_delete'].get():
+            argv.append('--dedupe-delete')
 
         # Transfer mode
         mode = self._vars['transfer_mode'].get()
