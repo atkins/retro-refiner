@@ -8263,8 +8263,7 @@ def filter_roms_from_files(rom_files: list, dest_dir: str, system: str, dry_run:
                            download_crc_index: dict = None,
                            exclude_titles: set = None,
                            no_verify: bool = False,
-                           no_cache: bool = False,
-                           skip_transfer: bool = False):
+                           no_cache: bool = False):
     """Filter ROMs from a list of file paths.
 
     If dat_entries is provided, uses DAT metadata to enhance/override filename parsing.
@@ -8475,43 +8474,29 @@ def filter_roms_from_files(rom_files: list, dest_dir: str, system: str, dry_run:
         return selected_roms, {'source_size': total_source_size, 'selected_size': selected_size,
                                'rom_sizes': size_map}
 
-    # Create destination directory and transfer/clean up files
+    # Create destination directory (clear existing files first for non-flat)
+    if not flat_output:
+        if dest_path.exists():
+            for old_file in dest_path.iterdir():
+                if old_file.is_file():
+                    old_file.unlink()
     dest_path.mkdir(parents=True, exist_ok=True)
 
-    if skip_transfer:
-        # Files already downloaded directly to dest — remove non-selected files
-        selected_filenames = {rom.filename for rom in selected_roms}
-        removed = 0
-        for old_file in dest_path.iterdir():
-            if old_file.is_file() and old_file.name not in selected_filenames \
-                    and not old_file.name.startswith('_'):
-                old_file.unlink()
-                removed += 1
-        Console.blank()
-        Console.system_stat(system, f"{len(selected_roms)} ROMs in {dest_path} ({removed} non-selected removed)")
-    else:
-        # Clear existing files first (for non-flat output)
-        if not flat_output:
-            if dest_path.exists():
-                for old_file in dest_path.iterdir():
-                    if old_file.is_file():
-                        old_file.unlink()
+    # Transfer selected ROMs
+    copied = 0
+    action_verb = {'copy': 'Copying', 'link': 'Linking', 'hardlink': 'Hardlinking', 'move': 'Moving'}
+    for rom in tqdm(selected_roms, desc=f"{system.upper()} {action_verb.get(transfer_mode, 'Copying')}", unit="ROM", leave=False):
+        if _shutdown_requested:
+            break
+        src = file_map.get(rom.filename)
+        if src and src.exists():
+            dst = dest_path / rom.filename
+            transfer_file(src, dst, transfer_mode)
+            copied += 1
 
-        # Transfer selected ROMs
-        copied = 0
-        action_verb = {'copy': 'Copying', 'link': 'Linking', 'hardlink': 'Hardlinking', 'move': 'Moving'}
-        for rom in tqdm(selected_roms, desc=f"{system.upper()} {action_verb.get(transfer_mode, 'Copying')}", unit="ROM", leave=False):
-            if _shutdown_requested:
-                break
-            src = file_map.get(rom.filename)
-            if src and src.exists():
-                dst = dest_path / rom.filename
-                transfer_file(src, dst, transfer_mode)
-                copied += 1
-
-        action_past = {'copy': 'Copied', 'link': 'Linked', 'hardlink': 'Hardlinked', 'move': 'Moved'}
-        Console.blank()
-        Console.system_stat(system, f"{action_past.get(transfer_mode, 'Copied')} {copied} ROMs to {dest_path}")
+    action_past = {'copy': 'Copied', 'link': 'Linked', 'hardlink': 'Hardlinked', 'move': 'Moved'}
+    Console.blank()
+    Console.system_stat(system, f"{action_past.get(transfer_mode, 'Copied')} {copied} ROMs to {dest_path}")
 
     # Write selection log
     log_path = dest_path / "_selection_log.txt"
@@ -10357,6 +10342,46 @@ Pattern examples (--include / --exclude):
                         for game in sorted(selected, key=lambda g: g.description):
                             Console.text(f"{game.name}.zip - {game.description}", indent=2)
                 Console.blank()
+        elif args.no_cache and system in network_downloads:
+            # --no-cache with network source: files already downloaded directly to dest
+            # Pre-filtering already selected the best ROMs, so skip redundant re-filtering
+            size_info = network_system_stats.get(system, {'source_size': 0, 'selected_size': 0})
+            selected_size = sum(f.stat().st_size for f in rom_files if f.exists())
+            size_info = {'source_size': size_info['source_size'], 'selected_size': selected_size}
+
+            Console.system_stat(system, f"{len(rom_files)} pre-filtered ROMs downloaded to destination")
+
+            # Accumulate claimed titles for cross-platform dedupe
+            if dedupe_active and system in dedupe_priority_list:
+                for f in rom_files:
+                    rom_info = parse_rom_filename(f.name)
+                    if rom_info:
+                        claimed_titles.add(normalize_title_for_dedupe(rom_info.base_title))
+
+            system_stats[system] = size_info
+            total_source_size += size_info['source_size']
+            total_selected_size += size_info['selected_size']
+            total_selected += len(rom_files)
+            if remaining_size_budget is not None:
+                remaining_size_budget -= selected_size
+
+            # Generate playlists if requested
+            if rom_files and not dry_run:
+                selected_paths = [f for f in rom_files if f.exists()]
+                if args.playlists:
+                    playlist_path = generate_m3u_playlist(system, selected_paths,
+                                                          Path(args.dest) / system if not args.flat else Path(args.dest))
+                    Console.system_stat(system, f"Generated playlist: {playlist_path}")
+                if args.gamelist:
+                    gamelist_path = generate_gamelist_xml(system, selected_paths,
+                                                          Path(args.dest) / system if not args.flat else Path(args.dest))
+                    Console.system_stat(system, f"Generated gamelist: {gamelist_path}")
+                if args.retroarch_playlists:
+                    rom_dir = Path(args.dest) / system if not args.flat else Path(args.dest)
+                    playlist_path = generate_retroarch_playlist(system, selected_paths, rom_dir,
+                                                                 Path(args.retroarch_playlists))
+                    Console.system_stat(system, f"Generated Retroarch playlist: {playlist_path}")
+            Console.blank()
         else:
             # DAT verification/matching for non-MAME systems
             dat_entries = None
@@ -10441,8 +10466,7 @@ Pattern examples (--include / --exclude):
                 download_crc_index=download_crc_index,
                 exclude_titles=claimed_titles if (dedupe_active and system in dedupe_priority_list) else None,
                 no_verify=args.no_verify or dedupe_active,
-                no_cache=args.no_cache,
-                skip_transfer=args.no_cache and system in network_downloads
+                no_cache=args.no_cache
             )
             selected, size_info = result
 
