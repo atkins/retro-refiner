@@ -84,7 +84,6 @@ DARK_THEME = {
     'sublabel_fg': '#888888',
     'preview_bg': '#252526',
     'preview_fg': '#888888',
-    'welcome_fg': '#666666',
     'ttk_theme_base': 'clam',
 }
 
@@ -124,7 +123,6 @@ LIGHT_THEME = {
     'sublabel_fg': '#777777',
     'preview_bg': '#f5f5f5',
     'preview_fg': '#777777',
-    'welcome_fg': '#aaaaaa',
     'ttk_theme_base': 'clam',
 }
 
@@ -249,8 +247,6 @@ class QueueWriter:
 
     def __init__(self, out_queue):
         self._queue = out_queue
-        self._buffer = ""
-
     def write(self, text):
         """Write text to the queue, splitting on carriage returns."""
         if not text:
@@ -427,7 +423,6 @@ class RetroRefinerGUI:
         # Theme state
         self._is_dark = _detect_system_dark_mode()
         self._listboxes = []  # All Listbox widgets for theme updates
-        self._canvases = []   # All Canvas widgets for theme updates
 
         # Suppress preview updates during initial build
         self._building = True
@@ -538,8 +533,8 @@ class RetroRefinerGUI:
         self._preview_var = tk.StringVar(value="")
         self._preview_entry = tk.Entry(
             preview_frame, textvariable=self._preview_var,
-            font=MONO_FONT_SMALL, state='readonly', readonlybackground='#252526',
-            fg='#888888', relief=tk.FLAT, bd=1,
+            font=MONO_FONT_SMALL, state='readonly',
+            relief=tk.FLAT, bd=1,
         )
         self._preview_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
         self._tip(self._preview_entry,
@@ -628,19 +623,18 @@ class RetroRefinerGUI:
         self._notebook.add(tab, text="Setup")
 
         # Source dirs/URLs
-        self._tip(ttk.Label(tab, text="Source directories / URLs:"), (
+        src_tip = (
             "Local folders or HTTP/HTTPS URLs containing ROMs. "
             "You can add multiple sources and they will be merged together."
-        )).grid(row=0, column=0, sticky=tk.W, pady=(0, 2))
+        )
+        self._tip(ttk.Label(tab, text="Source directories / URLs:"),
+                  src_tip).grid(row=0, column=0, sticky=tk.W, pady=(0, 2))
         src_frame = ttk.Frame(tab)
         src_frame.grid(row=1, column=0, columnspan=3, sticky=tk.NSEW, pady=(0, 8))
 
         self._source_listbox = tk.Listbox(src_frame, height=6, font=MONO_FONT_SMALL)
         self._source_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        self._tip(self._source_listbox, (
-            "Local folders or HTTP/HTTPS URLs containing ROMs. "
-            "You can add multiple sources and they will be merged together."
-        ))
+        self._tip(self._source_listbox, src_tip)
         self._listboxes.append(self._source_listbox)
         self._listbox_data['source'] = []
 
@@ -661,47 +655,47 @@ class RetroRefinerGUI:
 
         # Destination
         row = 2
-        self._tip(ttk.Label(tab, text="Destination:"), (
+        dest_tip = (
             "Where refined ROMs will be placed. "
             "Defaults to a 'refined/' folder next to the script if left empty."
-        )).grid(row=row, column=0, sticky=tk.W, pady=2)
+        )
+        self._tip(ttk.Label(tab, text="Destination:"),
+                  dest_tip).grid(row=row, column=0, sticky=tk.W, pady=2)
         self._vars['dest'] = tk.StringVar()
-        self._tip(ttk.Entry(tab, textvariable=self._vars['dest'], width=50), (
-            "Where refined ROMs will be placed. "
-            "Defaults to a 'refined/' folder next to the script if left empty."
-        )).grid(row=row, column=1, sticky=tk.EW, padx=4, pady=2)
+        self._tip(ttk.Entry(tab, textvariable=self._vars['dest'], width=50),
+                  dest_tip).grid(row=row, column=1, sticky=tk.EW, padx=4, pady=2)
         ttk.Button(tab, text="Browse", command=lambda: self._browse_dir('dest')).grid(
             row=row, column=2, pady=2
         )
 
         # Systems
         row = 3
-        self._tip(ttk.Label(tab, text="Systems:"), (
+        sys_tip = (
             "Comma-separated list of system codes to process (e.g. nes,snes,gba). "
             "Leave empty to auto-detect from folder names."
-        )).grid(row=row, column=0, sticky=tk.W, pady=2)
+        )
+        self._tip(ttk.Label(tab, text="Systems:"),
+                  sys_tip).grid(row=row, column=0, sticky=tk.W, pady=2)
         sys_frame = ttk.Frame(tab)
         sys_frame.grid(row=row, column=1, columnspan=2, sticky=tk.EW, pady=2)
         self._vars['systems'] = tk.StringVar()
-        self._tip(ttk.Entry(sys_frame, textvariable=self._vars['systems']), (
-            "Comma-separated list of system codes to process (e.g. nes,snes,gba). "
-            "Leave empty to auto-detect from folder names."
-        )).pack(side=tk.LEFT, fill=tk.X, expand=True)
+        self._tip(ttk.Entry(sys_frame, textvariable=self._vars['systems']),
+                  sys_tip).pack(side=tk.LEFT, fill=tk.X, expand=True)
         ttk.Button(sys_frame, text="Select...", command=self._browse_systems).pack(
             side=tk.RIGHT, padx=(4, 0)
         )
 
         # Config file
         row = 4
-        self._tip(ttk.Label(tab, text="Config file:"), (
+        config_tip = (
             "Path to a YAML or JSON config file with default settings. "
             "CLI/GUI settings override config values. Auto-generated on first commit run."
-        )).grid(row=row, column=0, sticky=tk.W, pady=2)
+        )
+        self._tip(ttk.Label(tab, text="Config file:"),
+                  config_tip).grid(row=row, column=0, sticky=tk.W, pady=2)
         self._vars['config'] = tk.StringVar()
-        self._tip(ttk.Entry(tab, textvariable=self._vars['config'], width=50), (
-            "Path to a YAML or JSON config file with default settings. "
-            "CLI/GUI settings override config values. Auto-generated on first commit run."
-        )).grid(row=row, column=1, sticky=tk.EW, padx=4, pady=2)
+        self._tip(ttk.Entry(tab, textvariable=self._vars['config'], width=50),
+                  config_tip).grid(row=row, column=1, sticky=tk.EW, padx=4, pady=2)
         ttk.Button(tab, text="Browse", command=lambda: self._browse_file(
             'config', [("YAML files", "*.yaml *.yml"), ("All files", "*.*")]
         )).grid(row=row, column=2, pady=2)
@@ -1353,7 +1347,8 @@ class RetroRefinerGUI:
 
     def _update_dedupe_state(self):
         """Enable/disable dedupe-dependent widgets based on whether priority is set."""
-        has_priority = bool(self._vars.get('dedup_priority', tk.StringVar()).get().strip())
+        dedup_var = self._vars.get('dedup_priority')
+        has_priority = bool(dedup_var and dedup_var.get().strip())
         state = tk.NORMAL if has_priority else tk.DISABLED
         for widget in self._dedupe_dependent_widgets:
             try:
@@ -1605,7 +1600,7 @@ class RetroRefinerGUI:
             'tp_exclude_platforms': '--tp-exclude-platforms',
         }
         for var_key, arg_name in str_args.items():
-            val = self._vars[var_key].get().strip() if isinstance(self._vars[var_key].get(), str) else str(self._vars[var_key].get())
+            val = self._vars[var_key].get().strip()
             if val:
                 argv.extend([arg_name, val])
 
@@ -1929,10 +1924,6 @@ class RetroRefinerGUI:
                 selectbackground=theme['listbox_select_bg'],
                 selectforeground=theme['listbox_select_fg'],
             )
-
-        # All tracked canvases
-        for canvas in self._canvases:
-            canvas.configure(bg=theme['canvas_bg'])
 
         # Command preview entry
         self._preview_entry.configure(

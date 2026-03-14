@@ -3999,8 +3999,7 @@ no_dat: false
 # Log directory for run logs (each run creates a timestamped file)
 # log_dir: ./logs
 
-# Skip confirmation prompt before downloading from network sources (--commit mode only)
-# In dry run mode, no downloads occur regardless of this setting
+# Skip confirmation prompts (network downloads, dedupe-delete, etc.)
 yes: false
 
 # -----------------------------------------------------------------------------
@@ -9208,15 +9207,14 @@ Pattern examples (--include / --exclude):
 
     # Set up log file tee if --log-dir is specified
     global _log_file
-    _log_path = None
     if args.log_dir:
         log_dir = Path(args.log_dir)
         log_dir.mkdir(parents=True, exist_ok=True)
         from datetime import datetime  # pylint: disable=import-outside-toplevel
         timestamp = datetime.now().strftime('%Y-%m-%d_%H%M%S')
         mode = 'commit' if args.commit else 'dry-run'
-        _log_path = log_dir / f"retro-refiner_{timestamp}_{mode}.log"
-        _log_file = open(_log_path, 'w', encoding='utf-8')  # pylint: disable=consider-using-with
+        log_path = log_dir / f"retro-refiner_{timestamp}_{mode}.log"
+        _log_file = open(log_path, 'w', encoding='utf-8')  # pylint: disable=consider-using-with
         # Write log header
         _log_file.write(f"Retro-Refiner Log — {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
         _log_file.write(f"Command: {' '.join(sys.argv)}\n")
@@ -9224,7 +9222,7 @@ Pattern examples (--include / --exclude):
         _log_file.flush()
         sys.stdout = TeeWriter(sys.stdout, _log_file)
         sys.stderr = TeeWriter(sys.stderr, _log_file)
-        Console.info(f"Logging to {_log_path}")
+        Console.info(f"Logging to {log_path}")
 
     # Set default destination (refined/ subfolder where script is located)
     if args.dest is None:

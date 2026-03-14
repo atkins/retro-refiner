@@ -20,7 +20,6 @@ import json
 import re
 import sys
 import urllib.request
-import urllib.error
 from pathlib import Path
 from collections import defaultdict
 from typing import Dict, List, Set, Tuple, Optional
