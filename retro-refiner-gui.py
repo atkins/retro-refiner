@@ -421,6 +421,8 @@ class RetroRefinerGUI:
         self._dedup_remove_btn = None
         self._dedupe_delete_cb = None
         self._welcome_shown = False
+        self._main_pane = None
+        self._notebook_frame = None
 
         # Theme state
         self._is_dark = _detect_system_dark_mode()
@@ -460,9 +462,9 @@ class RetroRefinerGUI:
         main_pane = ttk.PanedWindow(self.root, orient=tk.VERTICAL)
         main_pane.pack(fill=tk.BOTH, expand=True, padx=6, pady=6)
 
-        # Top: tabbed settings (weight=4 gives tabs ~80% of vertical space)
+        # Top: tabbed settings (sash positioned dynamically after render)
         notebook_frame = ttk.Frame(main_pane)
-        main_pane.add(notebook_frame, weight=4)
+        main_pane.add(notebook_frame, weight=0)
 
         self._notebook = ttk.Notebook(notebook_frame)
         self._notebook.pack(fill=tk.BOTH, expand=True)
@@ -492,9 +494,14 @@ class RetroRefinerGUI:
         self._preview_copy_btn.pack(side=tk.RIGHT, padx=(4, 0), pady=(2, 2))
         self._tip(self._preview_copy_btn, "Copy the command preview to the clipboard.")
 
-        # Bottom: output + controls
+        # Bottom: output + controls (gets all extra space when resizing)
         bottom_frame = ttk.Frame(main_pane)
         main_pane.add(bottom_frame, weight=1)
+
+        # After all widgets are built, position sash to fit tabs exactly
+        self._main_pane = main_pane
+        self._notebook_frame = notebook_frame
+        self.root.after_idle(self._position_sash)
 
         # Progress bar
         self._progress_var = tk.DoubleVar(value=0)
@@ -607,6 +614,14 @@ class RetroRefinerGUI:
         ttk.Label(ctrl_frame, textvariable=self._status_var).pack(
             side=tk.RIGHT, padx=(4, 0)
         )
+
+    def _position_sash(self):
+        """Position the first sash so the notebook gets exactly the height it needs."""
+        self.root.update_idletasks()
+        # Measure what the notebook actually needs
+        needed = self._notebook.winfo_reqheight()
+        # Add a small margin for the frame padding
+        self._main_pane.sashpos(0, needed + 12)
 
     # ── Tab builders ──────────────────────────────────────────────────
 
