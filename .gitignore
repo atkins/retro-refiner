@@ -30,6 +30,9 @@ Thumbs.db
 # Local data files
 data/AllPCGames.xml
 
+# GUI state (auto-saved between sessions)
+.retro-refiner-gui-state.yaml
+
 # Retro-Refiner specific
 dat_files/
 duplicate_mappings.json

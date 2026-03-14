@@ -163,6 +163,10 @@ def _detect_system_dark_mode():
         return True  # Default to dark on detection failure
 
 
+# Auto-save state file location (next to script, hidden dotfile)
+_STATE_FILE = Path(__file__).parent / '.retro-refiner-gui-state.yaml'
+
+
 def _center_window(window, width, height):
     """Center a window on the screen."""
     window.update_idletasks()
@@ -428,6 +432,10 @@ class RetroRefinerGUI:
         self._building = False
 
         self._apply_theme()
+
+        # Restore previous session state (before traces so preview updates once)
+        self._auto_load_state()
+
         self._update_button_states()
         self._update_preview()
 
@@ -436,6 +444,9 @@ class RetroRefinerGUI:
             var.trace_add('write', lambda *_: self._update_preview())
 
         self._poll_queue()
+
+        # Auto-save state on window close
+        self.root.protocol('WM_DELETE_WINDOW', self._on_close)
 
     def _tip(self, widget, text):
         """Attach a hover tooltip to a widget."""
@@ -1353,16 +1364,9 @@ class RetroRefinerGUI:
 
     # ── Save / Load settings ─────────────────────────────────────────
 
-    def _save_settings(self):
-        """Export current GUI settings as a YAML config file."""
-        path = filedialog.asksaveasfilename(
-            defaultextension=".yaml",
-            filetypes=[("YAML files", "*.yaml *.yml"), ("All files", "*.*")],
-            initialfile="retro-refiner-gui-settings.yaml"
-        )
-        if not path:
-            return
-        lines = ["# Retro-Refiner GUI settings export\n"]
+    def _serialize_state(self):
+        """Serialize current GUI state to YAML lines."""
+        lines = ["# Retro-Refiner GUI settings\n"]
         # Sources
         sources = self._listbox_data.get('source', [])
         if sources:
@@ -1386,22 +1390,11 @@ class RetroRefinerGUI:
                 lines.append(f"{key}:")
                 for item in items:
                     lines.append(f'  - "{item}"')
-        Path(path).write_text('\n'.join(lines), encoding='utf-8')
-        self._status_var.set(f"Saved: {Path(path).name}")
+        return '\n'.join(lines)
 
-    def _load_settings(self):
-        """Import GUI settings from a YAML config file."""
-        path = filedialog.askopenfilename(
-            filetypes=[("YAML files", "*.yaml *.yml"), ("All files", "*.*")]
-        )
-        if not path:
-            return
-        try:
-            text = Path(path).read_text(encoding='utf-8')
-        except OSError as exc:
-            messagebox.showerror("Load Error", str(exc))
-            return
-        # Clear existing state before loading
+    def _restore_state(self, text):
+        """Restore GUI state from YAML text. Clears existing state first."""
+        # Clear existing state
         for key in ('source', 'include', 'exclude', 'dedup_pc_lists'):
             self._listbox_data[key] = []
         self._source_listbox.delete(0, tk.END)
@@ -1461,9 +1454,62 @@ class RetroRefinerGUI:
                             pass
                     else:
                         var.set(val)
+
+    def _save_settings(self):
+        """Export current GUI settings to a user-chosen YAML file."""
+        path = filedialog.asksaveasfilename(
+            defaultextension=".yaml",
+            filetypes=[("YAML files", "*.yaml *.yml"), ("All files", "*.*")],
+            initialfile="retro-refiner-gui-settings.yaml"
+        )
+        if not path:
+            return
+        Path(path).write_text(self._serialize_state(), encoding='utf-8')
+        self._status_var.set(f"Saved: {Path(path).name}")
+
+    def _load_settings(self):
+        """Import GUI settings from a user-chosen YAML file."""
+        path = filedialog.askopenfilename(
+            filetypes=[("YAML files", "*.yaml *.yml"), ("All files", "*.*")]
+        )
+        if not path:
+            return
+        try:
+            text = Path(path).read_text(encoding='utf-8')
+        except OSError as exc:
+            messagebox.showerror("Load Error", str(exc))
+            return
+        self._restore_state(text)
         self._update_button_states()
         self._update_preview()
         self._status_var.set(f"Loaded: {Path(path).name}")
+
+    def _auto_save_state(self):
+        """Silently save GUI state to the fixed state file."""
+        try:
+            _STATE_FILE.write_text(self._serialize_state(), encoding='utf-8')
+        except OSError:
+            pass  # Don't disrupt shutdown if write fails
+
+    def _auto_load_state(self):
+        """Silently restore GUI state from the fixed state file on startup."""
+        if not _STATE_FILE.exists():
+            return
+        try:
+            text = _STATE_FILE.read_text(encoding='utf-8')
+        except OSError:
+            return
+        self._restore_state(text)
+        self._update_button_states()
+        # Hide welcome text if state was restored with sources
+        if self._has_sources():
+            self._clear_output()
+            self._welcome_shown = False
+
+    def _on_close(self):
+        """Auto-save state and exit."""
+        self._auto_save_state()
+        self.root.destroy()
 
     # ── Build argv ────────────────────────────────────────────────────
 
