@@ -460,9 +460,15 @@ class RetroRefinerGUI:
             font=MONO_FONT_SMALL, state='readonly', readonlybackground='#252526',
             fg='#888888', relief=tk.FLAT, bd=1,
         )
-        self._preview_entry.pack(fill=tk.X, pady=(2, 2))
+        self._preview_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, pady=(2, 2))
         self._tip(self._preview_entry,
                   "Command preview: shows the CLI arguments that will be passed to retro-refiner.")
+
+        self._preview_copy_btn = ttk.Button(
+            preview_frame, text="Copy", width=5, command=self._copy_preview
+        )
+        self._preview_copy_btn.pack(side=tk.RIGHT, padx=(4, 0), pady=(2, 2))
+        self._tip(self._preview_copy_btn, "Copy the command preview to the clipboard.")
 
         # Bottom: output + controls
         bottom_frame = ttk.Frame(main_pane)
@@ -498,6 +504,12 @@ class RetroRefinerGUI:
         self._output_text.configure(yscrollcommand=scrollbar.set)
         self._output_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+        # Allow text selection and Ctrl+C copy in disabled text widget
+        self._output_text.bind('<Button-1>', self._output_click)
+        self._output_text.bind('<B1-Motion>', self._output_drag)
+        self._output_text.bind('<Control-c>', self._output_copy)
+        self._output_text.bind('<Control-a>', self._output_select_all)
 
         # Insert welcome text
         self._output_text.configure(state=tk.NORMAL)
@@ -640,7 +652,7 @@ class RetroRefinerGUI:
             "Comma-separated list of system codes to process (e.g. nes,snes,gba). "
             "Leave empty to auto-detect from folder names."
         )).pack(side=tk.LEFT, fill=tk.X, expand=True)
-        ttk.Button(sys_frame, text="Browse...", command=self._browse_systems).pack(
+        ttk.Button(sys_frame, text="Select...", command=self._browse_systems).pack(
             side=tk.RIGHT, padx=(4, 0)
         )
 
@@ -1755,6 +1767,49 @@ class RetroRefinerGUI:
             self.root.clipboard_clear()
             self.root.clipboard_append(content)
             self._status_var.set("Copied to clipboard")
+
+    def _copy_preview(self):
+        """Copy command preview text to the system clipboard."""
+        content = self._preview_var.get().strip()
+        if content:
+            self.root.clipboard_clear()
+            self.root.clipboard_append(content)
+            self._status_var.set("Command copied to clipboard")
+
+    def _output_click(self, event):
+        """Handle click in disabled output text to position cursor for selection."""
+        self._output_text.configure(state=tk.NORMAL)
+        self._output_text.mark_set(tk.INSERT, f"@{event.x},{event.y}")
+        self._output_text.tag_remove(tk.SEL, '1.0', tk.END)
+        self._output_text.configure(state=tk.DISABLED)
+        return 'break'
+
+    def _output_drag(self, event):
+        """Handle click-drag in disabled output text to select text."""
+        self._output_text.configure(state=tk.NORMAL)
+        pos = self._output_text.index(f"@{event.x},{event.y}")
+        self._output_text.tag_remove(tk.SEL, '1.0', tk.END)
+        self._output_text.tag_add(tk.SEL, tk.INSERT, pos)
+        self._output_text.configure(state=tk.DISABLED)
+        return 'break'
+
+    def _output_copy(self, _event=None):
+        """Copy selected text from output, or all text if nothing is selected."""
+        try:
+            content = self._output_text.get(tk.SEL_FIRST, tk.SEL_LAST)
+        except tk.TclError:
+            content = self._output_text.get('1.0', tk.END).strip()
+        if content:
+            self.root.clipboard_clear()
+            self.root.clipboard_append(content)
+        return 'break'
+
+    def _output_select_all(self, _event=None):
+        """Select all text in the output widget."""
+        self._output_text.configure(state=tk.NORMAL)
+        self._output_text.tag_add(tk.SEL, '1.0', tk.END)
+        self._output_text.configure(state=tk.DISABLED)
+        return 'break'
 
     @staticmethod
     def _format_elapsed(seconds):
