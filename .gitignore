@@ -33,6 +33,9 @@ data/AllPCGames.xml
 # GUI state (auto-saved between sessions)
 .retro-refiner-gui-state.yaml
 
+# Run logs
+logs/
+
 # Retro-Refiner specific
 dat_files/
 duplicate_mappings.json

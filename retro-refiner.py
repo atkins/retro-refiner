@@ -923,6 +923,57 @@ def _cleanup_aria2c_processes() -> None:
 atexit.register(_cleanup_aria2c_processes)
 
 
+_RE_ANSI = re.compile(r'\x1b\[[0-9;]*m')
+
+# Global log file handle (closed in main() finally block)
+_log_file = None
+
+
+class TeeWriter:
+    """File-like writer that tees output to both the original stream and a log file."""
+
+    def __init__(self, original, log_fh):
+        self._original = original
+        self._log = log_fh
+
+    def write(self, text):
+        """Write to original stream and stripped-ANSI copy to log file."""
+        if text:
+            self._original.write(text)
+            self._log.write(_RE_ANSI.sub('', text))
+
+    def flush(self):
+        """Flush both streams."""
+        self._original.flush()
+        self._log.flush()
+
+    def isatty(self):
+        """Delegate to original stream."""
+        return self._original.isatty()
+
+    @property
+    def encoding(self):
+        """Delegate encoding to original stream."""
+        return getattr(self._original, 'encoding', 'utf-8')
+
+    def fileno(self):
+        """Delegate fileno to original stream."""
+        return self._original.fileno()
+
+
+def close_log():
+    """Close the active log file and unwrap TeeWriter from stdout/stderr."""
+    global _log_file
+    if _log_file:
+        # Unwrap TeeWriter to restore original streams
+        if isinstance(sys.stdout, TeeWriter):
+            sys.stdout = sys.stdout._original  # pylint: disable=protected-access
+        if isinstance(sys.stderr, TeeWriter):
+            sys.stderr = sys.stderr._original  # pylint: disable=protected-access
+        _log_file.close()
+        _log_file = None
+
+
 def format_size(size_bytes: int) -> str:
     """Format a size in bytes to a human-readable string."""
     if size_bytes < 1024:
@@ -3945,6 +3996,9 @@ no_dat: false
 # Downloaded ROMs are cached here to avoid re-downloading
 # cache_dir: /path/to/cache
 
+# Log directory for run logs (each run creates a timestamped file)
+# log_dir: ./logs
+
 # Skip confirmation prompt before downloading from network sources (--commit mode only)
 # In dry run mode, no downloads occur regardless of this setting
 yes: false
@@ -4083,6 +4137,7 @@ def apply_config_to_args(args, config: dict):
         'mame_version': 'mame_version',
         'dat_dir': 'dat_dir',
         'cache_dir': 'cache_dir',
+        'log_dir': 'log_dir',
         'yes': 'yes',
         # TeknoParrot options
         'tp_include_platforms': 'tp_include_platforms',
@@ -8755,6 +8810,8 @@ Pattern examples (--include / --exclude):
                         help='Directory for all DAT files (default: <source>/dat_files/)')
     parser.add_argument('--cache-dir', default=None,
                         help='Directory for caching network downloads (default: <source>/cache/)')
+    parser.add_argument('--log-dir', default=None,
+                        help='Directory for log files. Each run creates a timestamped log.')
     parser.add_argument('--parallel', '-p', type=int, default=4,
                         help='Number of parallel downloads for network sources (default: 4).')
     parser.add_argument('--connections', '-x', type=int, default=None,
@@ -9148,6 +9205,26 @@ Pattern examples (--include / --exclude):
     if args.dedupe_delete and not args.commit:
         Console.error("--dedupe-delete requires --commit")
         sys.exit(1)
+
+    # Set up log file tee if --log-dir is specified
+    global _log_file
+    _log_path = None
+    if args.log_dir:
+        log_dir = Path(args.log_dir)
+        log_dir.mkdir(parents=True, exist_ok=True)
+        from datetime import datetime  # pylint: disable=import-outside-toplevel
+        timestamp = datetime.now().strftime('%Y-%m-%d_%H%M%S')
+        mode = 'commit' if args.commit else 'dry-run'
+        _log_path = log_dir / f"retro-refiner_{timestamp}_{mode}.log"
+        _log_file = open(_log_path, 'w', encoding='utf-8')  # pylint: disable=consider-using-with
+        # Write log header
+        _log_file.write(f"Retro-Refiner Log — {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+        _log_file.write(f"Command: {' '.join(sys.argv)}\n")
+        _log_file.write('=' * 72 + '\n\n')
+        _log_file.flush()
+        sys.stdout = TeeWriter(sys.stdout, _log_file)
+        sys.stderr = TeeWriter(sys.stderr, _log_file)
+        Console.info(f"Logging to {_log_path}")
 
     # Set default destination (refined/ subfolder where script is located)
     if args.dest is None:
@@ -10636,3 +10713,5 @@ if __name__ == '__main__':
     except KeyboardInterrupt:
         print("\n\nInterrupted.")
         sys.exit(1)
+    finally:
+        close_log()

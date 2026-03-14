@@ -8,6 +8,7 @@ while keeping the GUI responsive.
 """
 
 import importlib.util
+import os
 import queue
 import subprocess
 import sys
@@ -1220,6 +1221,24 @@ class RetroRefinerGUI:
             )
         tp_frame.columnconfigure(1, weight=1)
 
+        # Logging section
+        log_frame = ttk.LabelFrame(tab, text="Logging", padding=6)
+        log_frame.grid(row=6, column=0, columnspan=3, sticky=tk.EW, pady=(4, 0))
+
+        self._vars['log_enabled'] = tk.BooleanVar()
+        log_cb = ttk.Checkbutton(log_frame, text="Log output to file",
+                                 variable=self._vars['log_enabled'])
+        log_cb.pack(side=tk.LEFT, padx=(0, 12))
+        self._tip(log_cb, (
+            "Save a timestamped copy of all output to the logs/ directory. "
+            "Each run creates a new log file. Useful for troubleshooting."
+        ))
+
+        log_open_btn = ttk.Button(log_frame, text="Open Logs Folder",
+                                  command=self._open_logs_folder)
+        log_open_btn.pack(side=tk.LEFT, padx=(0, 12))
+        self._tip(log_open_btn, "Open the logs/ directory in the system file explorer.")
+
         tab.columnconfigure(1, weight=1)
 
     # ── Helpers ───────────────────────────────────────────────────────
@@ -1336,6 +1355,17 @@ class RetroRefinerGUI:
     def _has_sources(self):
         """Return True if at least one source is configured."""
         return bool(self._listbox_data.get('source'))
+
+    def _open_logs_folder(self):
+        """Open the logs directory in the system file explorer."""
+        logs_dir = Path(__file__).parent / 'logs'
+        logs_dir.mkdir(exist_ok=True)
+        if sys.platform == 'win32':
+            os.startfile(str(logs_dir))  # pylint: disable=no-member
+        elif sys.platform == 'darwin':
+            subprocess.Popen(['open', str(logs_dir)])  # pylint: disable=consider-using-with
+        else:
+            subprocess.Popen(['xdg-open', str(logs_dir)])  # pylint: disable=consider-using-with
 
     def _update_dedupe_state(self):
         """Enable/disable dedupe-dependent widgets based on whether priority is set."""
@@ -1678,6 +1708,11 @@ class RetroRefinerGUI:
         # Always skip CLI confirmation prompts — GUI handles confirmation itself
         argv.append('--yes')
 
+        # Logging
+        if self._vars['log_enabled'].get():
+            log_dir = str(Path(__file__).parent / 'logs')
+            argv.extend(['--log-dir', log_dir])
+
         return argv
 
     # ── Run controls ──────────────────────────────────────────────────
@@ -1766,6 +1801,8 @@ class RetroRefinerGUI:
         except Exception as exc:
             self._output_queue.put(('append', f"\n--- ERROR ---\n{exc}\n"))
         finally:
+            # Close log file before restoring streams (unwraps TeeWriter)
+            _module.close_log()
             sys.stdout = old_stdout
             sys.stderr = old_stderr
 
