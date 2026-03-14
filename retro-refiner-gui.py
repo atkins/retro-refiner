@@ -1059,217 +1059,107 @@ class RetroRefinerGUI:
         tab.columnconfigure(1, weight=1)
 
     def _create_advanced_tab(self):
-        """Create the Advanced tab (merged Network + Advanced) with scrolling."""
-        outer = ttk.Frame(self._notebook)
-        self._notebook.add(outer, text="Advanced")
+        """Create the Advanced tab (merged Network + Advanced) in two-column layout."""
+        tab = ttk.Frame(self._notebook, padding=10)
+        self._notebook.add(tab, text="Advanced")
 
-        # Scrollable container
-        canvas = tk.Canvas(outer, highlightthickness=0)
-        scrollbar = ttk.Scrollbar(outer, orient=tk.VERTICAL, command=canvas.yview)
-        tab = ttk.Frame(canvas, padding=10)
+        # ── Left column ──
+        left = ttk.Frame(tab)
+        left.grid(row=0, column=0, sticky=tk.NSEW, padx=(0, 6))
 
-        tab.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
-        canvas.create_window((0, 0), window=tab, anchor=tk.NW)
-        canvas.configure(yscrollcommand=scrollbar.set)
-
-        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-        self._canvases.append(canvas)
-
-        # Bind mouse wheel for this tab
-        def _bind_scroll(_event):
-            canvas.bind_all('<MouseWheel>',
-                            lambda e: canvas.yview_scroll(-1 * (e.delta // 120), "units"))
-            canvas.bind_all('<Button-4>', lambda e: canvas.yview_scroll(-3, "units"))
-            canvas.bind_all('<Button-5>', lambda e: canvas.yview_scroll(3, "units"))
-
-        def _unbind_scroll(_event):
-            canvas.unbind_all('<MouseWheel>')
-            canvas.unbind_all('<Button-4>')
-            canvas.unbind_all('<Button-5>')
-
-        canvas.bind('<Enter>', _bind_scroll)
-        canvas.bind('<Leave>', _unbind_scroll)
-
-        # Match inner frame width to canvas
-        def _on_canvas_resize(event):
-            canvas.itemconfigure(canvas.find_all()[0], width=event.width)
-        canvas.bind('<Configure>', _on_canvas_resize)
-
-        # ── Network section ──
-        net_frame = ttk.LabelFrame(tab, text="Network", padding=6)
-        net_frame.grid(row=0, column=0, columnspan=3, sticky=tk.EW, pady=(0, 8))
-
-        # Spinners row
-        spin_frame = ttk.Frame(net_frame)
-        spin_frame.pack(fill=tk.X)
+        # Network section
+        net_frame = ttk.LabelFrame(left, text="Network", padding=6)
+        net_frame.pack(fill=tk.X, pady=(0, 6))
 
         spinners = [
-            ("Parallel downloads:", 'parallel', tk.IntVar(value=4), 1, 32,
-             "Number of files to download simultaneously. "
-             "Higher values speed up downloads but use more bandwidth."),
-            ("Connections/file:", 'connections', tk.StringVar(), 1, 32,
-             "Number of connections per file when using aria2c. "
-             "Higher values can speed up large file downloads. Defaults to match parallel."),
+            ("Parallel:", 'parallel', tk.IntVar(value=4), 1, 32,
+             "Number of files to download simultaneously."),
+            ("Conn/file:", 'connections', tk.StringVar(), 1, 32,
+             "Connections per file for aria2c. Defaults to match parallel."),
             ("Scan workers:", 'scan_workers', tk.IntVar(value=16), 1, 64,
-             "Number of parallel workers for scanning network directory listings. "
-             "Higher values scan faster but may trigger rate limiting."),
+             "Parallel workers for scanning network directories."),
         ]
-        for i, (label, key, var, lo, hi, tip) in enumerate(spinners):
+        for label, key, var, lo, hi, tip in spinners:
+            f = ttk.Frame(net_frame)
+            f.pack(fill=tk.X, pady=1)
             self._vars[key] = var
-            self._tip(ttk.Label(spin_frame, text=label), tip).grid(
-                row=0, column=i * 2, sticky=tk.W, padx=(0 if i == 0 else 12, 0)
-            )
-            self._tip(ttk.Spinbox(spin_frame, from_=lo, to=hi, width=5, textvariable=var),
-                      tip).grid(row=0, column=i * 2 + 1, sticky=tk.W, padx=(4, 0))
+            self._tip(ttk.Label(f, text=label, width=13), tip).pack(side=tk.LEFT)
+            self._tip(ttk.Spinbox(f, from_=lo, to=hi, width=5, textvariable=var),
+                      tip).pack(side=tk.LEFT, padx=(4, 0))
 
-        # Auto-tune checkbox
         self._vars['auto_tune'] = tk.BooleanVar(value=True)
-        cb = ttk.Checkbutton(net_frame, text="Auto-tune parallelism", variable=self._vars['auto_tune'])
-        cb.pack(anchor=tk.W, pady=(4, 2))
-        self._tip(cb, (
-            "Automatically adjust parallel downloads and connections based on file sizes. "
-            "Uses more connections for large files and fewer for small files."
-        ))
+        cb = ttk.Checkbutton(net_frame, text="Auto-tune", variable=self._vars['auto_tune'])
+        cb.pack(anchor=tk.W, pady=(2, 2))
+        self._tip(cb, "Automatically adjust parallelism based on file sizes.")
 
-        # Directory fields
-        dir_frame = ttk.Frame(net_frame)
-        dir_frame.pack(fill=tk.X, pady=(2, 0))
         dir_fields = [
-            (0, "Cache dir:", 'cache_dir',
-             "Directory for caching downloaded files from network sources. "
-             "Defaults to a cache/ folder in the source directory. Re-runs skip cached files."),
-            (1, "DAT dir:", 'dat_dir',
-             "Directory for No-Intro, Redump, and MAME DAT files used for ROM verification. "
-             "Defaults to dat_files/ in the source directory. Auto-downloaded on first run."),
+            ("Cache dir:", 'cache_dir',
+             "Directory for caching network downloads. Defaults to cache/ in source dir."),
+            ("DAT dir:", 'dat_dir',
+             "Directory for DAT verification files. Defaults to dat_files/ in source dir."),
         ]
-        for row, label, key, tip in dir_fields:
-            self._tip(ttk.Label(dir_frame, text=label), tip).grid(
-                row=row, column=0, sticky=tk.W, pady=1
-            )
+        for label, key, tip in dir_fields:
+            f = ttk.Frame(net_frame)
+            f.pack(fill=tk.X, pady=1)
+            self._tip(ttk.Label(f, text=label, width=10), tip).pack(side=tk.LEFT)
             self._vars[key] = tk.StringVar()
-            self._tip(ttk.Entry(dir_frame, textvariable=self._vars[key], width=50), tip).grid(
-                row=row, column=1, sticky=tk.EW, padx=4, pady=1
-            )
-            ttk.Button(dir_frame, text="Browse", command=lambda k=key: self._browse_dir(k)).grid(
-                row=row, column=2, pady=1
-            )
-        dir_frame.columnconfigure(1, weight=1)
+            self._tip(ttk.Entry(f, textvariable=self._vars[key]),
+                      tip).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=4)
+            ttk.Button(f, text="...", width=3,
+                       command=lambda k=key: self._browse_dir(k)).pack(side=tk.RIGHT)
 
-        # ── Options section ──
-        check_frame = ttk.LabelFrame(tab, text="Options", padding=6)
-        check_frame.grid(row=1, column=0, columnspan=3, sticky=tk.EW, pady=(0, 8))
+        # Options section
+        opt_frame = ttk.LabelFrame(left, text="Options", padding=6)
+        opt_frame.pack(fill=tk.X, pady=(0, 6))
 
         adv_checks = [
             ('no_verify', "No verify",
-             "Skip CRC32 verification of selected ROMs against DAT files. "
-             "Faster but won't flag bad dumps or misnamed files."),
+             "Skip CRC32 verification of selected ROMs against DAT files."),
             ('no_cache', "No cache",
-             "Skip all file caching (CRC checksums, download cache, ratings). "
-             "Downloads go directly to destination, saving disk space."),
+             "Skip all file caching (CRC checksums, download cache, ratings)."),
             ('no_dat', "No DAT",
-             "Use filename parsing instead of DAT file metadata for ROM identification. "
-             "Faster but less accurate for non-standard filenames."),
+             "Use filename parsing instead of DAT file metadata."),
             ('no_chd', "No CHD",
-             "Skip copying CHD (compressed hard disk) files for MAME arcade games. "
-             "Saves significant disk space but some games won't work without them."),
+             "Skip copying CHD files for MAME arcade games."),
             ('no_adult', "No adult",
-             "Exclude adult/mature-rated MAME arcade games from selection."),
+             "Exclude adult/mature-rated MAME arcade games."),
             ('tp_all_versions', "TP all versions",
-             "Keep all versions of TeknoParrot arcade games instead of just the latest. "
-             "By default, only the newest version of each game is selected."),
+             "Keep all versions of TeknoParrot games, not just latest."),
         ]
-        for key, text, tip in adv_checks:
+        # Two columns of checkboxes
+        row_frame = None
+        for i, (key, text, tip) in enumerate(adv_checks):
+            if i % 2 == 0:
+                row_frame = ttk.Frame(opt_frame)
+                row_frame.pack(fill=tk.X)
             self._vars[key] = tk.BooleanVar()
-            cb = ttk.Checkbutton(check_frame, text=text, variable=self._vars[key])
-            cb.pack(side=tk.LEFT, padx=(0, 12))
+            cb = ttk.Checkbutton(row_frame, text=text, variable=self._vars[key], width=16)
+            cb.pack(side=tk.LEFT, padx=(0, 8))
             self._tip(cb, tip)
 
-        # MAME version
-        row = 2
-        mame_tip = (
-            "Specific MAME version to use for DAT downloads (e.g. 0.274). "
-            "Leave empty to auto-detect the latest available version."
-        )
-        self._tip(ttk.Label(tab, text="MAME version:"), mame_tip).grid(
-            row=row, column=0, sticky=tk.W, pady=2
-        )
-        self._vars['mame_version'] = tk.StringVar()
-        self._tip(ttk.Entry(tab, textvariable=self._vars['mame_version'], width=20),
-                  mame_tip).grid(row=row, column=1, sticky=tk.W, padx=4, pady=2)
+        # MAME + Ratings on one row
+        misc_frame = ttk.Frame(opt_frame)
+        misc_frame.pack(fill=tk.X, pady=(4, 0))
 
-        # Ratings source
-        row = 3
-        ratings_tip = (
-            "Which rating database to use for --top and --size filtering. "
-            "'combined' merges IGDB + LaunchBox (best coverage), "
-            "'igdb' or 'launchbox' uses one source only. "
-            "Default: combined if IGDB credentials are set, else launchbox."
-        )
-        self._tip(ttk.Label(tab, text="Ratings source:"), ratings_tip).grid(
-            row=row, column=0, sticky=tk.W, pady=2
-        )
+        mame_tip = "MAME version for DAT downloads (e.g. 0.274). Leave empty for auto-detect."
+        self._tip(ttk.Label(misc_frame, text="MAME ver:"), mame_tip).pack(side=tk.LEFT)
+        self._vars['mame_version'] = tk.StringVar()
+        self._tip(ttk.Entry(misc_frame, textvariable=self._vars['mame_version'], width=8),
+                  mame_tip).pack(side=tk.LEFT, padx=(4, 12))
+
+        ratings_tip = ("Rating source for --top/--size: 'combined' (default with IGDB creds), "
+                       "'igdb', or 'launchbox'.")
+        self._tip(ttk.Label(misc_frame, text="Ratings:"), ratings_tip).pack(side=tk.LEFT)
         self._vars['ratings_source'] = tk.StringVar()
         self._tip(ttk.Combobox(
-            tab, textvariable=self._vars['ratings_source'],
+            misc_frame, textvariable=self._vars['ratings_source'],
             values=["", "combined", "igdb", "launchbox"],
-            state="readonly", width=15
-        ), ratings_tip).grid(row=row, column=1, sticky=tk.W, padx=4, pady=2)
-
-        # Authentication section
-        auth_frame = ttk.LabelFrame(tab, text="Authentication", padding=6)
-        auth_frame.grid(row=4, column=0, columnspan=3, sticky=tk.EW, pady=(8, 4))
-
-        auth_entries = [
-            ("IA access key:", "ia_access_key", False,
-             "Internet Archive S3 access key for authenticated downloads. "
-             "Get credentials at https://archive.org/account/s3.php"),
-            ("IA secret key:", "ia_secret_key", True,
-             "Internet Archive S3 secret key. Keep this private."),
-            ("IGDB client ID:", "igdb_client_id", False,
-             "Twitch/IGDB client ID for game rating data. "
-             "Get free credentials at https://dev.twitch.tv/console"),
-            ("IGDB client secret:", "igdb_client_secret", True,
-             "Twitch/IGDB client secret. Keep this private."),
-        ]
-        for i, (label, key, is_secret, tip) in enumerate(auth_entries):
-            self._tip(ttk.Label(auth_frame, text=label), tip).grid(
-                row=i, column=0, sticky=tk.W, pady=1
-            )
-            self._vars[key] = tk.StringVar()
-            entry = ttk.Entry(
-                auth_frame, textvariable=self._vars[key], width=40,
-                show='*' if is_secret else ''
-            )
-            entry.grid(row=i, column=1, sticky=tk.EW, padx=4, pady=1)
-            self._tip(entry, tip)
-        auth_frame.columnconfigure(1, weight=1)
-
-        # TeknoParrot section
-        tp_frame = ttk.LabelFrame(tab, text="TeknoParrot", padding=6)
-        tp_frame.grid(row=5, column=0, columnspan=3, sticky=tk.EW, pady=(4, 0))
-
-        tp_fields = [
-            (0, "Include platforms:", 'tp_include_platforms',
-             'Comma-separated TeknoParrot hardware platforms to include '
-             '(e.g. "Sega Nu,Taito Type X2"). Only games on these platforms are kept.'),
-            (1, "Exclude platforms:", 'tp_exclude_platforms',
-             "Comma-separated TeknoParrot hardware platforms to exclude. "
-             "Games on these platforms are removed from selection."),
-        ]
-        for i, label, key, tip in tp_fields:
-            self._tip(ttk.Label(tp_frame, text=label), tip).grid(
-                row=i, column=0, sticky=tk.W, pady=1
-            )
-            self._vars[key] = tk.StringVar()
-            self._tip(ttk.Entry(tp_frame, textvariable=self._vars[key], width=40), tip).grid(
-                row=i, column=1, sticky=tk.EW, padx=4, pady=1
-            )
-        tp_frame.columnconfigure(1, weight=1)
+            state="readonly", width=12
+        ), ratings_tip).pack(side=tk.LEFT, padx=(4, 0))
 
         # Logging section
-        log_frame = ttk.LabelFrame(tab, text="Logging", padding=6)
-        log_frame.grid(row=6, column=0, columnspan=3, sticky=tk.EW, pady=(4, 0))
+        log_frame = ttk.LabelFrame(left, text="Logging", padding=6)
+        log_frame.pack(fill=tk.X)
 
         self._vars['log_enabled'] = tk.BooleanVar()
         log_cb = ttk.Checkbutton(log_frame, text="Log output to file",
@@ -1277,15 +1167,63 @@ class RetroRefinerGUI:
         log_cb.pack(side=tk.LEFT, padx=(0, 12))
         self._tip(log_cb, (
             "Save a timestamped copy of all output to the logs/ directory. "
-            "Each run creates a new log file. Useful for troubleshooting."
+            "Each run creates a new log file."
         ))
 
-        log_open_btn = ttk.Button(log_frame, text="Open Logs Folder",
+        log_open_btn = ttk.Button(log_frame, text="Open Logs",
                                   command=self._open_logs_folder)
-        log_open_btn.pack(side=tk.LEFT, padx=(0, 12))
+        log_open_btn.pack(side=tk.LEFT)
         self._tip(log_open_btn, "Open the logs/ directory in the system file explorer.")
 
+        # ── Right column ──
+        right = ttk.Frame(tab)
+        right.grid(row=0, column=1, sticky=tk.NSEW)
+
+        # Authentication section
+        auth_frame = ttk.LabelFrame(right, text="Authentication", padding=6)
+        auth_frame.pack(fill=tk.X, pady=(0, 6))
+
+        auth_entries = [
+            ("IA access key:", "ia_access_key", False,
+             "Internet Archive S3 access key. Get at https://archive.org/account/s3.php"),
+            ("IA secret key:", "ia_secret_key", True,
+             "Internet Archive S3 secret key. Keep this private."),
+            ("IGDB client ID:", "igdb_client_id", False,
+             "Twitch/IGDB client ID. Get free at https://dev.twitch.tv/console"),
+            ("IGDB secret:", "igdb_client_secret", True,
+             "Twitch/IGDB client secret. Keep this private."),
+        ]
+        for i, (label, key, is_secret, tip) in enumerate(auth_entries):
+            f = ttk.Frame(auth_frame)
+            f.pack(fill=tk.X, pady=1)
+            self._tip(ttk.Label(f, text=label, width=14), tip).pack(side=tk.LEFT)
+            self._vars[key] = tk.StringVar()
+            entry = ttk.Entry(f, textvariable=self._vars[key],
+                              show='*' if is_secret else '')
+            entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=4)
+            self._tip(entry, tip)
+
+        # TeknoParrot section
+        tp_frame = ttk.LabelFrame(right, text="TeknoParrot", padding=6)
+        tp_frame.pack(fill=tk.X)
+
+        tp_fields = [
+            ("Include platforms:", 'tp_include_platforms',
+             'TeknoParrot platforms to include (e.g. "Sega Nu,Taito Type X2").'),
+            ("Exclude platforms:", 'tp_exclude_platforms',
+             "TeknoParrot platforms to exclude from selection."),
+        ]
+        for label, key, tip in tp_fields:
+            f = ttk.Frame(tp_frame)
+            f.pack(fill=tk.X, pady=1)
+            self._tip(ttk.Label(f, text=label), tip).pack(side=tk.LEFT)
+            self._vars[key] = tk.StringVar()
+            self._tip(ttk.Entry(f, textvariable=self._vars[key]),
+                      tip).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=4)
+
+        tab.columnconfigure(0, weight=1)
         tab.columnconfigure(1, weight=1)
+        tab.rowconfigure(0, weight=1)
 
     # ── Helpers ───────────────────────────────────────────────────────
 
