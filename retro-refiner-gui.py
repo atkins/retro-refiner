@@ -486,13 +486,13 @@ class RetroRefinerGUI:
         # Progress bar
         self._progress_var = tk.DoubleVar(value=0)
         self._progress_label = tk.StringVar(value="")
-        prog_frame = ttk.Frame(bottom_frame)
-        prog_frame.pack(fill=tk.X, pady=(0, 4))
+        self._prog_frame = ttk.Frame(bottom_frame)
+        # Hidden by default — shown when a run starts
         self._progress_bar = ttk.Progressbar(
-            prog_frame, variable=self._progress_var, maximum=100
+            self._prog_frame, variable=self._progress_var, maximum=100
         )
         self._progress_bar.pack(fill=tk.X, side=tk.LEFT, expand=True)
-        ttk.Label(prog_frame, textvariable=self._progress_label, width=30).pack(
+        ttk.Label(self._prog_frame, textvariable=self._progress_label, width=30).pack(
             side=tk.RIGHT, padx=(8, 0)
         )
 
@@ -1753,7 +1753,8 @@ class RetroRefinerGUI:
         self._status_var.set("Running...")
         self._elapsed_var.set("0:00")
 
-        # Start indeterminate progress bar
+        # Show and start indeterminate progress bar
+        self._prog_frame.pack(fill=tk.X, pady=(0, 4), before=self._output_text.master)
         self._progress_bar.configure(mode='indeterminate')
         self._progress_bar.start(15)
         self._progress_is_indeterminate = True
@@ -1812,6 +1813,9 @@ class RetroRefinerGUI:
         else:
             self._status_var.set("Completed")
         self._progress_var.set(100)
+
+        # Hide progress bar after completion
+        self._prog_frame.pack_forget()
 
         # Show final elapsed time
         if self._start_time:
