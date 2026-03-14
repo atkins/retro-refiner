@@ -163,6 +163,16 @@ def _detect_system_dark_mode():
         return True  # Default to dark on detection failure
 
 
+def _center_window(window, width, height):
+    """Center a window on the screen."""
+    window.update_idletasks()
+    screen_w = window.winfo_screenwidth()
+    screen_h = window.winfo_screenheight()
+    x = (screen_w - width) // 2
+    y = (screen_h - height) // 2
+    window.geometry(f"{width}x{height}+{x}+{y}")
+
+
 class Tooltip:
     """Hover tooltip for any tkinter widget."""
 
@@ -272,7 +282,7 @@ class SystemsDialog(tk.Toplevel):
     def __init__(self, parent, current_value, is_dark=True):
         super().__init__(parent)
         self.title("Select Systems")
-        self.geometry("400x500")
+        _center_window(self, 400, 500)
         self.resizable(True, True)
         self.transient(parent)
         self.grab_set()
@@ -381,7 +391,7 @@ class RetroRefinerGUI:
     def __init__(self, root):
         self.root = root
         self.root.title("Retro-Refiner")
-        self.root.geometry("920x960")
+        _center_window(self.root, 920, 960)
         self.root.minsize(700, 500)
 
         self._running = False
