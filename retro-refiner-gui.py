@@ -474,31 +474,11 @@ class RetroRefinerGUI:
         self._create_output_tab()
         self._create_advanced_tab()
 
-        # Command preview line
-        preview_frame = ttk.Frame(main_pane)
-        main_pane.add(preview_frame, weight=0)
-
-        self._preview_var = tk.StringVar(value="")
-        self._preview_entry = tk.Entry(
-            preview_frame, textvariable=self._preview_var,
-            font=MONO_FONT_SMALL, state='readonly', readonlybackground='#252526',
-            fg='#888888', relief=tk.FLAT, bd=1,
-        )
-        self._preview_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, pady=(2, 2))
-        self._tip(self._preview_entry,
-                  "Command preview: shows the CLI arguments that will be passed to retro-refiner.")
-
-        self._preview_copy_btn = ttk.Button(
-            preview_frame, text="Copy", width=5, command=self._copy_preview
-        )
-        self._preview_copy_btn.pack(side=tk.RIGHT, padx=(4, 0), pady=(2, 2))
-        self._tip(self._preview_copy_btn, "Copy the command preview to the clipboard.")
-
         # Bottom: output + controls (gets all extra space when resizing)
         bottom_frame = ttk.Frame(main_pane)
         main_pane.add(bottom_frame, weight=1)
 
-        # After window is fully rendered, position sashes to fit tabs exactly
+        # After window is fully rendered, position sash to fit tabs exactly
         self._main_pane = main_pane
         self._notebook_frame = notebook_frame
         self.root.after(50, self._position_sash)
@@ -551,9 +531,29 @@ class RetroRefinerGUI:
         self._output_text.configure(state=tk.DISABLED)
         self._welcome_shown = True
 
+        # Command preview line
+        preview_frame = ttk.Frame(bottom_frame)
+        preview_frame.pack(fill=tk.X, pady=(4, 0))
+
+        self._preview_var = tk.StringVar(value="")
+        self._preview_entry = tk.Entry(
+            preview_frame, textvariable=self._preview_var,
+            font=MONO_FONT_SMALL, state='readonly', readonlybackground='#252526',
+            fg='#888888', relief=tk.FLAT, bd=1,
+        )
+        self._preview_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        self._tip(self._preview_entry,
+                  "Command preview: shows the CLI arguments that will be passed to retro-refiner.")
+
+        self._preview_copy_btn = ttk.Button(
+            preview_frame, text="Copy", width=5, command=self._copy_preview
+        )
+        self._preview_copy_btn.pack(side=tk.RIGHT, padx=(4, 0))
+        self._tip(self._preview_copy_btn, "Copy the command preview to the clipboard.")
+
         # Control buttons
         ctrl_frame = ttk.Frame(bottom_frame)
-        ctrl_frame.pack(fill=tk.X, pady=(6, 0))
+        ctrl_frame.pack(fill=tk.X, pady=(4, 0))
 
         self._dry_btn = ttk.Button(
             ctrl_frame, text="Preview", command=self._run_dry
@@ -616,13 +616,10 @@ class RetroRefinerGUI:
         )
 
     def _position_sash(self):
-        """Position sashes so the notebook gets exactly the height it needs."""
+        """Position sash so the notebook gets exactly the height it needs."""
         self.root.update_idletasks()
-        # Measure what the notebook actually needs for its tallest tab
         needed = self._notebook.winfo_reqheight()
-        # Preview line is ~25px; place first sash after notebook, second after preview
         self._main_pane.sashpos(0, needed + 14)
-        self._main_pane.sashpos(1, needed + 40)
 
     # ── Tab builders ──────────────────────────────────────────────────
 
