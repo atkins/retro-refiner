@@ -50,16 +50,17 @@ Tkinter-based GUI wrapper that provides a tabbed settings interface for all ~60 
 ### Single-file design
 Everything lives in `retro-refiner.py` with no external dependencies. YAML parsing, progress bars, and all network handling are built-in. System definitions are externalized to `data/systems.json`. The file is organized into major sections separated by `# ===` comment banners:
 
-1. **Console Output Styling** (~lines 98-450) - `DEFAULT_THEME`, `Style`, `Console`, `ProgressBar`, `ScanProgressBar` classes, plus `load_title_mappings()`
-2. **System Data Loading** (~lines 452-580) - `load_system_data()` reads `data/systems.json` and populates all system lookup dicts at module load
-3. **YAML Parser & Shutdown** (~lines 580-950) - `parse_simple_yaml()`, graceful shutdown handling
-4. **Network Source Support** (~lines 955-3580) - URL parsing, HTML link extraction, connection pooling (`ConnectionPool`), download tools (aria2c/curl/urllib), `DownloadUI` (curses-based download progress), batch downloading, network source scanning
-5. **Configuration** (~lines 3580-4180) - Default config template, `load_config()`, `apply_config_to_args()`, transfer/playlist/gamelist functions
-6. **Libretro DAT File Support** (~lines 4180-5390) - `RomInfo`/`DatRomEntry` dataclasses, T-En translation DAT support, DAT parsing (Logiqx XML + ClrMamePro formats), ROM verification, `parse_rom_filename()`, `normalize_title()`, `select_best_rom()`
-7. **MAME Arcade Filtering** (~lines 5395-6215) - `MameGameInfo`/`TeknoParrotGameInfo` dataclasses, catver.ini parsing, category include/exclude sets, clone selection, `filter_mame_roms()`
-8. **TeknoParrot Filtering** (~lines 6216-6420) - Version parsing, platform filtering, deduplication
-9. **LaunchBox Data & Budget** (~lines 6420-6960) - Rating downloads, XML parsing with `XMLPullParser` for progress tracking, `apply_top_n_filter()`, `apply_size_budget()`
-10. **Main Flow** (~lines 6960-end) - System detection helpers, `scan_for_systems()`, `filter_roms_from_files()`, `main()`
+1. **Console Output Styling** (~lines 98-453) - `DEFAULT_THEME`, `Style`, `Console`, `ProgressBar`, `ScanProgressBar` classes, plus `load_title_mappings()`
+2. **System Data Loading** (~lines 454-590) - `load_system_data()` reads `data/systems.json` and populates all system lookup dicts at module load
+3. **YAML Parser, Shutdown & Logging** (~lines 590-1006) - `parse_simple_yaml()`, graceful shutdown handling, `TeeWriter`, `close_log()`
+4. **Network Source Support** (~lines 1007-3818) - URL parsing, HTML link extraction, connection pooling (`ConnectionPool`), download tools (aria2c/curl/urllib), `DownloadUI` (curses-based download progress), batch downloading, network source scanning
+5. **Configuration** (~lines 3818-4536) - Default config template, `load_config()`, `apply_config_to_args()`, transfer/playlist/gamelist functions
+6. **Libretro DAT File Support** (~lines 4537-5832) - `RomInfo`/`DatRomEntry` dataclasses, T-En translation DAT support, DAT parsing (Logiqx XML + ClrMamePro formats), ROM verification, `parse_rom_filename()`, `normalize_title()`, `select_best_rom()`
+7. **MAME Arcade Filtering** (~lines 5833-6653) - `MameGameInfo`/`TeknoParrotGameInfo` dataclasses, catver.ini parsing, category include/exclude sets, clone selection, `filter_mame_roms()`
+8. **TeknoParrot Filtering** (~lines 6654-6856) - Version parsing, platform filtering, deduplication
+9. **IGDB Rating Data** (~lines 6857-7152) - IGDB API integration, OAuth token management, game rating queries
+10. **LaunchBox Data & Budget** (~lines 7153-8654) - Rating downloads, XML parsing with `XMLPullParser` for progress tracking, `apply_top_n_filter()`, `apply_size_budget()`
+11. **Main Flow** (~lines 8655-end) - System detection helpers, `scan_for_systems()`, `filter_roms_from_files()`, `main()`
 
 ### Visual style system
 All output routes through the `Console` class using semantic color attributes from `Style`. The `DEFAULT_THEME` dict (~line 101) maps 35 semantic roles (e.g., `'success'`, `'error'`, `'tag_select'`) to base ANSI color names. `Style.apply_theme()` resolves these to ANSI escape codes. Colors are disabled automatically for non-TTY output or when `NO_COLOR` env var is set.
@@ -91,10 +92,10 @@ All output routes through the `Console` class using semantic color attributes fr
 7. Transfer: copy/move/symlink/hardlink based on `--commit` mode
 
 ### Key dataclasses
-- `RomInfo` (line ~4185): Parsed ROM metadata (title, region, language, revision, flags like is_beta/is_proto/is_translation)
-- `DatRomEntry` (line ~4214): DAT file entry (name, description, CRC32, region, size)
-- `MameGameInfo` (line ~5583): MAME game with parent/clone relationships
-- `TeknoParrotGameInfo` (line ~5600): TeknoParrot game with version/platform info
+- `RomInfo` (line ~4513): Parsed ROM metadata (title, region, language, revision, flags like is_beta/is_proto/is_translation)
+- `DatRomEntry` (line ~4542): DAT file entry (name, description, CRC32, region, size)
+- `MameGameInfo` (line ~6021): MAME game with parent/clone relationships
+- `TeknoParrotGameInfo` (line ~6038): TeknoParrot game with version/platform info
 
 ### System data (`data/systems.json`)
 All system definitions (144 systems) live in `data/systems.json`. At module load, `load_system_data()` reads this file and populates module-level globals:

@@ -577,6 +577,8 @@ Each system folder contains `_selection_log.txt` with:
 | `-v, --verbose` | Show detailed output (filtering decisions, selections) |
 | `--config` | Path to config file (default: `retro-refiner.yaml`) |
 | `--list-systems` | Show all supported systems |
+| `--yes` | Skip confirmation prompts (useful for scripting) |
+| `--print` | Print selected ROM filenames to stdout |
 
 ### File Operations
 | Option | Description |
@@ -603,6 +605,8 @@ Each system folder contains `_selection_log.txt` with:
 | `--english-only` | Only keep English-playable ROMs (official releases + translations) |
 | `--year-from` | Filter by year (minimum) |
 | `--year-to` | Filter by year (maximum) |
+| `--genres` | Comma-separated genre filter (e.g. `platformer,rpg`) |
+| `--all` | Select all ROMs without 1G1R filtering |
 
 ### Rating & Budget
 | Option | Description |
@@ -648,6 +652,8 @@ Each system folder contains `_selection_log.txt` with:
 |--------|-------------|
 | `--cache-dir` | Directory for caching network downloads |
 | `-p, --parallel` | Number of parallel downloads (default: 4) |
+| `-x, --connections` | Connections per file for aria2c (default: same as `--parallel`) |
+| `--no-cache` | Skip all file caching (downloads go directly to destination) |
 
 ### DAT Options
 | Option | Description |
@@ -658,6 +664,8 @@ Each system folder contains `_selection_log.txt` with:
 | `--mame-version` | MAME version for downloads |
 | `--no-chd` | Skip CHD files for MAME |
 | `--clean` | Delete cache, DAT files, CRC caches, and generated data |
+| `--update-dats` | Re-download all DAT files, then exit |
+| `--log-dir` | Directory for timestamped run log files |
 
 ### TeknoParrot Options
 | Option | Description |

@@ -4147,6 +4147,7 @@ def apply_config_to_args(args, config: dict):
         'connections': 'connections',
         'scan_workers': 'scan_workers',
         # Scanning options
+        'auto_detect': 'auto_detect',
         'recursive': 'recursive',
         'max_depth': 'max_depth',
         # Top-N filtering

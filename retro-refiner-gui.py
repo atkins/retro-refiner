@@ -1215,6 +1215,26 @@ class RetroRefinerGUI:
             self._tip(ttk.Entry(f, textvariable=self._vars[key]),
                       tip).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=4)
 
+        # Maintenance section
+        maint_frame = ttk.LabelFrame(right, text="Maintenance", padding=6)
+        maint_frame.pack(fill=tk.X, pady=(6, 0))
+
+        clean_btn = ttk.Button(maint_frame, text="Clean Cache & Data",
+                               command=self._run_clean)
+        clean_btn.pack(side=tk.LEFT, padx=(0, 8))
+        self._tip(clean_btn, (
+            "Delete cache, DAT files, CRC caches, and generated data. "
+            "Equivalent to running with --clean."
+        ))
+
+        update_btn = ttk.Button(maint_frame, text="Update DATs",
+                                command=self._run_update_dats)
+        update_btn.pack(side=tk.LEFT)
+        self._tip(update_btn, (
+            "Re-download all DAT files (No-Intro, MAME, T-En). "
+            "Equivalent to running with --update-dats."
+        ))
+
         tab.columnconfigure(0, weight=1)
         tab.columnconfigure(1, weight=1)
         tab.rowconfigure(0, weight=1)
@@ -1345,6 +1365,58 @@ class RetroRefinerGUI:
         else:
             subprocess.Popen(['xdg-open', str(logs_dir)])  # pylint: disable=consider-using-with
 
+    def _run_clean(self):
+        """Run --clean to delete cache, DATs, and generated data."""
+        if self._running:
+            return
+        if not self._has_sources():
+            messagebox.showwarning("No Source", "Please add at least one source directory or URL.")
+            return
+        if not messagebox.askyesno(
+            "Confirm Clean",
+            "This will delete cache, DAT files, CRC caches, and generated data.\n\nContinue?"
+        ):
+            return
+        argv = ['retro-refiner']
+        for src in self._listbox_data.get('source', []):
+            argv.extend(['--source', src])
+        argv.append('--clean')
+        self._running = True
+        self._update_button_states()
+        self._status_var.set("Cleaning...")
+        if self._welcome_shown:
+            self._clear_output()
+            self._welcome_shown = False
+        self._worker_thread = threading.Thread(
+            target=self._run_worker, args=(argv,), daemon=True
+        )
+        self._worker_thread.start()
+
+    def _run_update_dats(self):
+        """Run --update-dats to re-download all DAT files."""
+        if self._running:
+            return
+        if not self._has_sources():
+            messagebox.showwarning("No Source", "Please add at least one source directory or URL.")
+            return
+        argv = ['retro-refiner']
+        for src in self._listbox_data.get('source', []):
+            argv.extend(['--source', src])
+        dat_dir = self._vars.get('dat_dir')
+        if dat_dir and dat_dir.get().strip():
+            argv.extend(['--dat-dir', dat_dir.get().strip()])
+        argv.append('--update-dats')
+        self._running = True
+        self._update_button_states()
+        self._status_var.set("Updating DATs...")
+        if self._welcome_shown:
+            self._clear_output()
+            self._welcome_shown = False
+        self._worker_thread = threading.Thread(
+            target=self._run_worker, args=(argv,), daemon=True
+        )
+        self._worker_thread.start()
+
     def _update_dedupe_state(self):
         """Enable/disable dedupe-dependent widgets based on whether priority is set."""
         dedup_var = self._vars.get('dedup_priority')
@@ -1410,11 +1482,12 @@ class RetroRefinerGUI:
         self._include_listbox.delete(0, tk.END)
         self._exclude_listbox.delete(0, tk.END)
         self._dedup_pc_listbox.delete(0, tk.END)
-        for var in self._vars.values():
+        int_defaults = {'parallel': 4, 'scan_workers': 16, 'max_depth': 3}
+        for key, var in self._vars.items():
             if isinstance(var, tk.BooleanVar):
                 var.set(False)
             elif isinstance(var, tk.IntVar):
-                pass  # Keep defaults (parallel=4, etc.)
+                var.set(int_defaults.get(key, 0))
             elif isinstance(var, tk.StringVar):
                 var.set('')
         # Restore defaults that aren't empty
@@ -1769,6 +1842,7 @@ class RetroRefinerGUI:
         old_stderr = sys.stderr
         writer = QueueWriter(self._output_queue)
 
+        old_argv = sys.argv
         try:
             sys.stdout = writer
             sys.stderr = writer
@@ -1785,6 +1859,7 @@ class RetroRefinerGUI:
             _module.close_log()
             sys.stdout = old_stdout
             sys.stderr = old_stderr
+            sys.argv = old_argv
 
             # Schedule completion callback on main thread
             self.root.after(0, self._on_run_complete)
