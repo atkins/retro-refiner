@@ -498,10 +498,10 @@ class RetroRefinerGUI:
         bottom_frame = ttk.Frame(main_pane)
         main_pane.add(bottom_frame, weight=1)
 
-        # After all widgets are built, position sash to fit tabs exactly
+        # After window is fully rendered, position sashes to fit tabs exactly
         self._main_pane = main_pane
         self._notebook_frame = notebook_frame
-        self.root.after_idle(self._position_sash)
+        self.root.after(50, self._position_sash)
 
         # Progress bar
         self._progress_var = tk.DoubleVar(value=0)
@@ -616,12 +616,13 @@ class RetroRefinerGUI:
         )
 
     def _position_sash(self):
-        """Position the first sash so the notebook gets exactly the height it needs."""
+        """Position sashes so the notebook gets exactly the height it needs."""
         self.root.update_idletasks()
-        # Measure what the notebook actually needs
+        # Measure what the notebook actually needs for its tallest tab
         needed = self._notebook.winfo_reqheight()
-        # Add a small margin for the frame padding
-        self._main_pane.sashpos(0, needed + 12)
+        # Preview line is ~25px; place first sash after notebook, second after preview
+        self._main_pane.sashpos(0, needed + 14)
+        self._main_pane.sashpos(1, needed + 40)
 
     # ── Tab builders ──────────────────────────────────────────────────
 
