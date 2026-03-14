@@ -8641,6 +8641,8 @@ Pattern examples (--include / --exclude):
                         help='Maximum directory depth when using -r/--recursive (default: 3)')
     parser.add_argument('--commit', '-c', action='store_true',
                         help='Actually transfer files (default is dry run which only shows what would be selected)')
+    parser.add_argument('--yes', action='store_true',
+                        help='Skip confirmation prompts (e.g. dedupe-delete). Useful for scripting and GUI.')
     parser.add_argument('--config', default=None,
                         help='Path to config file (default: retro-refiner.yaml in source dir)')
     parser.add_argument('--list-systems', action='store_true',
@@ -9299,7 +9301,7 @@ Pattern examples (--include / --exclude):
         detected_dict = dict(detected)
         if detected_dict:
             run_dedupe_analysis(detected_dict, args, delete=args.dedupe_delete,
-                                confirm=not getattr(args, 'yes', False))
+                                confirm=not args.yes)
         else:
             Console.text("\nNo ROM files found.")
         return

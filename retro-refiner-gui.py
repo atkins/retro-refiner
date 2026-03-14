@@ -311,6 +311,22 @@ class SystemsDialog(tk.Toplevel):
         canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
 
+        # Enable mouse wheel scrolling
+        def _on_mousewheel(event):
+            if sys.platform == 'darwin':
+                canvas.yview_scroll(-1 * event.delta, "units")
+            else:
+                canvas.yview_scroll(-1 * (event.delta // 120), "units")
+
+        canvas.bind_all('<MouseWheel>', _on_mousewheel)
+        # Linux scroll events
+        canvas.bind_all('<Button-4>', lambda e: canvas.yview_scroll(-3, "units"))
+        canvas.bind_all('<Button-5>', lambda e: canvas.yview_scroll(3, "units"))
+
+        # Unbind global scroll on dialog close
+        self._canvas = canvas
+        self.protocol("WM_DELETE_WINDOW", self._on_close)
+
         # Build checkbuttons
         self._check_vars = {}
         self._check_widgets = {}
@@ -328,7 +344,14 @@ class SystemsDialog(tk.Toplevel):
         ttk.Button(btn_frame, text="Select All", command=self._select_all).pack(side=tk.LEFT, padx=2)
         ttk.Button(btn_frame, text="Clear All", command=self._clear_all).pack(side=tk.LEFT, padx=2)
         ttk.Button(btn_frame, text="OK", command=self._ok).pack(side=tk.RIGHT, padx=2)
-        ttk.Button(btn_frame, text="Cancel", command=self.destroy).pack(side=tk.RIGHT, padx=2)
+        ttk.Button(btn_frame, text="Cancel", command=self._on_close).pack(side=tk.RIGHT, padx=2)
+
+    def _on_close(self):
+        """Unbind global mouse wheel events and close the dialog."""
+        self._canvas.unbind_all('<MouseWheel>')
+        self._canvas.unbind_all('<Button-4>')
+        self._canvas.unbind_all('<Button-5>')
+        self.destroy()
 
     def _filter_list(self, *_args):
         search = self._search_var.get().lower()
@@ -349,7 +372,7 @@ class SystemsDialog(tk.Toplevel):
     def _ok(self):
         selected = [s for s, v in sorted(self._check_vars.items()) if v.get()]
         self.result = ','.join(selected)
-        self.destroy()
+        self._on_close()
 
 
 class RetroRefinerGUI:
@@ -358,7 +381,7 @@ class RetroRefinerGUI:
     def __init__(self, root):
         self.root = root
         self.root.title("Retro-Refiner")
-        self.root.geometry("920x720")
+        self.root.geometry("920x960")
         self.root.minsize(700, 500)
 
         self._running = False
@@ -1583,6 +1606,9 @@ class RetroRefinerGUI:
         # Commit flag
         if commit:
             argv.append('--commit')
+
+        # Always skip CLI confirmation prompts — GUI handles confirmation itself
+        argv.append('--yes')
 
         return argv
 
