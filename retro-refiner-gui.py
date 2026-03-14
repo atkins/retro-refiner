@@ -460,9 +460,9 @@ class RetroRefinerGUI:
         main_pane = ttk.PanedWindow(self.root, orient=tk.VERTICAL)
         main_pane.pack(fill=tk.BOTH, expand=True, padx=6, pady=6)
 
-        # Top: tabbed settings (weight=3 gives tabs ~60% of vertical space)
+        # Top: tabbed settings (weight=4 gives tabs ~80% of vertical space)
         notebook_frame = ttk.Frame(main_pane)
-        main_pane.add(notebook_frame, weight=3)
+        main_pane.add(notebook_frame, weight=4)
 
         self._notebook = ttk.Notebook(notebook_frame)
         self._notebook.pack(fill=tk.BOTH, expand=True)
@@ -518,7 +518,7 @@ class RetroRefinerGUI:
             font=MONO_FONT,
             wrap=tk.WORD,
             state=tk.DISABLED,
-            height=12,
+            height=8,
         )
         scrollbar = ttk.Scrollbar(
             output_frame, orient=tk.VERTICAL, command=self._output_text.yview
