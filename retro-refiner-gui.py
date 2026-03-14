@@ -460,9 +460,9 @@ class RetroRefinerGUI:
         main_pane = ttk.PanedWindow(self.root, orient=tk.VERTICAL)
         main_pane.pack(fill=tk.BOTH, expand=True, padx=6, pady=6)
 
-        # Top: tabbed settings
+        # Top: tabbed settings (weight=3 gives tabs ~60% of vertical space)
         notebook_frame = ttk.Frame(main_pane)
-        main_pane.add(notebook_frame, weight=1)
+        main_pane.add(notebook_frame, weight=3)
 
         self._notebook = ttk.Notebook(notebook_frame)
         self._notebook.pack(fill=tk.BOTH, expand=True)
@@ -494,7 +494,7 @@ class RetroRefinerGUI:
 
         # Bottom: output + controls
         bottom_frame = ttk.Frame(main_pane)
-        main_pane.add(bottom_frame, weight=2)
+        main_pane.add(bottom_frame, weight=1)
 
         # Progress bar
         self._progress_var = tk.DoubleVar(value=0)
@@ -1046,9 +1046,42 @@ class RetroRefinerGUI:
         tab.columnconfigure(1, weight=1)
 
     def _create_advanced_tab(self):
-        """Create the Advanced tab (merged Network + Advanced)."""
-        tab = ttk.Frame(self._notebook, padding=10)
-        self._notebook.add(tab, text="Advanced")
+        """Create the Advanced tab (merged Network + Advanced) with scrolling."""
+        outer = ttk.Frame(self._notebook)
+        self._notebook.add(outer, text="Advanced")
+
+        # Scrollable container
+        canvas = tk.Canvas(outer, highlightthickness=0)
+        scrollbar = ttk.Scrollbar(outer, orient=tk.VERTICAL, command=canvas.yview)
+        tab = ttk.Frame(canvas, padding=10)
+
+        tab.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+        canvas.create_window((0, 0), window=tab, anchor=tk.NW)
+        canvas.configure(yscrollcommand=scrollbar.set)
+
+        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        self._canvases.append(canvas)
+
+        # Bind mouse wheel for this tab
+        def _bind_scroll(_event):
+            canvas.bind_all('<MouseWheel>',
+                            lambda e: canvas.yview_scroll(-1 * (e.delta // 120), "units"))
+            canvas.bind_all('<Button-4>', lambda e: canvas.yview_scroll(-3, "units"))
+            canvas.bind_all('<Button-5>', lambda e: canvas.yview_scroll(3, "units"))
+
+        def _unbind_scroll(_event):
+            canvas.unbind_all('<MouseWheel>')
+            canvas.unbind_all('<Button-4>')
+            canvas.unbind_all('<Button-5>')
+
+        canvas.bind('<Enter>', _bind_scroll)
+        canvas.bind('<Leave>', _unbind_scroll)
+
+        # Match inner frame width to canvas
+        def _on_canvas_resize(event):
+            canvas.itemconfigure(canvas.find_all()[0], width=event.width)
+        canvas.bind('<Configure>', _on_canvas_resize)
 
         # ── Network section ──
         net_frame = ttk.LabelFrame(tab, text="Network", padding=6)
