@@ -8554,9 +8554,12 @@ def filter_roms_from_files(rom_files: list, dest_dir: str, system: str, dry_run:
     if filtered_by_pattern:
         Console.system_stat(system, f"{filtered_by_pattern} filtered by include/exclude patterns")
 
+    skipped_games = []
+
     if no_filter:
         # --all mode: select every ROM without grouping or filtering
         selected_roms = all_roms
+        grouped = {rom.base_title: [rom] for rom in all_roms}
         Console.blank()
         Console.system_stat(system, f"--all mode, selecting all {len(selected_roms)} ROMs ({format_size(total_source_size)})")
     else:
@@ -8585,7 +8588,6 @@ def filter_roms_from_files(rom_files: list, dest_dir: str, system: str, dry_run:
 
         # Select best ROM from each group (or multiple if keep_regions)
         selected_roms = []
-        skipped_games = []
 
         for title, roms in grouped.items():
             if keep_regions:
