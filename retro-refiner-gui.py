@@ -10,6 +10,7 @@ while keeping the GUI responsive.
 import importlib.util
 import os
 import queue
+import re
 import subprocess
 import sys
 import threading
@@ -30,8 +31,9 @@ _original_name = _module.__name__
 _module.__name__ = "retro_refiner"
 _spec.loader.exec_module(_module)
 
-# Disable ANSI colors since GUI captures plain text
-_module.Style.disable()
+# Re-apply theme to ensure ANSI colors are enabled regardless of isatty()
+# The GUI parses ANSI codes into tkinter text tags for colored output
+_module.Style.apply_theme(_module.DEFAULT_THEME)
 
 
 # Platform-specific monospace font
@@ -125,6 +127,86 @@ LIGHT_THEME = {
     'preview_fg': '#777777',
     'ttk_theme_base': 'clam',
 }
+
+# ANSI escape code → color mapping for each theme
+# Maps ANSI SGR codes to hex colors for tkinter text tags
+_ANSI_COLORS_DARK = {
+    '31': '#f44747',    # red
+    '32': '#6a9955',    # green
+    '33': '#dcdcaa',    # yellow
+    '34': '#569cd6',    # blue
+    '35': '#c586c0',    # magenta
+    '36': '#4ec9b0',    # cyan
+    '37': '#d4d4d4',    # white
+    '91': '#f14c4c',    # bright red
+    '92': '#73c991',    # bright green
+    '93': '#e5e510',    # bright yellow
+    '94': '#6cb6ff',    # bright blue
+    '95': '#d670d6',    # bright magenta
+    '96': '#4ecdc4',    # bright cyan
+    '97': '#ffffff',    # bright white
+    '1': None,          # bold (handled via font)
+    '2': '#808080',     # dim
+    '3': None,          # italic (handled via font)
+}
+
+_ANSI_COLORS_LIGHT = {
+    '31': '#cd3131',    # red
+    '32': '#008000',    # green
+    '33': '#795e26',    # yellow
+    '34': '#0000ff',    # blue
+    '35': '#af00db',    # magenta
+    '36': '#267f99',    # cyan
+    '37': '#1e1e1e',    # white
+    '91': '#cd3131',    # bright red
+    '92': '#14ce14',    # bright green
+    '93': '#b5ba00',    # bright yellow
+    '94': '#0451a5',    # bright blue
+    '95': '#bc05bc',    # bright magenta
+    '96': '#0598bc',    # bright cyan
+    '97': '#000000',    # bright white
+    '1': None,          # bold
+    '2': '#999999',     # dim
+    '3': None,          # italic
+}
+
+# Regex to match ANSI escape sequences
+_RE_ANSI_SEQ = re.compile(r'\033\[([0-9;]*)m')
+
+
+def _parse_ansi_text(text):
+    """Parse text with ANSI codes into segments of (plain_text, [ansi_codes]).
+
+    Returns a list of (text, active_codes) tuples where active_codes
+    is the set of ANSI SGR codes currently in effect.
+    """
+    segments = []
+    active_codes = set()
+    last_end = 0
+
+    for match in _RE_ANSI_SEQ.finditer(text):
+        # Emit text before this escape
+        before = text[last_end:match.start()]
+        if before:
+            segments.append((before, frozenset(active_codes)))
+
+        # Process the SGR codes
+        codes_str = match.group(1)
+        if not codes_str or codes_str == '0':
+            active_codes.clear()  # Reset
+        else:
+            for code in codes_str.split(';'):
+                if code:
+                    active_codes.add(code)
+
+        last_end = match.end()
+
+    # Emit remaining text
+    remaining = text[last_end:]
+    if remaining:
+        segments.append((remaining, frozenset(active_codes)))
+
+    return segments
 
 
 def _detect_system_dark_mode():
@@ -508,6 +590,9 @@ class RetroRefinerGUI:
         self._output_text.configure(yscrollcommand=scrollbar.set)
         self._output_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+        # Configure ANSI color tags for the output widget
+        self._configure_ansi_tags()
 
         # Allow text selection and Ctrl+C copy in disabled text widget
         self._output_text.bind('<Button-1>', self._output_click)
@@ -2000,6 +2085,9 @@ class RetroRefinerGUI:
                 selectforeground=theme['listbox_select_fg'],
             )
 
+        # Refresh ANSI color tags for new theme
+        self._configure_ansi_tags()
+
         # Command preview entry
         self._preview_entry.configure(
             readonlybackground=theme['preview_bg'],
@@ -2129,6 +2217,33 @@ class RetroRefinerGUI:
 
     # ── Output queue polling ──────────────────────────────────────────
 
+    def _configure_ansi_tags(self):
+        """Create tkinter text tags for ANSI color codes."""
+        colors = _ANSI_COLORS_DARK if self._is_dark else _ANSI_COLORS_LIGHT
+        bold_font = (MONO_FONT[0], MONO_FONT[1], 'bold')
+        italic_font = (MONO_FONT[0], MONO_FONT[1], 'italic')
+        for code, color in colors.items():
+            tag = f'ansi_{code}'
+            if code == '1':
+                self._output_text.tag_configure(tag, font=bold_font)
+            elif code == '3':
+                self._output_text.tag_configure(tag, font=italic_font)
+            elif color:
+                self._output_text.tag_configure(tag, foreground=color)
+
+    def _insert_ansi_text(self, text):
+        """Insert text with ANSI color codes into the output widget using tags."""
+        if '\033[' not in text:
+            # Fast path: no ANSI codes
+            self._output_text.insert(tk.END, text)
+            return
+        for segment, codes in _parse_ansi_text(text):
+            if codes:
+                tags = tuple(f'ansi_{c}' for c in codes)
+                self._output_text.insert(tk.END, segment, tags)
+            else:
+                self._output_text.insert(tk.END, segment)
+
     def _poll_queue(self):
         """Drain the output queue into the Text widget (called every 50ms)."""
         try:
@@ -2148,10 +2263,10 @@ class RetroRefinerGUI:
                     # Delete from start of current line to end of line
                     current_line = self._output_text.index('end-1c linestart')
                     self._output_text.delete(current_line, 'end-1c')
-                    self._output_text.insert(tk.END, text)
+                    self._insert_ansi_text(text)
                     self._try_parse_progress(text)
                 else:
-                    self._output_text.insert(tk.END, text)
+                    self._insert_ansi_text(text)
 
                 self._output_text.configure(state=tk.DISABLED)
                 batch_count += 1
@@ -2171,6 +2286,8 @@ class RetroRefinerGUI:
 
     def _try_parse_progress(self, text):
         """Try to extract progress percentage from progress bar text."""
+        # Strip ANSI codes before parsing
+        text = _RE_ANSI_SEQ.sub('', text)
         # ProgressBar output looks like: [####----] 10/20 (50%)
         try:
             if '(' in text and '%)' in text:
