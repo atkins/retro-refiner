@@ -169,7 +169,7 @@ DEFAULT_THEME = {
     'tag_skip': 'DIM', 'tag_select': 'GREEN', 'tag_filter': 'YELLOW',
     'tag_dat': 'BLUE', 'tag_config': 'MAGENTA', 'tag_detect': 'CYAN',
     'tag_match': 'GREEN', 'tag_include': 'GREEN', 'tag_exclude': 'RED',
-    'tag_dedupe': 'MAGENTA',
+    'tag_dedupe': 'MAGENTA', 'tag_dep': 'CYAN',
     # Error blocks
     'error_border': 'RED', 'error_title': 'BRIGHT_RED',
     # Tables
@@ -236,6 +236,7 @@ class Style:
     TAG_INCLUDE = ''
     TAG_EXCLUDE = ''
     TAG_DEDUPE = ''
+    TAG_DEP = ''
     ERROR_BORDER = ''
     ERROR_TITLE = ''
     TABLE_HEADER = ''
@@ -436,7 +437,7 @@ class Console:
             'CONFIG': Style.TAG_CONFIG, 'DETECT': Style.TAG_DETECT,
             'MATCH': Style.TAG_MATCH, 'INCLUDE': Style.TAG_INCLUDE,
             'EXCLUDE': Style.TAG_EXCLUDE, 'CLONE': Style.TAG_SELECT,
-            'VERSION': Style.TAG_FILTER, 'DEDUPE': Style.TAG_DEDUPE,
+            'VERSION': Style.TAG_FILTER, 'DEDUPE': Style.TAG_DEDUPE, 'DEP': Style.TAG_DEP,
         }
         color = tag_colors.get(tag_upper, Style.DETAIL)
         print(f"  {color}[{tag_upper}]{Style.RESET} {Style.DETAIL}{text}{Style.RESET}")
