@@ -5379,6 +5379,11 @@ COMPILATION_PATTERNS = [re.compile(p) for p in [
     r'Classics\)', r'Competition Cartridge',  # DK Classics, Competition carts
     r'Twin Pack',
     r'Super Pack', r'^Double Game!',
+    # TOSEC bulk collection disks (numbered compilations, not individual games)
+    r'^Plato Courseware\b',
+    r'^Tigercub\s+\d',
+    r'^BCS\s+(Disk|Specialty Disk)\s+\d',
+    r'^Modules\s+Disk\s+\d',
 ]]
 
 # Pre-compiled hack detection patterns
@@ -5406,6 +5411,7 @@ _RE_REGION = re.compile(r'\(([^)]+)\)')
 _RE_ENGLISH_TAG = re.compile(r'\([^)]*\bEn\b[^)]*\)')
 _RE_REVISION = re.compile(r'\(Rev\s*([A-Z0-9]+)\)')
 _RE_VERSION = re.compile(r'\(v(\d+)\.(\d+)\)')
+_RE_TITLE_VERSION = re.compile(r'\s+v(\d+(?:\.\d+)?)\s*$', re.IGNORECASE)
 _RE_BRACKETS = re.compile(r'\[[^\]]+\]')
 _RE_PARENS = re.compile(r'\s*\([^)]+\)')
 _RE_WHITESPACE = re.compile(r'\s+')
@@ -5415,7 +5421,7 @@ _RE_DISC = re.compile(r'\((?:Disc|Disk|Part)\s+(\d+)(?:\s+of\s+\d+)?\)', re.IGNO
 # TOSEC naming convention patterns
 _RE_TOSEC_DATE = re.compile(r'^\(\d{4}(?:-\d{2}(?:-\d{2})?)?\)$|^\(\d{2}xx\)$')
 _RE_TOSEC_REVISION = re.compile(r'\s+r(\d+)\s*$')
-_RE_TOSEC_BAD_FLAGS = re.compile(r'\[([bo!]|cr)\]', re.IGNORECASE)
+_RE_TOSEC_BAD_FLAGS = re.compile(r'\[([bo!a]|cr[^\]]*)\]', re.IGNORECASE)
 _TOSEC_REGION_MAP = {
     'US': 'USA', 'GB': 'Europe', 'EU': 'Europe', 'JP': 'Japan',
     'FR': 'France', 'DE': 'Germany', 'ES': 'Spain', 'IT': 'Italy',
@@ -5487,9 +5493,9 @@ def parse_rom_filename(filename: str) -> RomInfo:
         for flag_match in _RE_TOSEC_BAD_FLAGS.finditer(name):
             flag = flag_match.group(1)
             flag_lower = flag.lower()
-            if flag_lower in ('b', 'o'):
-                is_beta = True  # Reuse is_beta to filter out
-            elif flag_lower == 'cr':
+            if flag_lower in ('b', 'o', 'a'):
+                is_beta = True  # Reuse is_beta to filter out bad/overdump/alternate
+            elif flag_lower.startswith('cr'):
                 tosec_cracked = True
             elif flag == '!':
                 tosec_verified = True
@@ -5623,6 +5629,19 @@ def parse_rom_filename(filename: str) -> RomInfo:
     # For TOSEC: strip trailing revision suffix (e.g., "Title r13" → "Title")
     if is_tosec:
         base_title = _RE_TOSEC_REVISION.sub('', base_title)
+    # Strip trailing version from title (e.g., "Disk Manager v2.0" → "Disk Manager")
+    # and incorporate it into the revision number for proper deduplication
+    title_ver_match = _RE_TITLE_VERSION.search(base_title)
+    if title_ver_match:
+        ver_str = title_ver_match.group(1)
+        base_title = base_title[:title_ver_match.start()]
+        # Parse version into a comparable number (e.g., "2.5" → 250, "110" → 11000)
+        if '.' in ver_str:
+            parts = ver_str.split('.')
+            ver_num = int(parts[0]) * 100 + int(parts[1])
+        else:
+            ver_num = int(ver_str) * 100
+        revision = max(revision, ver_num)
     # Clean up
     base_title = base_title.strip()
     base_title = _RE_WHITESPACE.sub(' ', base_title)
