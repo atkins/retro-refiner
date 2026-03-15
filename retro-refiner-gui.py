@@ -1454,9 +1454,6 @@ class RetroRefinerGUI:
         """Run --clean to delete cache, DATs, and generated data."""
         if self._running:
             return
-        if not self._has_sources():
-            messagebox.showwarning("No Source", "Please add at least one source directory or URL.")
-            return
         if not messagebox.askyesno(
             "Confirm Clean",
             "This will delete cache, DAT files, CRC caches, and generated data.\n\nContinue?"
