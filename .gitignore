@@ -41,7 +41,6 @@ dat_files/
 duplicate_mappings.json
 cache/
 *_refined/
-*_selection_log.txt
 *_verification_report.txt
 *.lpl
 

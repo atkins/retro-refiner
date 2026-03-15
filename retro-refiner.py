@@ -6435,7 +6435,7 @@ def select_best_mame_clone(parent_name: str, clones: list, games: dict,
 def filter_mame_roms(source_dir: str, dest_dir: str, catver_path: str, dat_path: str,
                      copy_chds: bool = True, dry_run: bool = False, system_name: str = 'mame',
                      include_adult: bool = True, verbose: bool = False,
-                     no_filter: bool = False):
+                     no_filter: bool = False, log_dir: str = None):
     """Filter MAME/FBNeo ROMs based on category and region preferences."""
     label = system_name.upper()
 
@@ -6611,13 +6611,12 @@ def filter_mame_roms(source_dir: str, dest_dir: str, catver_path: str, dat_path:
         if copied_chds:
             Console.system_stat(label, f"Copied {copied_chds} CHD files")
 
-    # Write selection log
-    log_path = Path(dest_dir) / system_name / '_selection_log.txt'
-    if not dry_run:
-        log_path.parent.mkdir(parents=True, exist_ok=True)
-
-    with open(log_path, 'w', encoding='utf-8') if not dry_run else open(os.devnull, 'w', encoding='utf-8') as f:
-        if not dry_run:
+    # Write selection log (only when --log-dir is set)
+    if log_dir and not dry_run:
+        log_dir_path = Path(log_dir)
+        log_dir_path.mkdir(parents=True, exist_ok=True)
+        log_path = log_dir_path / f'{system_name}_selection_log.txt'
+        with open(log_path, 'w', encoding='utf-8') as f:
             f.write(f"{label} Selection Log\n")
             f.write("=" * 60 + "\n\n")
             f.write(f"Total ROMs available: {len(available_roms)}\n")
@@ -6644,8 +6643,6 @@ def filter_mame_roms(source_dir: str, dest_dir: str, catver_path: str, dat_path:
             for desc, name, reason in sorted(skipped_games):
                 f.write(f"{name}: {desc}\n")
                 f.write(f"  Reason: {reason}\n\n")
-
-    if not dry_run:
         Console.system_stat(label, f"Selection log written to {log_path}")
 
     return selected_roms, {'source_size': total_source_size, 'selected_size': selected_size,
@@ -7692,7 +7689,8 @@ def filter_teknoparrot_roms(source_dir: str, dest_dir: str, dat_path: str = None
                              include_patterns: List[str] = None,
                              exclude_patterns: List[str] = None,
                              verbose: bool = False,
-                             no_filter: bool = False):
+                             no_filter: bool = False,
+                             log_dir: str = None):
     """Filter TeknoParrot ROMs based on platform, version, and region preferences.
 
     Args:
@@ -7917,13 +7915,12 @@ def filter_teknoparrot_roms(source_dir: str, dest_dir: str, dat_path: str = None
         if copied_chds:
             Console.system_stat(label, f"Copied {copied_chds} CHD files")
 
-    # Write selection log
-    log_path = Path(dest_dir) / 'teknoparrot' / '_selection_log.txt'
-    if not dry_run:
-        log_path.parent.mkdir(parents=True, exist_ok=True)
-
-    with open(log_path, 'w', encoding='utf-8') if not dry_run else open(os.devnull, 'w', encoding='utf-8') as f:
-        if not dry_run:
+    # Write selection log (only when --log-dir is set)
+    if log_dir and not dry_run:
+        log_dir_path = Path(log_dir)
+        log_dir_path.mkdir(parents=True, exist_ok=True)
+        log_path = log_dir_path / 'teknoparrot_selection_log.txt'
+        with open(log_path, 'w', encoding='utf-8') as f:
             f.write(f"{label} Selection Log\n")
             f.write("=" * 60 + "\n\n")
             f.write(f"Total ROMs available: {len(available_roms)}\n")
@@ -7950,8 +7947,6 @@ def filter_teknoparrot_roms(source_dir: str, dest_dir: str, dat_path: str = None
             for desc, name, reason in sorted(skipped_games):
                 f.write(f"{name}: {desc}\n")
                 f.write(f"  Reason: {reason}\n\n")
-
-    if not dry_run:
         Console.system_stat(label, f"Selection log written to {log_path}")
 
     return selected_roms, {'source_size': total_source_size, 'selected_size': selected_size,
@@ -8374,7 +8369,8 @@ def filter_roms_from_files(rom_files: list, dest_dir: str, system: str, dry_run:
                            download_crc_index: dict = None,
                            exclude_titles: set = None,
                            no_verify: bool = False,
-                           no_cache: bool = False):
+                           no_cache: bool = False,
+                           log_dir: str = None):
     """Filter ROMs from a list of file paths.
 
     If dat_entries is provided, uses DAT metadata to enhance/override filename parsing.
@@ -8609,45 +8605,46 @@ def filter_roms_from_files(rom_files: list, dest_dir: str, system: str, dry_run:
     Console.blank()
     Console.system_stat(system, f"{action_past.get(transfer_mode, 'Copied')} {copied} ROMs to {dest_path}")
 
-    # Write selection log
-    log_path = dest_path / "_selection_log.txt"
-    with open(log_path, 'w', encoding='utf-8') as f:
-        f.write(f"ROM Selection Log for {system.upper()}\n")
-        f.write("=" * 60 + "\n\n")
-        f.write(f"Total ROMs scanned: {len(all_roms)}\n")
-        f.write(f"Unique games found: {len(grouped)}\n")
-        f.write(f"ROMs selected: {len(selected_roms)}\n\n")
-        f.write(f"Source size: {format_size(total_source_size)}\n")
-        f.write(f"Selected size: {format_size(selected_size)}\n")
-        f.write(f"Size saved: {format_size(size_saved)}\n\n")
+    # Write selection log (only when --log-dir is set)
+    if log_dir:
+        log_dir_path = Path(log_dir)
+        log_dir_path.mkdir(parents=True, exist_ok=True)
+        log_path = log_dir_path / f"{system}_selection_log.txt"
+        with open(log_path, 'w', encoding='utf-8') as f:
+            f.write(f"ROM Selection Log for {system.upper()}\n")
+            f.write("=" * 60 + "\n\n")
+            f.write(f"Total ROMs scanned: {len(all_roms)}\n")
+            f.write(f"Unique games found: {len(grouped)}\n")
+            f.write(f"ROMs selected: {len(selected_roms)}\n\n")
+            f.write(f"Source size: {format_size(total_source_size)}\n")
+            f.write(f"Selected size: {format_size(selected_size)}\n")
+            f.write(f"Size saved: {format_size(size_saved)}\n\n")
 
-        f.write("SELECTED ROMS:\n")
-        f.write("-" * 60 + "\n")
-        for rom in sorted(selected_roms, key=lambda r: r.base_title.lower()):
-            # Get rating if available
-            rating_str = ""
-            if ratings and system in ratings:
-                normalized = normalize_title(rom.base_title)
-                rating_entry = ratings[system].get(normalized)
-                if rating_entry:
-                    rating_str = f" [★{rating_entry['rating']:.2f} ({rating_entry['votes']} votes)]"
-
-            f.write(f"{rom.filename}{rating_str}\n")
-            f.write(f"  Title: {rom.base_title}\n")
-            f.write(f"  Region: {rom.region}, Rev: {rom.revision}")
-            if rom.is_translation:
-                f.write(f", Translation: Yes")
-            if rom.is_proto:
-                f.write(f", Prototype: Yes")
-            f.write("\n\n")
-
-        if skipped_games:
-            f.write("\n\nSKIPPED GAMES (no suitable English version found):\n")
+            f.write("SELECTED ROMS:\n")
             f.write("-" * 60 + "\n")
-            for title, sample in sorted(skipped_games):
-                f.write(f"{title}\n  Sample: {sample}\n\n")
+            for rom in sorted(selected_roms, key=lambda r: r.base_title.lower()):
+                rating_str = ""
+                if ratings and system in ratings:
+                    normalized = normalize_title(rom.base_title)
+                    rating_entry = ratings[system].get(normalized)
+                    if rating_entry:
+                        rating_str = f" [{rating_entry['rating']:.2f} ({rating_entry['votes']} votes)]"
 
-    Console.system_stat(system, f"Selection log written to {log_path}")
+                f.write(f"{rom.filename}{rating_str}\n")
+                f.write(f"  Title: {rom.base_title}\n")
+                f.write(f"  Region: {rom.region}, Rev: {rom.revision}")
+                if rom.is_translation:
+                    f.write(", Translation: Yes")
+                if rom.is_proto:
+                    f.write(", Prototype: Yes")
+                f.write("\n\n")
+
+            if skipped_games:
+                f.write("\n\nSKIPPED GAMES (no suitable English version found):\n")
+                f.write("-" * 60 + "\n")
+                for title, sample in sorted(skipped_games):
+                    f.write(f"{title}\n  Sample: {sample}\n\n")
+        Console.system_stat(system, f"Selection log written to {log_path}")
 
     return selected_roms, {'source_size': total_source_size, 'selected_size': selected_size,
                            'rom_sizes': size_map}
@@ -9102,7 +9099,7 @@ Pattern examples (--include / --exclude):
         # Clean generated files from destination directory
         dest_dir = Path(args.dest).resolve() if args.dest else base_dir / 'refined'
         if dest_dir.exists():
-            generated_patterns = ['**/_selection_log.txt', '**/_verification_report.txt',
+            generated_patterns = ['**/_verification_report.txt',
                                    '**/_crc_cache.json']
             generated_files = []
             for pattern in generated_patterns:
@@ -10226,7 +10223,8 @@ Pattern examples (--include / --exclude):
                     include_patterns=args.include,
                     exclude_patterns=args.exclude,
                     verbose=args.verbose,
-                    no_filter=getattr(args, 'all', False)
+                    no_filter=getattr(args, 'all', False),
+                    log_dir=args.log_dir
                 )
                 selected, size_info = result
 
@@ -10430,7 +10428,8 @@ Pattern examples (--include / --exclude):
                     system_name=system,
                     include_adult=not args.no_adult,
                     verbose=args.verbose,
-                    no_filter=getattr(args, 'all', False)
+                    no_filter=getattr(args, 'all', False),
+                    log_dir=args.log_dir
                 )
                 selected, size_info = result
 
@@ -10612,7 +10611,8 @@ Pattern examples (--include / --exclude):
                 download_crc_index=download_crc_index,
                 exclude_titles=claimed_titles if (dedupe_active and system in dedupe_priority_list) else None,
                 no_verify=args.no_verify or dedupe_active,
-                no_cache=args.no_cache
+                no_cache=args.no_cache,
+                log_dir=args.log_dir
             )
             selected, size_info = result
 

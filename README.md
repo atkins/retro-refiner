@@ -557,7 +557,7 @@ Verbose mode (`-v`) shows detailed filtering decisions:
 ```
 
 ### Selection Logs
-Each system folder contains `_selection_log.txt` with:
+When `--log-dir` is set, each system generates a `{system}_selection_log.txt` in the log directory with:
 - Total ROMs scanned
 - Unique games found
 - ROMs selected
@@ -786,7 +786,7 @@ title_mappings = {
 3. Add new extension mapping to `EXTENSION_TO_SYSTEM`
 
 ### Wrong version selected
-Check `_selection_log.txt` for details. Common issues:
+Enable logging (`--log-dir ./logs`) and check the selection log for details. Common issues:
 - Missing title mapping
 - Translation incorrectly detected as hack
 - Region priority not matching expectations
