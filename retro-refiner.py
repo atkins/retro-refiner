@@ -35,7 +35,7 @@ import subprocess
 import threading
 from urllib.parse import urlparse
 from pathlib import Path
-from collections import defaultdict
+from collections import Counter, defaultdict
 from dataclasses import dataclass
 from typing import Optional, Dict, List, Tuple
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -6619,6 +6619,63 @@ def select_best_mame_clone(parent_name: str, clones: list, games: dict,
                           f"(region={winner.region}) from {len(candidates)} candidates")
 
     return candidates[0]
+
+
+def detect_mame_set_format(source_path, games, available_roms):
+    """Detect MAME ROM set format: 'merged', 'split', or 'non-merged'.
+
+    Checks up to 5 parent/clone groups using majority vote.
+    Returns format string. Falls back to 'non-merged' if detection fails.
+    """
+    parent_clones = defaultdict(list)
+    for name, game in games.items():
+        if not game.is_parent and game.parent_name:
+            parent_clones[game.parent_name].append(name)
+
+    votes = []
+    checked = 0
+    for parent_name, clones in parent_clones.items():
+        if checked >= 5:
+            break
+        if parent_name not in available_roms:
+            continue
+
+        clone_zips_exist = [c for c in clones if c in available_roms]
+
+        if not clone_zips_exist:
+            votes.append('merged')
+            checked += 1
+            continue
+
+        clone_name = clone_zips_exist[0]
+        clone_zip_path = source_path / f"{clone_name}.zip"
+        parent_game = games.get(parent_name)
+
+        if not parent_game or not parent_game.rom_files or not clone_zip_path.exists():
+            votes.append('non-merged')
+            checked += 1
+            continue
+
+        try:
+            with zipfile.ZipFile(clone_zip_path, 'r') as zf:
+                clone_contents = set(zf.namelist())
+            parent_rom_set = set(parent_game.rom_files)
+            overlap = parent_rom_set & clone_contents
+            # >50% overlap with parent ROMs indicates non-merged (self-contained)
+            if len(overlap) > len(parent_rom_set) * 0.5:
+                votes.append('non-merged')
+            else:
+                votes.append('split')
+        except (zipfile.BadZipFile, OSError):
+            votes.append('non-merged')
+
+        checked += 1
+
+    if not votes:
+        return 'non-merged'
+
+    vote_counts = Counter(votes)
+    return vote_counts.most_common(1)[0][0]
 
 
 def filter_mame_roms(source_dir: str, dest_dir: str, catver_path: str, dat_path: str,

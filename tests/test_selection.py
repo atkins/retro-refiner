@@ -14,6 +14,7 @@ Tests all major features:
 import os
 import sys
 import json
+import shutil
 import tempfile
 import importlib.util
 from pathlib import Path
@@ -3338,6 +3339,92 @@ def test_mame_romset_support():
     finally:
         if dat_file.exists():
             dat_file.unlink()
+
+    detect_mame_set_format = _module.detect_mame_set_format
+
+    # Test with no parent/clone pairs available → fallback to non-merged
+    games_no_clones = {
+        'pacman': MameGameInfo(
+            name='pacman', description='Pac-Man', year='1980',
+            manufacturer='Namco', category='Maze', is_parent=True,
+            parent_name='', is_bios=False, is_device=False,
+            has_chd=False, chd_names=[], region='World',
+            rom_files=['pacman.6e', 'pacman.6f']
+        ),
+    }
+    result = detect_mame_set_format(Path('/nonexistent'), games_no_clones, set())
+    if result == 'non-merged':
+        results.ok("detect_mame_set_format fallback: non-merged when no clones")
+    else:
+        results.fail("detect_mame_set_format fallback",
+                     "'non-merged'", repr(result))
+
+    # Test with empty available_roms → fallback
+    result2 = detect_mame_set_format(Path('/nonexistent'), games_no_clones, set())
+    if result2 == 'non-merged':
+        results.ok("detect_mame_set_format fallback: non-merged when no roms available")
+    else:
+        results.fail("detect_mame_set_format fallback (no roms)",
+                     "'non-merged'", repr(result2))
+
+    # Test actual detection with temp zip files
+    test_dir = Path(tempfile.mkdtemp())
+    try:
+        det_games = {
+            'sf2': MameGameInfo(
+                name='sf2', description='Street Fighter II', year='1991',
+                manufacturer='Capcom', category='Fighter', is_parent=True,
+                parent_name='', is_bios=False, is_device=False,
+                has_chd=False, chd_names=[], region='World',
+                rom_files=['sf2.01', 'sf2.02', 'sf2.03']
+            ),
+            'sf2ce': MameGameInfo(
+                name='sf2ce', description='SF2 CE', year='1992',
+                manufacturer='Capcom', category='Fighter', is_parent=False,
+                parent_name='sf2', is_bios=False, is_device=False,
+                has_chd=False, chd_names=[], region='World',
+                rom_files=['sf2ce.01']
+            ),
+        }
+
+        # Scenario: merged (no clone zip exists)
+        import zipfile as zf_mod
+        with zf_mod.ZipFile(test_dir / 'sf2.zip', 'w') as zf:
+            zf.writestr('sf2.01', 'data')
+            zf.writestr('sf2ce.01', 'data')
+        det_avail_merged = {'sf2'}
+        fmt = detect_mame_set_format(test_dir, det_games, det_avail_merged)
+        if fmt == 'merged':
+            results.ok("detect_mame_set_format: merged (no clone zip)")
+        else:
+            results.fail("detect_mame_set_format: merged",
+                         "'merged'", repr(fmt))
+
+        # Scenario: non-merged (clone zip contains parent ROMs)
+        with zf_mod.ZipFile(test_dir / 'sf2ce.zip', 'w') as zf:
+            zf.writestr('sf2ce.01', 'data')
+            zf.writestr('sf2.01', 'data')
+            zf.writestr('sf2.02', 'data')
+        det_avail_nm = {'sf2', 'sf2ce'}
+        fmt2 = detect_mame_set_format(test_dir, det_games, det_avail_nm)
+        if fmt2 == 'non-merged':
+            results.ok("detect_mame_set_format: non-merged (clone has parent ROMs)")
+        else:
+            results.fail("detect_mame_set_format: non-merged",
+                         "'non-merged'", repr(fmt2))
+
+        # Scenario: split (clone zip does NOT contain parent ROMs)
+        (test_dir / 'sf2ce.zip').unlink()
+        with zf_mod.ZipFile(test_dir / 'sf2ce.zip', 'w') as zf:
+            zf.writestr('sf2ce.01', 'data')
+        fmt3 = detect_mame_set_format(test_dir, det_games, det_avail_nm)
+        if fmt3 == 'split':
+            results.ok("detect_mame_set_format: split (clone missing parent ROMs)")
+        else:
+            results.fail("detect_mame_set_format: split",
+                         "'split'", repr(fmt3))
+    finally:
+        shutil.rmtree(test_dir, ignore_errors=True)
 
 
 def test_version():
