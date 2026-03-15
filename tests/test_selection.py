@@ -3178,6 +3178,34 @@ def test_version():
         results.fail("__version__ is a non-empty string",
                      "non-empty str", repr(version))
 
+    # _get_base_path() should return a Path pointing to dir with data/
+    base_path = _module._get_base_path()
+    if isinstance(base_path, Path):
+        results.ok("_get_base_path() returns a Path")
+    else:
+        results.fail("_get_base_path() returns a Path",
+                     "Path instance", type(base_path).__name__)
+
+    if (base_path / 'data').is_dir():
+        results.ok("_get_base_path() contains data/ directory")
+    else:
+        results.fail("_get_base_path() contains data/ directory",
+                     "data/ exists", "not found")
+
+    # _get_runtime_path() should return an absolute Path
+    runtime_path = _module._get_runtime_path()
+    if isinstance(runtime_path, Path):
+        results.ok("_get_runtime_path() returns a Path")
+    else:
+        results.fail("_get_runtime_path() returns a Path",
+                     "Path instance", type(runtime_path).__name__)
+
+    if runtime_path.is_absolute():
+        results.ok("_get_runtime_path() is absolute")
+    else:
+        results.fail("_get_runtime_path() is absolute",
+                     "absolute path", str(runtime_path))
+
 
 def main():
     """Run all tests."""

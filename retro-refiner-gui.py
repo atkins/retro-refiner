@@ -245,7 +245,7 @@ def _detect_system_dark_mode():
 
 
 # Auto-save state file location (next to script, hidden dotfile)
-_STATE_FILE = Path(__file__).parent / '.retro-refiner-gui-state.yaml'
+_STATE_FILE = _module._get_runtime_path() / '.retro-refiner-gui-state.yaml'  # pylint: disable=protected-access
 
 
 def _center_window(window, width, height):
@@ -1441,7 +1441,7 @@ class RetroRefinerGUI:
 
     def _open_logs_folder(self):
         """Open the logs directory in the system file explorer."""
-        logs_dir = Path(__file__).parent / 'logs'
+        logs_dir = _module._get_runtime_path() / 'logs'  # pylint: disable=protected-access
         logs_dir.mkdir(exist_ok=True)
         if sys.platform == 'win32':
             os.startfile(str(logs_dir))  # pylint: disable=no-member
@@ -1881,7 +1881,7 @@ class RetroRefinerGUI:
 
         # Logging
         if self._vars['log_enabled'].get():
-            log_dir = str(Path(__file__).parent / 'logs')
+            log_dir = str(_module._get_runtime_path() / 'logs')  # pylint: disable=protected-access
             argv.extend(['--log-dir', log_dir])
 
         return argv

@@ -96,6 +96,21 @@ else:
     SYM_INFO = 'ℹ'
     SYM_WARNING = '⚠'
 
+
+def _get_base_path():
+    """Return base path for bundled read-only data files (handles PyInstaller)."""
+    if getattr(sys, '_MEIPASS', None):
+        return Path(sys._MEIPASS)
+    return Path(__file__).resolve().parent
+
+
+def _get_runtime_path():
+    """Return base path for runtime-writable files (handles PyInstaller)."""
+    if getattr(sys, 'frozen', False):
+        return Path(sys.executable).resolve().parent
+    return Path(__file__).resolve().parent
+
+
 # =============================================================================
 # Console Output Styling
 # =============================================================================
@@ -431,7 +446,7 @@ def load_title_mappings() -> Dict[str, str]:
     if _title_mappings_cache is not None:
         return _title_mappings_cache
 
-    mappings_path = Path(__file__).parent / 'data' / 'title_mappings.json'
+    mappings_path = _get_base_path() / 'data' / 'title_mappings.json'
     flat_mappings = {}
 
     if mappings_path.exists():
@@ -498,7 +513,7 @@ def load_system_data():
     if _system_data_cache is not None:
         return _system_data_cache
 
-    systems_path = Path(__file__).parent / 'data' / 'systems.json'
+    systems_path = _get_base_path() / 'data' / 'systems.json'
 
     try:
         with open(systems_path, 'r', encoding='utf-8') as f:
@@ -9419,7 +9434,7 @@ Pattern examples (--include / --exclude):
 
     # Set default destination (refined/ subfolder where script is located)
     if args.dest is None:
-        script_dir = Path(__file__).parent.resolve()
+        script_dir = _get_runtime_path()
         args.dest = str(script_dir / "refined")
 
     # Parse region priority
@@ -9703,7 +9718,7 @@ Pattern examples (--include / --exclude):
     ratings = {}
     if args.top or args.size_bytes is not None:
         Console.section("Loading Rating Data")
-        dat_dir_ratings = Path(args.dat_dir) if args.dat_dir else Path(__file__).parent / 'dat_files'
+        dat_dir_ratings = Path(args.dat_dir) if args.dat_dir else _get_runtime_path() / 'dat_files'
 
         # Determine rating source: explicit choice, or auto-detect
         ratings_source = getattr(args, 'ratings_source', None)
