@@ -78,7 +78,7 @@ Everything lives in `retro-refiner.py` with no external dependencies. YAML parsi
 4. **Network Source Support** (~lines 1029-3869) - URL parsing, HTML link extraction, connection pooling (`ConnectionPool`), download tools (aria2c/curl/urllib), `DownloadUI` (curses-based download progress), batch downloading, network source scanning
 5. **Configuration** (~lines 3870-4588) - Config template, `load_config()`, `apply_config_to_args()`, transfer/playlist/gamelist functions. Config files are NOT auto-generated
 6. **Libretro DAT File Support** (~lines 4589-5971) - `RomInfo`/`DatRomEntry` dataclasses, T-En translation DAT support, DAT parsing (Logiqx XML + ClrMamePro formats), ROM verification, `parse_rom_filename()`, `normalize_title()`, `select_best_rom()`, `download_additional_dats()`, `load_all_system_dats()`
-7. **MAME Arcade Filtering** (~lines 5972-6789) - `MameGameInfo`/`TeknoParrotGameInfo` dataclasses, catver.ini parsing, category include/exclude sets, clone selection, `filter_mame_roms()`
+7. **MAME Arcade Filtering** (~lines 5972-6789) - `MameGameInfo`/`TeknoParrotGameInfo` dataclasses, catver.ini parsing, category include/exclude sets, clone selection, ROM set format detection (`detect_mame_set_format()`), dependency resolution (`build_mame_copy_set()`), `filter_mame_roms()`
 8. **TeknoParrot Filtering** (~lines 6790-6992) - Version parsing, platform filtering, deduplication
 9. **IGDB Rating Data** (~lines 6993-7283) - IGDB API integration, OAuth token management, game rating queries, progress bar
 10. **LaunchBox Data & Budget** (~lines 7284-8825) - Rating downloads, XML parsing with `XMLPullParser` for progress tracking, `apply_top_n_filter()`, `apply_size_budget()`
@@ -116,7 +116,7 @@ All output routes through the `Console` class using semantic color attributes fr
 ### Key dataclasses
 - `RomInfo` (line ~4565): Parsed ROM metadata (title, region, language, revision, flags like is_beta/is_proto/is_translation)
 - `DatRomEntry` (line ~4594): DAT file entry (name, description, CRC32, region, size)
-- `MameGameInfo` (line ~6160): MAME game with parent/clone relationships
+- `MameGameInfo` (line ~6196): MAME game with parent/clone relationships, BIOS dependencies (`bios_name`), and ROM file lists (`rom_files`)
 - `TeknoParrotGameInfo` (line ~6177): TeknoParrot game with version/platform info
 
 ### System data (`data/systems.json`)
