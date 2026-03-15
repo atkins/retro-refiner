@@ -489,7 +489,7 @@ def load_system_data():
     """
     global _system_data_cache
     global KNOWN_SYSTEMS, EXTENSION_TO_SYSTEM, FOLDER_ALIASES
-    global LIBRETRO_DAT_SYSTEMS, REDUMP_DAT_SYSTEMS, TEN_DAT_SYSTEMS
+    global LIBRETRO_DAT_SYSTEMS, ADDITIONAL_DAT_SYSTEMS, REDUMP_DAT_SYSTEMS, TEN_DAT_SYSTEMS
     global LAUNCHBOX_PLATFORM_MAP, IGDB_PLATFORM_MAP
     global DAT_NAME_TO_SYSTEM, SYSTEM_TO_LAUNCHBOX
     global SORTED_DAT_NAMES, SORTED_ALIASES
@@ -512,6 +512,7 @@ def load_system_data():
     ext_map = {}
     alias_map = {}
     dat_map = {}
+    additional_map = {}
     redump_map = {}
     ten_map = {}
     lb_map = {}
@@ -527,6 +528,10 @@ def load_system_data():
         dat_name = info.get('dat_name')
         if dat_name:
             dat_map[system_code] = dat_name
+
+        additional = info.get('additional_dat_names')
+        if additional:
+            additional_map[system_code] = additional
 
         redump_name = info.get('redump_dat_name')
         if redump_name:
@@ -557,6 +562,7 @@ def load_system_data():
     EXTENSION_TO_SYSTEM = ext_map
     FOLDER_ALIASES = alias_map
     LIBRETRO_DAT_SYSTEMS = dat_map
+    ADDITIONAL_DAT_SYSTEMS = additional_map
     REDUMP_DAT_SYSTEMS = redump_map
     TEN_DAT_SYSTEMS = ten_map
     LAUNCHBOX_PLATFORM_MAP = lb_map
@@ -4843,6 +4849,62 @@ def download_libretro_dat(system: str, dest_dir: Path, force: bool = False) -> O
     return None
 
 
+def download_additional_dats(system: str, dest_dir: Path, force: bool = False) -> List[Path]:
+    """Download additional DAT files for a system (digital/PSN variants)."""
+    additional_names = ADDITIONAL_DAT_SYSTEMS.get(system, [])
+    if not additional_names:
+        return []
+
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    downloaded = []
+
+    for i, dat_name in enumerate(additional_names, 1):
+        dat_path = dest_dir / f"{system}_extra{i}.dat"
+        if dat_path.exists() and not force:
+            downloaded.append(dat_path)
+            continue
+
+        if dat_path.exists() and force:
+            dat_path.unlink()
+
+        encoded = urllib.request.quote(dat_name)
+        urls = [
+            f"{LIBRETRO_DB_NOINTO_URL}/{encoded}.dat",
+            f"{LIBRETRO_DB_DAT_URL}/{encoded}.dat",
+        ]
+        for url in urls:
+            try:
+                req = urllib.request.Request(url, headers={'User-Agent': 'Retro-Refiner/1.0'})
+                with urllib.request.urlopen(req, timeout=30) as response:
+                    with open(dat_path, 'wb') as f:
+                        shutil.copyfileobj(response, f)
+                Console.detail(f"Downloaded additional DAT: {dat_name}")
+                downloaded.append(dat_path)
+                break
+            except Exception:
+                continue
+
+    return downloaded
+
+
+def load_all_system_dats(system: str, dat_dir: Path) -> Dict[str, 'DatRomEntry']:
+    """Load primary + additional DAT files for a system and merge entries."""
+    all_entries = {}
+    dat_path = dat_dir / f"{system}.dat"
+    if dat_path.exists():
+        all_entries.update(parse_dat_file(dat_path))
+
+    # Load additional DATs (system_extra1.dat, system_extra2.dat, etc.)
+    for extra in sorted(dat_dir.glob(f"{system}_extra*.dat")):
+        try:
+            entries = parse_dat_file(extra)
+            all_entries.update(entries)
+        except Exception:
+            pass
+
+    return all_entries
+
+
 def is_myrient_tosec_url(url: str) -> bool:
     """Check if a URL is a Myrient TOSEC source."""
     return 'myrient.erista.me/files/TOSEC/' in url
@@ -9062,6 +9124,16 @@ Pattern examples (--include / --exclude):
 
         Console.result("No-Intro / Redump DATs", downloaded, failed)
 
+        # Download additional DATs (digital/PSN variants)
+        if ADDITIONAL_DAT_SYSTEMS:
+            extra_count = sum(len(v) for v in ADDITIONAL_DAT_SYSTEMS.values())
+            Console.section(f"Additional DATs ({extra_count} digital/PSN variants)")
+            extra_downloaded = 0
+            for system in sorted(ADDITIONAL_DAT_SYSTEMS.keys()):
+                results = download_additional_dats(system, dat_dir, force=True)
+                extra_downloaded += len(results)
+            Console.result("Additional DATs", extra_downloaded, extra_count - extra_downloaded)
+
         # Download MAME data (catver.ini + MAME XML)
         Console.section("MAME Arcade Data (catver.ini + game database)")
         catver_path, mame_dat_path = download_mame_data(dat_dir, version=args.mame_version, force=True)
@@ -9572,8 +9644,9 @@ Pattern examples (--include / --exclude):
             for system in systems_needing_dat:
                 check_shutdown()
                 dat_path = download_libretro_dat(system, dat_dir)
+                download_additional_dats(system, dat_dir)
                 if dat_path:
-                    dat_entries = parse_dat_file(dat_path)
+                    dat_entries = load_all_system_dats(system, dat_dir)
                     network_dat_entries[system] = dat_entries
                     Console.system_stat(system, f"{len(dat_entries)} DAT entries loaded")
                     if args.verbose:
@@ -10662,9 +10735,10 @@ Pattern examples (--include / --exclude):
                 else:
                     dat_dir = Path(args.dat_dir) if args.dat_dir else primary_source / 'dat_files'
                     dat_path = download_libretro_dat(system, dat_dir)
+                    download_additional_dats(system, dat_dir)
                     if dat_path:
                         Console.system_stat(system, "Loading DAT file...")
-                        dat_entries = parse_dat_file(dat_path)
+                        dat_entries = load_all_system_dats(system, dat_dir)
                         Console.system_stat(system, f"Loaded {len(dat_entries)} DAT entries")
                         if args.verbose:
                             with open(dat_path, 'r', encoding='utf-8', errors='ignore') as df:

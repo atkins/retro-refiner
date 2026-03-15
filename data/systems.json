@@ -37,7 +37,12 @@
       "launchbox_platforms": [
         "Nintendo 3DS"
       ],
-      "igdb_id": 37
+      "igdb_id": 37,
+      "additional_dat_names": [
+        "Nintendo - Nintendo 3DS (Digital)",
+        "Nintendo - New Nintendo 3DS",
+        "Nintendo - New Nintendo 3DS (Digital)"
+      ]
     },
     "actionmax": {
       "name": "Actionmax"
@@ -1039,7 +1044,10 @@
       "launchbox_platforms": [
         "Sony Playstation 3"
       ],
-      "igdb_id": 9
+      "igdb_id": 9,
+      "additional_dat_names": [
+        "Sony - PlayStation 3 (PSN)"
+      ]
     },
     "psp": {
       "name": "Sony - PlayStation Portable",
@@ -1057,7 +1065,11 @@
       "launchbox_platforms": [
         "Sony PSP"
       ],
-      "igdb_id": 38
+      "igdb_id": 38,
+      "additional_dat_names": [
+        "Sony - PlayStation Portable (PSN)",
+        "Sony - PlayStation Portable (PSX2PSP)"
+      ]
     },
     "psvita": {
       "name": "Sony - PlayStation Vita",
@@ -1071,7 +1083,10 @@
       "launchbox_platforms": [
         "Sony Playstation Vita"
       ],
-      "igdb_id": 46
+      "igdb_id": 46,
+      "additional_dat_names": [
+        "Sony - PlayStation Vita (PSN)"
+      ]
     },
     "psx": {
       "name": "Sony - PlayStation",
@@ -1465,7 +1480,10 @@
       "launchbox_platforms": [
         "Nintendo Wii"
       ],
-      "igdb_id": 5
+      "igdb_id": 5,
+      "additional_dat_names": [
+        "Nintendo - Wii (Digital)"
+      ]
     },
     "wiiu": {
       "name": "Nintendo - Wii U",
@@ -1477,7 +1495,10 @@
       "launchbox_platforms": [
         "Nintendo Wii U"
       ],
-      "igdb_id": 41
+      "igdb_id": 41,
+      "additional_dat_names": [
+        "Nintendo - Wii U (Digital)"
+      ]
     },
     "wonderswan": {
       "name": "Bandai - WonderSwan",
@@ -1543,7 +1564,11 @@
       "launchbox_platforms": [
         "Microsoft Xbox 360"
       ],
-      "igdb_id": 12
+      "igdb_id": 12,
+      "additional_dat_names": [
+        "Microsoft - XBOX 360 (Games on Demand)",
+        "Microsoft - Xbox 360 (Digital)"
+      ]
     },
     "zeebo": {
       "name": "Mobile - Zeebo",
