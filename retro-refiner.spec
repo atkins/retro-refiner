@@ -11,7 +11,20 @@ a = Analysis(
         ('data/systems.json', 'data'),
         ('data/title_mappings.json', 'data'),
     ],
-    hiddenimports=['tkinter', '_tkinter'],
+    hiddenimports=[
+        # retro-refiner.py and retro-refiner-gui.py are loaded dynamically via
+        # importlib, so PyInstaller cannot detect their dependencies automatically.
+        # All stdlib modules used by both scripts must be listed here.
+        'os', 're', 'sys', 'signal', 'shutil', 'zipfile', 'binascii', 'fnmatch',
+        'json', 'unicodedata', 'urllib.request', 'urllib.error', 'urllib.parse',
+        'socket', 'ssl', 'atexit', 'subprocess', 'threading', 'pathlib',
+        'collections', 'dataclasses', 'typing', 'concurrent.futures',
+        'time', 'argparse', 'tempfile', 'io', 'select', 'datetime',
+        'xml.etree.ElementTree', 'curses', 'termios', 'tty', 'ctypes', 'msvcrt',
+        # GUI
+        'tkinter', '_tkinter', 'tkinter.ttk', 'tkinter.filedialog',
+        'tkinter.messagebox', 'tkinter.simpledialog', 'queue',
+    ],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
