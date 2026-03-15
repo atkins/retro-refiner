@@ -42,9 +42,11 @@ Tkinter-based GUI wrapper that provides a tabbed settings interface for all ~60 
 - **Import:** Uses the same `importlib` pattern as tests to import `retro-refiner.py` as a module
 - **Output capture:** Redirects `sys.stdout`/`sys.stderr` to a `QueueWriter` that feeds a `queue.Queue`. GUI polls every 50ms via `root.after()`. `\r` carriage returns trigger line replacement for progress bars
 - **Threading:** `main()` runs in a daemon thread. Cancel sets `_module._shutdown_requested = True` (GIL-atomic). Catches `SystemExit` from `main()`'s `sys.exit()` paths
-- **Colors disabled:** `Style.disable()` called after import since `isatty()` returns `False`
-- **Layout:** 4 tabs (Setup, Selection, Output, Advanced) + command preview line + bottom panel (progress bar, scrollable output with welcome text, Preview/Commit/Cancel/Clear/Copy buttons, auto-scroll toggle, Save/Load settings, theme toggle, elapsed timer)
-- **Theming:** Light/dark theme with OS detection (Windows registry, macOS `defaults`, Linux `gsettings`). Toggle button in bottom control bar. `DARK_THEME`/`LIGHT_THEME` dicts define all colors; `_apply_theme()` updates output text, listboxes, and all ttk widget styles including hover/active states
+- **ANSI color output:** ANSI escape codes from the base script are parsed into tkinter text tags (`_parse_ansi_text()`, `_insert_ansi_text()`). `Style.apply_theme()` is re-applied after import to ensure colors are on regardless of `isatty()`. Color mappings in `_ANSI_COLORS_DARK`/`_ANSI_COLORS_LIGHT` refresh on theme toggle via `_configure_ansi_tags()`
+- **Layout:** 4 tabs (Setup, Selection, Output, Advanced) + bottom panel (output text, command preview + Copy, action buttons). Advanced tab uses two-column layout (Network+Options+Logging | Auth+TeknoParrot+Maintenance). PanedWindow sash dynamically positioned via `_position_sash()` to fit tab content. Progress bar hidden when idle, shown only during runs
+- **Theming:** Light/dark theme with OS detection (Windows registry, macOS `defaults`, Linux `gsettings`). Toggle button shows current state ("Theme: Dark"/"Theme: Light"). `DARK_THEME`/`LIGHT_THEME` dicts define all colors including accent button, sublabel, and ANSI color palettes; `_apply_theme()` updates output text, listboxes, preview entry, ANSI tags, and all ttk widget styles
+- **State persistence:** GUI state auto-saved to `.retro-refiner-gui-state.yaml` on window close, restored on next launch. Manual Save/Load buttons export/import to user-chosen YAML files
+- **Maintenance buttons:** Clean Cache & Data (`--clean`), Update DATs (`--update-dats`), Update Ratings (`--update-ratings`) in Advanced tab — run without requiring sources
 - **No changes to `retro-refiner.py`** — the GUI is purely a wrapper
 
 ### Single-file design
@@ -102,7 +104,7 @@ All system definitions (144 systems) live in `data/systems.json`. At module load
 - `KNOWN_SYSTEMS` — list of all system codes
 - `EXTENSION_TO_SYSTEM` — file extension → system code (91 extensions)
 - `FOLDER_ALIASES` — folder name → system code (215 aliases)
-- `LIBRETRO_DAT_SYSTEMS` — system → No-Intro DAT name (101 systems)
+- `LIBRETRO_DAT_SYSTEMS` — system → No-Intro/Redump DAT name (114 systems)
 - `REDUMP_DAT_SYSTEMS` — system → Redump DAT name (25 systems)
 - `TEN_DAT_SYSTEMS` — system → T-En DAT prefix (44 systems)
 - `LAUNCHBOX_PLATFORM_MAP` — LaunchBox platform name → system code (67 platforms)
@@ -117,7 +119,17 @@ The generation script `tools/generate_systems_json.py` can regenerate the JSON f
 - `MAME_INCLUDE_CATEGORIES` / `MAME_EXCLUDE_CATEGORIES` (~line 5620/5640): Arcade category filtering
 
 ### Title normalization pipeline
-`normalize_title()` lowercases, strips punctuation, converts Roman numerals to Arabic, then applies mappings from `data/title_mappings.json` (1,194 Japan→English mappings in 50 categories). This is how regional variants like "Rockman" and "Mega Man" get grouped together.
+`normalize_title()` lowercases, strips punctuation, converts Roman numerals to Arabic, then applies mappings from `data/title_mappings.json` (1,200+ mappings in 50+ categories). This is how regional variants like "Rockman" and "Mega Man" get grouped together.
+
+### TOSEC naming support
+`parse_rom_filename()` auto-detects TOSEC naming (first parenthesized token is a date). TOSEC-specific handling includes:
+- **Dump flags:** `_RE_TOSEC_BAD_FLAGS` matches `[b]` (bad dump), `[o]` (overdump), `[a]` (alternate), `[cr ...]` (cracked with attribution) — all filtered
+- **Multi-part:** `_RE_DISC` matches `(Part X of Y)`, `(Disk X of Y)`, and `(Disc N)` formats; `_collect_sibling_discs()` includes all parts when any part is selected
+- **Version dedup:** Trailing version strings (`v1.0`, `v110`) are stripped from `base_title` and folded into the `revision` field so different versions group together
+- **Revision suffix:** Trailing `rN` is stripped from titles and folded into revision
+- **Bulk collections:** `COMPILATION_PATTERNS` filters numbered collection disks (Plato Courseware, Tigercub, BCS Disk, Modules Disk)
+- **Cracked ROMs:** Detected by both `[cr]` flag and "Cracked" in title text → marked as pirate and filtered
+- **Demo variants:** `(demo-playable)`, `(demo-slideshow)` etc. detected regardless of TOSEC date detection order
 
 ### Network download pipeline
 Auto-detects best tool: aria2c > curl > Python urllib. `DownloadUI` provides a curses-based real-time progress display with per-file status, stall detection, and automatic retry (3 attempts). Auto-tuning adjusts parallelism based on median file size.
@@ -171,6 +183,16 @@ CRC/DAT enrichment runs only on selected ROMs (post-selection pass in `filter_ro
 - `DownloadUI` uses curses on Unix, falls back on Windows
 - Windows cp1252 console cannot render Unicode symbols — always use `SYM_*` constants
 - Colors respect `NO_COLOR` env var (https://no-color.org/) and non-TTY detection
+
+### Logging
+- **Run logs:** `--log-dir` enables timestamped run logs (`retro-refiner_YYYY-MM-DD_HHMMSS_mode.log`). `TeeWriter` mirrors all output to both the original stream and a log file with ANSI codes stripped. `close_log()` cleanly unwraps TeeWriter
+- **Selection logs:** Written to `log_dir/{system}_selection_log.txt` when `--log-dir` is set. Generated during both preview and commit runs. Disabled by default (no longer written to dest dirs)
+- **GUI logging:** "Log output to file" checkbox passes `--log-dir ./logs`. "Open Logs" button opens the directory in the system file explorer
+
+### Maintenance commands
+- **`--update-dats`:** Downloads No-Intro (76 cartridge) + Redump (25 disc) + MAME arcade data + T-En translation DATs. Does NOT download ratings
+- **`--update-ratings`:** Downloads IGDB + LaunchBox rating data independently. Requires IGDB credentials for IGDB data
+- **`--clean`:** Deletes cached downloads, DAT files, CRC caches, and generated data. Works without sources
 
 ## Local Data Files (not in git)
 
