@@ -97,6 +97,42 @@ else:
     SYM_WARNING = '⚠'
 
 
+def _create_ssl_context():
+    """Create an SSL context with CA certificates, handling macOS quirks.
+
+    On macOS, Python's bundled OpenSSL does not use the system keychain.
+    This loads certificates from common system/Homebrew locations as fallback.
+    """
+    ctx = ssl.create_default_context()
+
+    if sys.platform == 'darwin':
+        _cert_paths = [
+            '/etc/ssl/cert.pem',
+            '/opt/homebrew/etc/openssl@3/cert.pem',
+            '/opt/homebrew/etc/openssl/cert.pem',
+            '/usr/local/etc/openssl@3/cert.pem',
+            '/usr/local/etc/openssl/cert.pem',
+        ]
+        for cert_path in _cert_paths:
+            if Path(cert_path).is_file():
+                try:
+                    ctx.load_verify_locations(cert_path)
+                    break
+                except (ssl.SSLError, OSError):
+                    continue
+
+    return ctx
+
+
+# Shared SSL context — used by ConnectionPool and installed as urllib default
+_SSL_CONTEXT = _create_ssl_context()
+urllib.request.install_opener(
+    urllib.request.build_opener(
+        urllib.request.HTTPSHandler(context=_SSL_CONTEXT)
+    )
+)
+
+
 def _get_base_path():
     """Return base path for bundled read-only data files (handles PyInstaller)."""
     if getattr(sys, '_MEIPASS', None):
@@ -1675,7 +1711,7 @@ class ConnectionPool:
 
     def __init__(self):
         self._sockets: Dict[str, ssl.SSLSocket] = {}
-        self._ssl_context = ssl.create_default_context()
+        self._ssl_context = _SSL_CONTEXT
 
     def _get_socket(self, host: str, port: int = 443) -> ssl.SSLSocket:
         """Get or create an SSL socket to the specified host."""
