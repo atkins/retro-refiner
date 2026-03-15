@@ -1314,10 +1314,18 @@ class RetroRefinerGUI:
 
         update_btn = ttk.Button(maint_frame, text="Update DATs",
                                 command=self._run_update_dats)
-        update_btn.pack(side=tk.LEFT)
+        update_btn.pack(side=tk.LEFT, padx=(0, 8))
         self._tip(update_btn, (
-            "Re-download all DAT files (No-Intro, MAME, T-En). "
+            "Re-download all DAT files (No-Intro, Redump, MAME, T-En). "
             "Equivalent to running with --update-dats."
+        ))
+
+        ratings_btn = ttk.Button(maint_frame, text="Update Ratings",
+                                 command=self._run_update_ratings)
+        ratings_btn.pack(side=tk.LEFT)
+        self._tip(ratings_btn, (
+            "Re-download game rating data (IGDB + LaunchBox). "
+            "Used by --top and --size to rank games."
         ))
 
         tab.columnconfigure(0, weight=1)
@@ -1500,6 +1508,36 @@ class RetroRefinerGUI:
         self._running = True
         self._update_button_states()
         self._status_var.set("Updating DATs...")
+        if self._welcome_shown:
+            self._clear_output()
+            self._welcome_shown = False
+        self._worker_thread = threading.Thread(
+            target=self._run_worker, args=(argv,), daemon=True
+        )
+        self._worker_thread.start()
+
+    def _run_update_ratings(self):
+        """Run --update-ratings to re-download IGDB and LaunchBox rating data."""
+        if self._running:
+            return
+        argv = ['retro-refiner']
+        if self._has_sources():
+            for src in self._listbox_data.get('source', []):
+                argv.extend(['--source', src])
+        dat_dir = self._vars.get('dat_dir')
+        if dat_dir and dat_dir.get().strip():
+            argv.extend(['--dat-dir', dat_dir.get().strip()])
+        # Pass IGDB credentials if configured
+        igdb_id = self._vars.get('igdb_client_id')
+        igdb_secret = self._vars.get('igdb_client_secret')
+        if igdb_id and igdb_id.get().strip():
+            argv.extend(['--igdb-client-id', igdb_id.get().strip()])
+        if igdb_secret and igdb_secret.get().strip():
+            argv.extend(['--igdb-client-secret', igdb_secret.get().strip()])
+        argv.append('--update-ratings')
+        self._running = True
+        self._update_button_states()
+        self._status_var.set("Updating ratings...")
         if self._welcome_shown:
             self._clear_output()
             self._welcome_shown = False

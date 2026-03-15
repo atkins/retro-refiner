@@ -8901,7 +8901,9 @@ Pattern examples (--include / --exclude):
     parser.add_argument('--no-dat', action='store_true',
                         help='Use filename parsing instead of DAT metadata')
     parser.add_argument('--update-dats', action='store_true',
-                        help='Delete and re-download all DAT files (No-Intro, MAME, T-En), then exit')
+                        help='Delete and re-download all DAT files (No-Intro, Redump, MAME, T-En), then exit')
+    parser.add_argument('--update-ratings', action='store_true',
+                        help='Re-download rating data (IGDB + LaunchBox), then exit')
     parser.add_argument('--clean', action='store_true',
                         help='Delete cache, DAT files, logs, playlists, and other generated data, then exit')
     parser.add_argument('--dat-dir', default=None,
@@ -9107,6 +9109,28 @@ Pattern examples (--include / --exclude):
                     _time.sleep(1.0)
             Console.result("T-En DATs", ten_downloaded, ten_failed)
 
+        # Summary
+        final_dats = list(dat_dir.glob('*.dat')) + list(dat_dir.glob('*.xml')) + list(dat_dir.glob('*.ini'))
+        Console.header("DAT UPDATE COMPLETE")
+        Console.status("Total files", str(len(final_dats)), success=True)
+        Console.status("Location", str(dat_dir))
+        return
+
+    # Update ratings mode - re-download rating data
+    if getattr(args, 'update_ratings', False):
+        Console.header("UPDATING RATINGS DATA")
+
+        # Determine DAT directory (ratings are stored alongside DATs)
+        if args.dat_dir:
+            dat_dir = Path(args.dat_dir).resolve()
+        elif args.source and not is_url(args.source[0]):
+            dat_dir = Path(args.source[0]).resolve() / 'dat_files'
+        else:
+            dat_dir = Path('.').resolve() / 'dat_files'
+
+        Console.status("Directory", str(dat_dir))
+        dat_dir.mkdir(parents=True, exist_ok=True)
+
         # IGDB ratings data (if credentials available)
         if args.igdb_client_id and args.igdb_client_secret:
             Console.section("IGDB Ratings Data")
@@ -9121,21 +9145,21 @@ Pattern examples (--include / --exclude):
                 Console.success("IGDB ratings cached successfully")
             else:
                 Console.error("Failed to fetch IGDB ratings")
+        else:
+            Console.info("No IGDB credentials configured (skipping IGDB)")
+            Console.detail("Set IGDB_CLIENT_ID and IGDB_CLIENT_SECRET environment variables")
+            Console.detail("or use --igdb-client-id and --igdb-client-secret")
 
         # LaunchBox ratings data
         Console.section("LaunchBox Ratings Data")
         lb_result = download_launchbox_data(dat_dir, force=True)
         if lb_result:
-            # Rebuild cache
             load_ratings_cache(dat_dir, force_rebuild=True)
             Console.success("Downloaded and cached successfully")
         else:
             Console.error("Failed to download LaunchBox data")
 
-        # Summary
-        final_dats = list(dat_dir.glob('*.dat')) + list(dat_dir.glob('*.xml')) + list(dat_dir.glob('*.ini'))
-        Console.header("UPDATE COMPLETE")
-        Console.status("Total files", str(len(final_dats)), success=True)
+        Console.header("RATINGS UPDATE COMPLETE")
         Console.status("Location", str(dat_dir))
         return
 
