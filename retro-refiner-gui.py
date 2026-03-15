@@ -473,7 +473,7 @@ class RetroRefinerGUI:
 
     def __init__(self, root):
         self.root = root
-        self.root.title("Retro-Refiner")
+        self.root.title(f"Retro-Refiner v{_module.__version__}")
         _center_window(self.root, 920, 960)
         self.root.minsize(700, 500)
 
