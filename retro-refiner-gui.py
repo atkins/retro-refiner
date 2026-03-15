@@ -1478,12 +1478,18 @@ class RetroRefinerGUI:
         """Run --update-dats to re-download all DAT files."""
         if self._running:
             return
-        if not self._has_sources():
-            messagebox.showwarning("No Source", "Please add at least one source directory or URL.")
-            return
         argv = ['retro-refiner']
-        for src in self._listbox_data.get('source', []):
-            argv.extend(['--source', src])
+        if self._has_sources():
+            for src in self._listbox_data.get('source', []):
+                argv.extend(['--source', src])
+        else:
+            if not messagebox.askyesno(
+                "Download All DATs",
+                "No sources are configured. This will download DAT files "
+                "for all supported systems (~101 No-Intro + MAME data).\n\n"
+                "DATs will be saved to the default dat_files/ directory.\n\nContinue?"
+            ):
+                return
         dat_dir = self._vars.get('dat_dir')
         if dat_dir and dat_dir.get().strip():
             argv.extend(['--dat-dir', dat_dir.get().strip()])
