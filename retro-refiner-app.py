@@ -26,6 +26,10 @@ def main():
         mod = _import_module("retro_refiner", "retro-refiner.py")
         mod.main()
     else:
+        # Hide the console window on Windows before launching GUI
+        if sys.platform == 'win32':
+            import ctypes  # pylint: disable=import-outside-toplevel
+            ctypes.windll.kernel32.FreeConsole()
         mod = _import_module("retro_refiner_gui", "retro-refiner-gui.py")
         mod.main()
 
