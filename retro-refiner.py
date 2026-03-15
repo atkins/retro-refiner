@@ -14,6 +14,7 @@ Selection Criteria:
 - Includes prototypes
 - Excludes: betas, demos, promos, samples, re-releases, BIOS, pirate, compilations
 """
+__version__ = "dev"
 
 import os
 import re
@@ -8836,6 +8837,8 @@ Pattern examples (--include / --exclude):
   --exclude "*(Japan)*"              # Exclude Japan-only releases
         """
     )
+    parser.add_argument('--version', action='version',
+                        version=f'%(prog)s {__version__}')
     parser.add_argument('--source', '-s', action='append', default=None,
                         help='Source ROM directory (can specify multiple times)')
     parser.add_argument('--dest', '-d', default=None,

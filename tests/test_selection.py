@@ -3164,6 +3164,21 @@ def test_dedupe_analysis():
             results.fail("Dedup analysis article false positive", "PS2 shows 0 dupes", output)
 
 
+def test_version():
+    """Test version metadata."""
+    print("\n" + "="*60)
+    print("VERSION AND PACKAGING TESTS")
+    print("="*60)
+
+    # __version__ should exist and be a non-empty string
+    version = getattr(_module, '__version__', None)
+    if isinstance(version, str) and len(version) > 0:
+        results.ok("__version__ is a non-empty string")
+    else:
+        results.fail("__version__ is a non-empty string",
+                     "non-empty str", repr(version))
+
+
 def main():
     """Run all tests."""
     print("\n" + "="*60)
@@ -3200,6 +3215,7 @@ def main():
     test_download_throttle_backoff()
     test_cross_platform_dedupe()
     test_dedupe_analysis()
+    test_version()
 
     # Run integration tests with real files
     source = r"C:\Users\atkin\Downloads\Roms"
