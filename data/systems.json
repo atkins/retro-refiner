@@ -14,7 +14,7 @@
         "panasonic-3do"
       ],
       "dat_name": "The 3DO Company - 3DO",
-      "redump_dat_name": "Panasonic - 3DO Interactive Multiplayer",
+      "redump_dat_name": "The 3DO Company - 3DO",
       "ten_dat_prefix": "Panasonic - 3DO Interactive Multiplayer",
       "launchbox_platforms": [
         "3DO Interactive Multiplayer"
@@ -74,7 +74,7 @@
         "amiga-cd32"
       ],
       "dat_name": "Commodore - CD32",
-      "redump_dat_name": "Commodore - Amiga CD32",
+      "redump_dat_name": "Commodore - CD32",
       "igdb_id": 114
     },
     "amstradcpc": {
@@ -194,7 +194,8 @@
       "launchbox_platforms": [
         "Atari Jaguar"
       ],
-      "igdb_id": 62
+      "igdb_id": 62,
+      "redump_dat_name": "Atari - Jaguar CD"
     },
     "atarijaguarcd": {
       "name": "Atari - Jaguar CD",
@@ -786,7 +787,8 @@
         "sega-naomi"
       ],
       "dat_name": "Sega - Naomi",
-      "igdb_id": 52
+      "igdb_id": 52,
+      "redump_dat_name": "Sega - Naomi"
     },
     "naomi2": {
       "name": "Sega - Naomi 2",
@@ -795,7 +797,8 @@
         "sega-naomi2"
       ],
       "dat_name": "Sega - Naomi 2",
-      "igdb_id": 52
+      "igdb_id": 52,
+      "redump_dat_name": "Sega - Naomi 2"
     },
     "nds": {
       "name": "Nintendo - Nintendo DS",
@@ -941,7 +944,7 @@
         "pc-98"
       ],
       "dat_name": "NEC - PC-98",
-      "redump_dat_name": "NEC - PC-98 series",
+      "redump_dat_name": "NEC - PC-98",
       "ten_dat_prefix": "NEC - PC-9801",
       "launchbox_platforms": [
         "NEC PC-9801"
