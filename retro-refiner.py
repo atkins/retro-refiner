@@ -4183,7 +4183,6 @@ def apply_config_to_args(args, config: dict):
         'connections': 'connections',
         'scan_workers': 'scan_workers',
         # Scanning options
-        'auto_detect': 'auto_detect',
         'recursive': 'recursive',
         'max_depth': 'max_depth',
         # Top-N filtering
@@ -8843,8 +8842,10 @@ Pattern examples (--include / --exclude):
                         help='Destination directory (default: refined/ in script dir)')
     parser.add_argument('--systems', '-y', nargs='+', default=None,
                         help='Systems to process (default: auto-detect from folders)')
+    # --auto-detect is kept for backward compatibility but is always enabled
+    # (scan_for_systems detects from both folder names and file extensions)
     parser.add_argument('--auto-detect', '-a', action='store_true',
-                        help='Auto-detect systems from file extensions (for flat directories)')
+                        help=argparse.SUPPRESS)
     parser.add_argument('--recursive', '-r', action='store_true', default=False,
                         help='Recursively scan subdirectories for ROMs (use with --max-depth)')
     parser.add_argument('--max-depth', type=int, default=3,
@@ -9511,56 +9512,28 @@ Pattern examples (--include / --exclude):
     scan_verbose = args.verbose and not dedupe_analysis_mode
 
     for source_path in source_paths:
-        if args.auto_detect or args.systems is None:
-            source_detected = scan_for_systems(
-                str(source_path),
-                recursive=args.recursive,
-                max_depth=args.max_depth,
-                verbose=scan_verbose
-            )
+        source_detected = scan_for_systems(
+            str(source_path),
+            recursive=args.recursive,
+            max_depth=args.max_depth,
+            verbose=scan_verbose
+        )
 
-            if args.systems:
-                # Filter to only requested systems
-                source_detected = {k: v for k, v in source_detected.items() if k in args.systems}
+        if args.systems:
+            # Filter to only requested systems
+            source_detected = {k: v for k, v in source_detected.items() if k in args.systems}
 
-            for system, files in source_detected.items():
-                for f in files:
-                    # Track source and handle duplicates
-                    if f.name not in [x.name for x in detected[system]]:
-                        detected[system].append(f)
-                        rom_sources[str(f)] = source_path
-                    elif args.prefer_source and str(source_path) == args.prefer_source:
-                        # Replace with preferred source
-                        detected[system] = [x for x in detected[system] if x.name != f.name]
-                        detected[system].append(f)
-                        rom_sources[str(f)] = source_path
-        else:
-            # Use specified systems - scan each system directory with recursive support
-            for system in args.systems:
-                system_dir = source_path / system
-                if system_dir.exists():
-                    # Use scan_for_systems for consistent recursive behavior
-                    system_detected = scan_for_systems(
-                        str(system_dir),
-                        recursive=args.recursive,
-                        max_depth=args.max_depth,
-                        verbose=args.verbose
-                    )
-                    # Get ROMs detected as this system or any sub-detected systems
-                    rom_files = system_detected.get(system, [])
-                    # Also include ROMs from subdirectories that may have been auto-detected
-                    for detected_system, files in system_detected.items():
-                        if detected_system != system:
-                            rom_files.extend(files)
-
-                    for f in rom_files:
-                        if f.name not in [x.name for x in detected[system]]:
-                            detected[system].append(f)
-                            rom_sources[str(f)] = source_path
-                        elif args.prefer_source and str(source_path) == args.prefer_source:
-                            detected[system] = [x for x in detected[system] if x.name != f.name]
-                            detected[system].append(f)
-                            rom_sources[str(f)] = source_path
+        for system, files in source_detected.items():
+            for f in files:
+                # Track source and handle duplicates
+                if f.name not in [x.name for x in detected[system]]:
+                    detected[system].append(f)
+                    rom_sources[str(f)] = source_path
+                elif args.prefer_source and str(source_path) == args.prefer_source:
+                    # Replace with preferred source
+                    detected[system] = [x for x in detected[system] if x.name != f.name]
+                    detected[system].append(f)
+                    rom_sources[str(f)] = source_path
 
     # Standalone dedupe analysis / delete mode
     if args.dedupe_priority and (not args.commit or args.dedupe_delete):

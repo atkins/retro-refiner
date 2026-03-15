@@ -798,14 +798,6 @@ class RetroRefinerGUI:
             "Useful when ROMs are organized in nested folder structures."
         ))
 
-        self._vars['auto_detect'] = tk.BooleanVar()
-        cb = ttk.Checkbutton(check_frame, text="Auto-detect systems", variable=self._vars['auto_detect'])
-        cb.pack(side=tk.LEFT, padx=(0, 12))
-        self._tip(cb, (
-            "Identify systems from file extensions instead of folder names. "
-            "Use this when ROMs are in a single flat directory."
-        ))
-
         # Max depth
         lbl = ttk.Label(check_frame, text="Max depth:")
         lbl.pack(side=tk.LEFT)
@@ -1751,8 +1743,6 @@ class RetroRefinerGUI:
         # Boolean flags from Sources tab
         if self._vars['recursive'].get():
             argv.append('--recursive')
-        if self._vars['auto_detect'].get():
-            argv.append('--auto-detect')
 
         # Max depth (only meaningful with recursive)
         max_depth = self._vars['max_depth'].get()
