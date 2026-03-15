@@ -9051,8 +9051,9 @@ Pattern examples (--include / --exclude):
                 Console.detail(f"Deleting: {dat_file.name}")
                 dat_file.unlink()
 
-        # Download all libretro DATs
-        Console.section(f"No-Intro DATs ({len(LIBRETRO_DAT_SYSTEMS)} systems)")
+        # Download all libretro DATs (No-Intro for cartridge, Redump for disc)
+        nointro_count = len(LIBRETRO_DAT_SYSTEMS) - len(REDUMP_DAT_SYSTEMS)
+        Console.section(f"No-Intro / Redump DATs ({nointro_count} cartridge + {len(REDUMP_DAT_SYSTEMS)} disc = {len(LIBRETRO_DAT_SYSTEMS)} systems)")
         downloaded = 0
         failed = 0
         for system in sorted(LIBRETRO_DAT_SYSTEMS.keys()):
@@ -9062,10 +9063,10 @@ Pattern examples (--include / --exclude):
             else:
                 failed += 1
 
-        Console.result("No-Intro DATs", downloaded, failed)
+        Console.result("No-Intro / Redump DATs", downloaded, failed)
 
-        # Download MAME data
-        Console.section("MAME Data")
+        # Download MAME data (catver.ini + MAME XML)
+        Console.section("MAME Arcade Data (catver.ini + game database)")
         catver_path, mame_dat_path = download_mame_data(dat_dir, version=args.mame_version, force=True)
 
         if catver_path and mame_dat_path:

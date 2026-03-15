@@ -1485,8 +1485,11 @@ class RetroRefinerGUI:
         else:
             if not messagebox.askyesno(
                 "Download All DATs",
-                "No sources are configured. This will download DAT files "
-                "for all supported systems (~101 No-Intro + MAME data).\n\n"
+                "No sources are configured. This will download:\n\n"
+                "  - No-Intro DATs (76 cartridge-based systems)\n"
+                "  - Redump DATs (25 disc-based systems)\n"
+                "  - MAME arcade data (catver.ini + game database)\n"
+                "  - T-En translation DATs (44 systems, requires IA credentials)\n\n"
                 "DATs will be saved to the default dat_files/ directory.\n\nContinue?"
             ):
                 return
