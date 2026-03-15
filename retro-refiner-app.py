@@ -29,12 +29,25 @@ def main():
         # Detach from console/terminal before launching GUI
         if sys.platform == 'win32':
             import ctypes  # pylint: disable=import-outside-toplevel
-            ctypes.windll.kernel32.FreeConsole()
+            if ctypes.windll.kernel32.GetConsoleWindow():
+                ctypes.windll.kernel32.FreeConsole()
         else:
+            # Re-launch as detached subprocess to avoid fork() issues on macOS
+            # (fork after Objective-C runtime init can crash)
             import os  # pylint: disable=import-outside-toplevel
-            if os.fork() > 0:  # pylint: disable=no-member
-                os._exit(0)  # pylint: disable=protected-access
-            os.setsid()  # pylint: disable=no-member
+            import subprocess  # pylint: disable=import-outside-toplevel
+            if os.environ.get('_RETRO_REFINER_GUI') != '1':
+                env = os.environ.copy()
+                env['_RETRO_REFINER_GUI'] = '1'
+                subprocess.Popen(  # pylint: disable=consider-using-with
+                    [sys.executable] + sys.argv,
+                    env=env,
+                    start_new_session=True,
+                    stdin=subprocess.DEVNULL,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+                sys.exit(0)
         mod = _import_module("retro_refiner_gui", "retro-refiner-gui.py")
         mod.main()
 

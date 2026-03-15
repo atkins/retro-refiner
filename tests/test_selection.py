@@ -3462,18 +3462,24 @@ def test_mame_romset_support():
     }
     test_available = {'sf2', 'sf2ce', 'mslug', 'neogeo'}
 
-    # Non-merged: no dependencies needed
+    # Non-merged: no parent dependencies, but BIOS zips still included
     selected = [test_games['sf2ce'], test_games['mslug']]
     copy_set, deps = build_mame_copy_set(selected, test_games, test_available, 'non-merged')
-    if copy_set == {'sf2ce', 'mslug'}:
-        results.ok("Non-merged: no dependency zips added")
+    if 'sf2ce' in copy_set and 'mslug' in copy_set:
+        results.ok("Non-merged: selected games in copy set")
     else:
         results.fail("Non-merged copy set",
-                     "{'sf2ce', 'mslug'}", repr(copy_set))
-    if not deps:
-        results.ok("Non-merged: empty dependency list")
+                     "sf2ce and mslug in set", repr(copy_set))
+    if 'neogeo' in copy_set:
+        results.ok("Non-merged: BIOS neogeo included (emulator needs it)")
     else:
-        results.fail("Non-merged deps", "empty", repr(deps))
+        results.fail("Non-merged: BIOS neogeo included",
+                     "neogeo in set", repr(copy_set))
+    if 'sf2' not in copy_set:
+        results.ok("Non-merged: parent sf2 NOT included (zips are self-contained)")
+    else:
+        results.fail("Non-merged: parent sf2 should not be included",
+                     "sf2 not in set", repr(copy_set))
 
     # Split: clone pulls in parent + BIOS chain
     copy_set_s, deps_s = build_mame_copy_set(selected, test_games, test_available, 'split')
