@@ -1,0 +1,82 @@
+name: Build
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: windows-latest
+            artifact: retro-refiner-windows.exe
+            exe_name: retro-refiner.exe
+          - os: ubuntu-latest
+            artifact: retro-refiner-linux
+            exe_name: retro-refiner
+          - os: macos-latest
+            artifact: retro-refiner-macos
+            exe_name: retro-refiner
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install tkinter (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y python3-tk
+
+      - name: Install PyInstaller
+        run: pip install pyinstaller
+
+      - name: Inject version from tag
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          sed -i.bak 's/__version__ = "dev"/__version__ = "'"$VERSION"'"/' retro-refiner.py
+          rm -f retro-refiner.py.bak
+
+      - name: Build executable
+        run: python -m PyInstaller --noconfirm retro-refiner.spec
+
+      - name: Smoke test
+        shell: bash
+        run: |
+          ./dist/${{ matrix.exe_name }} --version
+
+      - name: Rename artifact
+        shell: bash
+        run: mv dist/${{ matrix.exe_name }} dist/${{ matrix.artifact }}
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: dist/${{ matrix.artifact }}
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/**/*
+          generate_release_notes: true
