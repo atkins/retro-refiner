@@ -12,14 +12,17 @@ Retro-Refiner is a zero-dependency Python script (~10,900 lines in a single file
 ```bash
 python tests/test_selection.py
 ```
-Note: `pytest` is not installed. Tests use `unittest` and are run directly.
+Note: `pytest` is not installed. Tests use a custom `TestResult` framework and are run directly.
 
 ### Lint
 ```bash
 python -m pylint retro-refiner.py
 python -m pylint retro-refiner-gui.py
 ```
-CI runs pylint across Python 3.8/3.9/3.10 (see `.github/workflows/pylint.yml`). The `.pylintrc` disables complexity checks since this is a large single-file script by design. Current score: **10.00/10** on both files — avoid introducing new warnings.
+CI runs pylint across Python 3.8/3.9/3.10 (see `.github/workflows/pylint.yml`). The `.pylintrc` disables complexity checks since this is a large single-file script by design. Current score: **10.00/10** on all three files — avoid introducing new warnings. Also lint `retro-refiner-app.py`:
+```bash
+python -m pylint retro-refiner-app.py
+```
 
 ### GUI
 ```bash
@@ -63,25 +66,26 @@ Tkinter-based GUI wrapper that provides a tabbed settings interface for all ~60 
 - **No changes to `retro-refiner.py`** — the GUI is purely a wrapper
 
 ### Entry point (`retro-refiner-app.py`)
-Unified entry point for PyInstaller packaging. Routes to CLI (any args) or GUI (no args). Uses `sys._MEIPASS` to locate bundled files in PyInstaller onefile mode. Both `retro-refiner.py` and `retro-refiner-gui.py` use `_get_base_path()` (read-only bundled data) and `_get_runtime_path()` (writable runtime files) helpers to resolve paths correctly in both development and packaged modes.
+Unified entry point for PyInstaller packaging. Routes to CLI (any args) or GUI (no args). Uses `sys._MEIPASS` to locate bundled files in PyInstaller onefile mode. On Windows, calls `FreeConsole()` before launching GUI mode to hide the console window. Both `retro-refiner.py` and `retro-refiner-gui.py` use `_get_base_path()` (read-only bundled data) and `_get_runtime_path()` (writable runtime files) helpers to resolve paths correctly in both development and packaged modes.
 
 ### Single-file design
 Everything lives in `retro-refiner.py` with no external dependencies. YAML parsing, progress bars, and all network handling are built-in. System definitions are externalized to `data/systems.json`. The file is organized into major sections separated by `# ===` comment banners:
 
-1. **Console Output Styling** (~lines 98-453) - `DEFAULT_THEME`, `Style`, `Console`, `ProgressBar`, `ScanProgressBar` classes, plus `load_title_mappings()`
-2. **System Data Loading** (~lines 454-600) - `load_system_data()` reads `data/systems.json` and populates all system lookup dicts at module load
-3. **YAML Parser, Shutdown & Logging** (~lines 600-1012) - `parse_simple_yaml()`, graceful shutdown handling, `TeeWriter`, `close_log()`
-4. **Network Source Support** (~lines 1013-3855) - URL parsing, HTML link extraction, connection pooling (`ConnectionPool`), download tools (aria2c/curl/urllib), `DownloadUI` (curses-based download progress), batch downloading, network source scanning
-5. **Configuration** (~lines 3856-4572) - Config template, `load_config()`, `apply_config_to_args()`, transfer/playlist/gamelist functions. Config files are NOT auto-generated
-6. **Libretro DAT File Support** (~lines 4573-5955) - `RomInfo`/`DatRomEntry` dataclasses, T-En translation DAT support, DAT parsing (Logiqx XML + ClrMamePro formats), ROM verification, `parse_rom_filename()`, `normalize_title()`, `select_best_rom()`, `download_additional_dats()`, `load_all_system_dats()`
-7. **MAME Arcade Filtering** (~lines 5956-6773) - `MameGameInfo`/`TeknoParrotGameInfo` dataclasses, catver.ini parsing, category include/exclude sets, clone selection, `filter_mame_roms()`
-8. **TeknoParrot Filtering** (~lines 6774-6976) - Version parsing, platform filtering, deduplication
-9. **IGDB Rating Data** (~lines 6977-7267) - IGDB API integration, OAuth token management, game rating queries, progress bar
-10. **LaunchBox Data & Budget** (~lines 7268-8809) - Rating downloads, XML parsing with `XMLPullParser` for progress tracking, `apply_top_n_filter()`, `apply_size_budget()`
-11. **Main Flow** (~lines 8810-end) - System detection helpers, `scan_for_systems()`, `filter_roms_from_files()`, `main()`
+0. **Path Helpers** (~lines 100-111) - `_get_base_path()` (bundled read-only data) and `_get_runtime_path()` (writable runtime files) for PyInstaller compatibility
+1. **Console Output Styling** (~lines 114-469) - `DEFAULT_THEME`, `Style`, `Console`, `ProgressBar`, `ScanProgressBar` classes, plus `load_title_mappings()`
+2. **System Data Loading** (~lines 470-612) - `load_system_data()` reads `data/systems.json` and populates all system lookup dicts at module load
+3. **YAML Parser, Shutdown & Logging** (~lines 613-1028) - `parse_simple_yaml()`, graceful shutdown handling, `TeeWriter`, `close_log()`
+4. **Network Source Support** (~lines 1029-3869) - URL parsing, HTML link extraction, connection pooling (`ConnectionPool`), download tools (aria2c/curl/urllib), `DownloadUI` (curses-based download progress), batch downloading, network source scanning
+5. **Configuration** (~lines 3870-4588) - Config template, `load_config()`, `apply_config_to_args()`, transfer/playlist/gamelist functions. Config files are NOT auto-generated
+6. **Libretro DAT File Support** (~lines 4589-5971) - `RomInfo`/`DatRomEntry` dataclasses, T-En translation DAT support, DAT parsing (Logiqx XML + ClrMamePro formats), ROM verification, `parse_rom_filename()`, `normalize_title()`, `select_best_rom()`, `download_additional_dats()`, `load_all_system_dats()`
+7. **MAME Arcade Filtering** (~lines 5972-6789) - `MameGameInfo`/`TeknoParrotGameInfo` dataclasses, catver.ini parsing, category include/exclude sets, clone selection, `filter_mame_roms()`
+8. **TeknoParrot Filtering** (~lines 6790-6992) - Version parsing, platform filtering, deduplication
+9. **IGDB Rating Data** (~lines 6993-7283) - IGDB API integration, OAuth token management, game rating queries, progress bar
+10. **LaunchBox Data & Budget** (~lines 7284-8825) - Rating downloads, XML parsing with `XMLPullParser` for progress tracking, `apply_top_n_filter()`, `apply_size_budget()`
+11. **Main Flow** (~lines 8826-end) - System detection helpers, `scan_for_systems()`, `filter_roms_from_files()`, `main()`
 
 ### Visual style system
-All output routes through the `Console` class using semantic color attributes from `Style`. The `DEFAULT_THEME` dict (~line 101) maps 35 semantic roles (e.g., `'success'`, `'error'`, `'tag_select'`) to base ANSI color names. `Style.apply_theme()` resolves these to ANSI escape codes. Colors are disabled automatically for non-TTY output or when `NO_COLOR` env var is set.
+All output routes through the `Console` class using semantic color attributes from `Style`. The `DEFAULT_THEME` dict (~line 119) maps 35 semantic roles (e.g., `'success'`, `'error'`, `'tag_select'`) to base ANSI color names. `Style.apply_theme()` resolves these to ANSI escape codes. Colors are disabled automatically for non-TTY output or when `NO_COLOR` env var is set.
 
 **Key Console methods:**
 - `banner()`, `header(text)`, `section(text)`, `subsection(text)` — structural output
@@ -110,10 +114,10 @@ All output routes through the `Console` class using semantic color attributes fr
 7. Transfer: copy/move/symlink/hardlink based on `--commit` mode
 
 ### Key dataclasses
-- `RomInfo` (line ~4549): Parsed ROM metadata (title, region, language, revision, flags like is_beta/is_proto/is_translation)
-- `DatRomEntry` (line ~4578): DAT file entry (name, description, CRC32, region, size)
-- `MameGameInfo` (line ~6144): MAME game with parent/clone relationships
-- `TeknoParrotGameInfo` (line ~6161): TeknoParrot game with version/platform info
+- `RomInfo` (line ~4565): Parsed ROM metadata (title, region, language, revision, flags like is_beta/is_proto/is_translation)
+- `DatRomEntry` (line ~4594): DAT file entry (name, description, CRC32, region, size)
+- `MameGameInfo` (line ~6160): MAME game with parent/clone relationships
+- `TeknoParrotGameInfo` (line ~6177): TeknoParrot game with version/platform info
 
 ### System data (`data/systems.json`)
 All system definitions (144 systems) live in `data/systems.json`. At module load, `load_system_data()` reads this file and populates module-level globals:
@@ -133,7 +137,7 @@ All system definitions (144 systems) live in `data/systems.json`. At module load
 The generation script `tools/generate_systems_json.py` can regenerate the JSON from hardcoded dicts (kept as a maintenance tool).
 
 ### Other lookup tables (still in code)
-- `MAME_INCLUDE_CATEGORIES` / `MAME_EXCLUDE_CATEGORIES` (~line 6185/6204): Arcade category filtering
+- `MAME_INCLUDE_CATEGORIES` / `MAME_EXCLUDE_CATEGORIES` (~line 6201/6220): Arcade category filtering
 
 ### Title normalization pipeline
 `normalize_title()` lowercases, strips punctuation, converts Roman numerals to Arabic, then applies mappings from `data/title_mappings.json` (1,200+ mappings in 50+ categories). This is how regional variants like "Rockman" and "Mega Man" get grouped together.
@@ -183,9 +187,9 @@ Maintenance tools:
 - **New verbose tag**: Add the tag name to the `tag_colors` dict in `Console.verbose()` and to `DEFAULT_THEME`
 - **Theme change (CLI)**: Edit `DEFAULT_THEME` dict — maps semantic role names to `Style` base color attribute names
 - **Theme change (GUI)**: Edit `DARK_THEME`/`LIGHT_THEME` dicts in `retro-refiner-gui.py` — `_apply_theme()` applies them to all widgets
-- **Version string**: `__version__` at top of `retro-refiner.py` — defaults to `"dev"`, CI injects from git tag
-- **Build config**: `retro-refiner.spec` — PyInstaller spec for single-exe packaging
-- **CI build**: `.github/workflows/build.yml` — triggered by `v*` tags, builds Windows/Linux/macOS
+- **Version string**: `__version__` at top of `retro-refiner.py` — defaults to `"dev"`, CI injects from git tag at build time
+- **Build config**: `retro-refiner.spec` — PyInstaller spec for single-exe packaging. `hiddenimports` must list all stdlib modules used by `retro-refiner.py` and `retro-refiner-gui.py` since they are loaded dynamically via importlib
+- **CI build**: `.github/workflows/build.yml` — triggered by `v*` tags, builds Windows/Linux/macOS. To release: `git tag vYYYY.MM.DD.HHMM && git push origin vYYYY.MM.DD.HHMM`
 
 ## Performance Patterns
 
@@ -217,6 +221,29 @@ CRC/DAT enrichment runs only on selected ROMs (post-selection pass in `filter_ro
 - **`--update-ratings`:** Downloads IGDB + LaunchBox rating data independently. Requires IGDB credentials for IGDB data. Progress bar renders in both CLI and GUI
 - **`--clean`:** Deletes cached downloads, DAT files, CRC caches, and generated data. Works without sources
 - **`--yes`:** Skips confirmation prompts (dedupe-delete). GUI always passes this since it handles confirmation via its own dialogs
+
+## Packaging & Versioning
+
+### Version scheme
+Date-based: `YYYY.MM.DD.HHMM` (e.g., `2026.03.14.2230`). `__version__ = "dev"` at the top of `retro-refiner.py` is the source of truth — never edit it manually. CI injects the real version from the git tag at build time via sed.
+
+### PyInstaller build
+`retro-refiner.spec` builds a single executable (`--onefile`, `--console`). The entry point is `retro-refiner-app.py` which routes to CLI or GUI. Both `.py` modules and `data/*.json` are bundled as data files. All stdlib imports must be listed in `hiddenimports` because the modules are loaded dynamically via importlib.
+
+On Windows, `FreeConsole()` is called before launching GUI mode to hide the console window.
+
+### CI/CD
+`.github/workflows/build.yml` triggers on `v*` tags. Matrix builds for Windows, Linux (installs `python3-tk`), and macOS. Each build injects the version, runs PyInstaller, smoke-tests with `--version`, then uploads artifacts. A release job collects all artifacts and creates a GitHub Release via `softprops/action-gh-release@v2`.
+
+### Release workflow
+```bash
+git tag v2026.03.15.0945 && git push origin v2026.03.15.0945
+```
+
+### Path resolution in packaged mode
+- `_get_base_path()` — returns `sys._MEIPASS` (PyInstaller temp dir) for read-only bundled data (`data/*.json`)
+- `_get_runtime_path()` — returns `Path(sys.executable).parent` for writable runtime files (`dat_files/`, `cache/`, logs, state)
+- In development (non-frozen), both return `Path(__file__).resolve().parent`
 
 ## Local Data Files (not in git)
 
