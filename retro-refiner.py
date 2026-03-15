@@ -6207,6 +6207,8 @@ class MameGameInfo:
     has_chd: bool
     chd_names: list  # List of CHD filenames
     region: str  # Detected region (USA, Japan, Europe, World, etc.)
+    bios_name: str = ''    # BIOS dependency from 'romof' (when different from cloneof)
+    rom_files: list = None  # ROM filenames from DAT <rom> elements (for set format detection)
 
 
 @dataclass

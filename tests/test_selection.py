@@ -3164,6 +3164,54 @@ def test_dedupe_analysis():
             results.fail("Dedup analysis article false positive", "PS2 shows 0 dupes", output)
 
 
+def test_mame_romset_support():
+    """Test MAME ROM set format detection and dependency handling."""
+    print("\n" + "="*60)
+    print("MAME ROM SET FORMAT TESTS")
+    print("="*60)
+
+    MameGameInfo = _module.MameGameInfo
+
+    # Test new fields have correct defaults
+    game = MameGameInfo(
+        name='sf2', description='Street Fighter II', year='1991',
+        manufacturer='Capcom', category='Fighter', is_parent=True,
+        parent_name='', is_bios=False, is_device=False,
+        has_chd=False, chd_names=[], region='World'
+    )
+    if game.bios_name == '':
+        results.ok("MameGameInfo bios_name defaults to empty string")
+    else:
+        results.fail("MameGameInfo bios_name defaults to empty string",
+                     "''", repr(game.bios_name))
+
+    if game.rom_files is None:
+        results.ok("MameGameInfo rom_files defaults to None")
+    else:
+        results.fail("MameGameInfo rom_files defaults to None",
+                     "None", repr(game.rom_files))
+
+    # Test explicit values
+    game2 = MameGameInfo(
+        name='mslug', description='Metal Slug', year='1996',
+        manufacturer='SNK', category='Shooter', is_parent=True,
+        parent_name='', is_bios=False, is_device=False,
+        has_chd=False, chd_names=[], region='World',
+        bios_name='neogeo', rom_files=['201-p1.p1', '201-s1.s1']
+    )
+    if game2.bios_name == 'neogeo':
+        results.ok("MameGameInfo bios_name can be set explicitly")
+    else:
+        results.fail("MameGameInfo bios_name can be set explicitly",
+                     "'neogeo'", repr(game2.bios_name))
+
+    if game2.rom_files == ['201-p1.p1', '201-s1.s1']:
+        results.ok("MameGameInfo rom_files can be set explicitly")
+    else:
+        results.fail("MameGameInfo rom_files can be set explicitly",
+                     "['201-p1.p1', '201-s1.s1']", repr(game2.rom_files))
+
+
 def test_version():
     """Test version metadata."""
     print("\n" + "="*60)
@@ -3243,6 +3291,7 @@ def main():
     test_download_throttle_backoff()
     test_cross_platform_dedupe()
     test_dedupe_analysis()
+    test_mame_romset_support()
     test_version()
 
     # Run integration tests with real files
