@@ -9366,22 +9366,20 @@ Pattern examples (--include / --exclude):
         Console.error_block("ERROR: One or more sources could not be accessed", error_lines)
         sys.exit(1)
 
-    # Load config file
+    # Load config file (explicit --config or auto-discover in source directory)
+    config_path = None
     if args.config:
         config_path = Path(args.config)
     else:
-        # Look for config in primary source directory
-        config_path = primary_source / 'retro-refiner.yaml'
-        if not config_path.exists():
-            json_config = primary_source / 'retro-refiner.json'
-            if json_config.exists():
-                config_path = json_config
-            else:
-                # Generate default config file on first run
-                Console.status("Creating config", str(config_path))
-                generate_default_config(config_path)
+        # Look for existing config in primary source directory (don't auto-generate)
+        for candidate in (primary_source / 'retro-refiner.yaml',
+                          primary_source / 'retro-refiner.yml',
+                          primary_source / 'retro-refiner.json'):
+            if candidate.exists():
+                config_path = candidate
+                break
 
-    config = load_config(config_path) if config_path.exists() else {}
+    config = load_config(config_path) if config_path and config_path.exists() else {}
     if config:
         Console.status("Config", str(config_path))
         apply_config_to_args(args, config)
