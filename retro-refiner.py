@@ -6424,9 +6424,13 @@ def parse_mame_dat(dat_path: str, show_progress: bool = False) -> dict:
                     is_bios = elem.get('isbios', 'no') == 'yes'
                     is_device = elem.get('isdevice', 'no') == 'yes'
 
-                    # Get parent info
-                    parent_name = elem.get('cloneof', '') or elem.get('romof', '')
-                    is_parent = not parent_name or parent_name == name
+                    # Parse clone and BIOS relationships separately
+                    cloneof = elem.get('cloneof', '')
+                    romof = elem.get('romof', '')
+                    parent_name = cloneof
+                    is_parent = not cloneof or cloneof == name
+                    # bios_name: romof when it differs from cloneof (BIOS dependency)
+                    bios_name = romof if romof and romof != cloneof else ''
 
                     # Get description
                     desc_elem = elem.find('description')
@@ -6447,6 +6451,13 @@ def parse_mame_dat(dat_path: str, show_progress: bool = False) -> dict:
                         if disk_name:
                             chd_names.append(disk_name + '.chd')
 
+                    # Collect ROM filenames for set format detection
+                    rom_files = []
+                    for rom_elem in elem.findall('.//rom'):
+                        rom_name_attr = rom_elem.get('name', '')
+                        if rom_name_attr:
+                            rom_files.append(rom_name_attr)
+
                     # Detect region from description
                     region = detect_mame_region(description)
 
@@ -6463,6 +6474,8 @@ def parse_mame_dat(dat_path: str, show_progress: bool = False) -> dict:
                         has_chd=len(chd_names) > 0,
                         chd_names=chd_names,
                         region=region,
+                        bios_name=bios_name,
+                        rom_files=rom_files,
                     )
                     elem.clear()
 

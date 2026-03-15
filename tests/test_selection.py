@@ -3211,6 +3211,134 @@ def test_mame_romset_support():
         results.fail("MameGameInfo rom_files can be set explicitly",
                      "['201-p1.p1', '201-s1.s1']", repr(game2.rom_files))
 
+    # Clone with BIOS dependency (cloneof != romof)
+    clone_with_bios = MameGameInfo(
+        name='mslug2', description='Metal Slug 2', year='1998',
+        manufacturer='SNK', category='Shooter', is_parent=False,
+        parent_name='mslug', is_bios=False, is_device=False,
+        has_chd=False, chd_names=[], region='World',
+        bios_name='neogeo', rom_files=['263-p1.p1']
+    )
+    if clone_with_bios.parent_name == 'mslug' and clone_with_bios.bios_name == 'neogeo':
+        results.ok("Clone with separate BIOS: parent_name and bios_name both set")
+    else:
+        results.fail("Clone with separate BIOS",
+                     "parent_name='mslug', bios_name='neogeo'",
+                     f"parent_name='{clone_with_bios.parent_name}', bios_name='{clone_with_bios.bios_name}'")
+
+    # Parent with BIOS dependency (romof only, no cloneof)
+    parent_with_bios = MameGameInfo(
+        name='mslug', description='Metal Slug', year='1996',
+        manufacturer='SNK', category='Shooter', is_parent=True,
+        parent_name='', is_bios=False, is_device=False,
+        has_chd=False, chd_names=[], region='World',
+        bios_name='neogeo', rom_files=['201-p1.p1']
+    )
+    if parent_with_bios.is_parent and parent_with_bios.bios_name == 'neogeo':
+        results.ok("Parent with BIOS: is_parent=True, bios_name set")
+    else:
+        results.fail("Parent with BIOS",
+                     "is_parent=True, bios_name='neogeo'",
+                     f"is_parent={parent_with_bios.is_parent}, bios_name='{parent_with_bios.bios_name}'")
+
+    # Integration test: parse_mame_dat() with cloneof/romof separation
+    parse_mame_dat = _module.parse_mame_dat
+    test_xml = '''<?xml version="1.0"?>
+<datafile>
+  <machine name="neogeo" isbios="yes">
+    <description>Neo Geo BIOS</description>
+    <year>1990</year>
+    <manufacturer>SNK</manufacturer>
+    <rom name="sp-s2.sp1" size="131072"/>
+  </machine>
+  <machine name="mslug" romof="neogeo">
+    <description>Metal Slug</description>
+    <year>1996</year>
+    <manufacturer>SNK</manufacturer>
+    <rom name="201-p1.p1" size="1048576"/>
+    <rom name="201-s1.s1" size="131072"/>
+  </machine>
+  <machine name="mslug2" cloneof="mslug" romof="neogeo">
+    <description>Metal Slug 2</description>
+    <year>1998</year>
+    <manufacturer>SNK</manufacturer>
+    <rom name="263-p1.p1" size="2097152"/>
+  </machine>
+  <machine name="sf2">
+    <description>Street Fighter II</description>
+    <year>1991</year>
+    <manufacturer>Capcom</manufacturer>
+    <rom name="sf2.01" size="131072"/>
+    <rom name="sf2.02" size="131072"/>
+  </machine>
+  <machine name="sf2ce" cloneof="sf2" romof="sf2">
+    <description>Street Fighter II CE</description>
+    <year>1992</year>
+    <manufacturer>Capcom</manufacturer>
+    <rom name="sf2ce.01" size="131072"/>
+  </machine>
+</datafile>'''
+
+    dat_file = Path(tempfile.mktemp(suffix='.xml'))
+    try:
+        dat_file.write_text(test_xml, encoding='utf-8')
+        parsed = parse_mame_dat(str(dat_file), show_progress=False)
+
+        # neogeo: BIOS, no cloneof, no romof → is_parent=True, bios_name=''
+        neo = parsed.get('neogeo')
+        if neo and neo.is_parent and neo.is_bios and neo.bios_name == '':
+            results.ok("parse_mame_dat: neogeo is parent BIOS, no bios_name")
+        else:
+            results.fail("parse_mame_dat: neogeo",
+                         "is_parent=True, is_bios=True, bios_name=''",
+                         f"is_parent={neo.is_parent if neo else '?'}, is_bios={neo.is_bios if neo else '?'}, bios_name='{neo.bios_name if neo else '?'}'")
+
+        # mslug: romof=neogeo, no cloneof → is_parent=True, bios_name='neogeo'
+        ms = parsed.get('mslug')
+        if ms and ms.is_parent and ms.parent_name == '' and ms.bios_name == 'neogeo':
+            results.ok("parse_mame_dat: mslug is parent with bios_name='neogeo'")
+        else:
+            results.fail("parse_mame_dat: mslug",
+                         "is_parent=True, parent_name='', bios_name='neogeo'",
+                         f"is_parent={ms.is_parent if ms else '?'}, parent_name='{ms.parent_name if ms else '?'}', bios_name='{ms.bios_name if ms else '?'}'")
+
+        # mslug2: cloneof=mslug, romof=neogeo → is_parent=False, parent_name='mslug', bios_name='neogeo'
+        ms2 = parsed.get('mslug2')
+        if ms2 and not ms2.is_parent and ms2.parent_name == 'mslug' and ms2.bios_name == 'neogeo':
+            results.ok("parse_mame_dat: mslug2 clone with parent + bios_name")
+        else:
+            results.fail("parse_mame_dat: mslug2",
+                         "is_parent=False, parent_name='mslug', bios_name='neogeo'",
+                         f"is_parent={ms2.is_parent if ms2 else '?'}, parent_name='{ms2.parent_name if ms2 else '?'}', bios_name='{ms2.bios_name if ms2 else '?'}'")
+
+        # sf2ce: cloneof=sf2, romof=sf2 → parent_name='sf2', bios_name='' (romof == cloneof)
+        sf2ce = parsed.get('sf2ce')
+        if sf2ce and sf2ce.parent_name == 'sf2' and sf2ce.bios_name == '':
+            results.ok("parse_mame_dat: sf2ce clone, romof==cloneof means no bios_name")
+        else:
+            results.fail("parse_mame_dat: sf2ce",
+                         "parent_name='sf2', bios_name=''",
+                         f"parent_name='{sf2ce.parent_name if sf2ce else '?'}', bios_name='{sf2ce.bios_name if sf2ce else '?'}'")
+
+        # rom_files populated
+        sf2 = parsed.get('sf2')
+        if sf2 and sf2.rom_files and 'sf2.01' in sf2.rom_files and 'sf2.02' in sf2.rom_files:
+            results.ok("parse_mame_dat: sf2 rom_files populated from <rom> elements")
+        else:
+            results.fail("parse_mame_dat: sf2 rom_files",
+                         "['sf2.01', 'sf2.02']",
+                         repr(sf2.rom_files if sf2 else None))
+
+        ms_roms = parsed.get('mslug')
+        if ms_roms and ms_roms.rom_files and len(ms_roms.rom_files) == 2:
+            results.ok("parse_mame_dat: mslug has 2 rom_files")
+        else:
+            results.fail("parse_mame_dat: mslug rom_files count",
+                         "2 files", repr(ms_roms.rom_files if ms_roms else None))
+    finally:
+        if dat_file.exists():
+            dat_file.unlink()
+
 
 def test_version():
     """Test version metadata."""
