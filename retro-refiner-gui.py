@@ -728,7 +728,7 @@ class RetroRefinerGUI:
         ttk.Button(src_btn_frame, text="Add Folder", command=self._add_source_folder).pack(
             fill=tk.X, pady=1
         )
-        ttk.Button(src_btn_frame, text="Add URL", command=self._add_source_url).pack(
+        ttk.Button(src_btn_frame, text="Paste URL", command=self._paste_source_url).pack(
             fill=tk.X, pady=1
         )
         ttk.Button(src_btn_frame, text="Edit", command=self._edit_source).pack(
@@ -1365,11 +1365,15 @@ class RetroRefinerGUI:
             self._update_button_states()
             self._update_preview()
 
-    def _add_source_url(self):
-        url = tk.simpledialog.askstring("Add URL", "Enter source URL:", parent=self.root)
-        if url and url.strip():
-            self._listbox_data['source'].append(url.strip())
-            self._source_listbox.insert(tk.END, self._source_display(url.strip()))
+    def _paste_source_url(self):
+        """Paste a URL from the clipboard as a source."""
+        try:
+            url = self.root.clipboard_get().strip()
+        except tk.TclError:
+            return  # Clipboard empty or unavailable
+        if url and (url.startswith('http://') or url.startswith('https://')):
+            self._listbox_data['source'].append(url)
+            self._source_listbox.insert(tk.END, self._source_display(url))
             self._update_button_states()
             self._update_preview()
 
