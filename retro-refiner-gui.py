@@ -1456,7 +1456,7 @@ class RetroRefinerGUI:
             return
         if not messagebox.askyesno(
             "Confirm Clean",
-            "This will delete cache, DAT files, CRC caches, and generated data.\n\nContinue?"
+            "This will delete cached downloads, DAT files, CRC caches, and generated data.\n\nContinue?"
         ):
             return
         argv = ['retro-refiner']
