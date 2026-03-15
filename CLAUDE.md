@@ -41,6 +41,13 @@ python retro-refiner.py -s /path/to/roms --commit
 python retro-refiner.py -s /path/to/roms --log-dir ./logs
 ```
 
+### Build executable
+```bash
+pip install pyinstaller
+python -m PyInstaller --noconfirm retro-refiner.spec
+```
+Output: `dist/retro-refiner.exe` (Windows) or `dist/retro-refiner` (Unix)
+
 ## Architecture
 
 ### GUI (`retro-refiner-gui.py`)
@@ -54,6 +61,9 @@ Tkinter-based GUI wrapper that provides a tabbed settings interface for all ~60 
 - **State persistence:** GUI state auto-saved to `.retro-refiner-gui-state.yaml` on window close, restored on next launch. Manual Save/Load buttons export/import to user-chosen YAML files
 - **Maintenance buttons:** Clean Cache & Data (`--clean`), Update DATs (`--update-dats`), Update Ratings (`--update-ratings`) in Advanced tab — run without requiring sources
 - **No changes to `retro-refiner.py`** — the GUI is purely a wrapper
+
+### Entry point (`retro-refiner-app.py`)
+Unified entry point for PyInstaller packaging. Routes to CLI (any args) or GUI (no args). Uses `sys._MEIPASS` to locate bundled files in PyInstaller onefile mode. Both `retro-refiner.py` and `retro-refiner-gui.py` use `_get_base_path()` (read-only bundled data) and `_get_runtime_path()` (writable runtime files) helpers to resolve paths correctly in both development and packaged modes.
 
 ### Single-file design
 Everything lives in `retro-refiner.py` with no external dependencies. YAML parsing, progress bars, and all network handling are built-in. System definitions are externalized to `data/systems.json`. The file is organized into major sections separated by `# ===` comment banners:
@@ -173,6 +183,9 @@ Maintenance tools:
 - **New verbose tag**: Add the tag name to the `tag_colors` dict in `Console.verbose()` and to `DEFAULT_THEME`
 - **Theme change (CLI)**: Edit `DEFAULT_THEME` dict — maps semantic role names to `Style` base color attribute names
 - **Theme change (GUI)**: Edit `DARK_THEME`/`LIGHT_THEME` dicts in `retro-refiner-gui.py` — `_apply_theme()` applies them to all widgets
+- **Version string**: `__version__` at top of `retro-refiner.py` — defaults to `"dev"`, CI injects from git tag
+- **Build config**: `retro-refiner.spec` — PyInstaller spec for single-exe packaging
+- **CI build**: `.github/workflows/build.yml` — triggered by `v*` tags, builds Windows/Linux/macOS
 
 ## Performance Patterns
 
