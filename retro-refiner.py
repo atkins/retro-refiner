@@ -6612,7 +6612,7 @@ def filter_mame_roms(source_dir: str, dest_dir: str, catver_path: str, dat_path:
             Console.system_stat(label, f"Copied {copied_chds} CHD files")
 
     # Write selection log (only when --log-dir is set)
-    if log_dir and not dry_run:
+    if log_dir:
         log_dir_path = Path(log_dir)
         log_dir_path.mkdir(parents=True, exist_ok=True)
         log_path = log_dir_path / f'{system_name}_selection_log.txt'
@@ -7916,7 +7916,7 @@ def filter_teknoparrot_roms(source_dir: str, dest_dir: str, dat_path: str = None
             Console.system_stat(label, f"Copied {copied_chds} CHD files")
 
     # Write selection log (only when --log-dir is set)
-    if log_dir and not dry_run:
+    if log_dir:
         log_dir_path = Path(log_dir)
         log_dir_path.mkdir(parents=True, exist_ok=True)
         log_path = log_dir_path / 'teknoparrot_selection_log.txt'
