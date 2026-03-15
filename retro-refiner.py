@@ -3605,7 +3605,8 @@ def filter_network_roms(rom_urls: List[str], system: str,
                         include_unrated: bool = False,
                         ratings: dict = None,
                         no_filter: bool = False,
-                        english_only: bool = False) -> Tuple[List[str], Dict[str, int]]:
+                        english_only: bool = False,
+                        log_dir: str = None) -> Tuple[List[str], Dict[str, int]]:
     """
     Filter network ROM URLs based on filename parsing and optional DAT metadata.
     When dat_entries is provided, uses DAT game names for better title normalization.
@@ -3811,6 +3812,33 @@ def filter_network_roms(rom_urls: List[str], system: str,
         Console.system_stat(system, f"Size reduction: {format_size(size_saved)} saved ({reduction_pct:.1f}%)")
     else:
         Console.system_stat(system, f"Selected {len(selected_urls)} ROMs to download")
+
+    # Write selection log (network pre-filter results)
+    if log_dir:
+        log_dir_path = Path(log_dir)
+        log_dir_path.mkdir(parents=True, exist_ok=True)
+        log_path = log_dir_path / f"{system}_selection_log.txt"
+        with open(log_path, 'w', encoding='utf-8') as f:
+            f.write(f"ROM Selection Log for {system.upper()} (network source)\n")
+            f.write("=" * 60 + "\n\n")
+            f.write(f"Total ROMs available: {len(rom_urls)}\n")
+            f.write(f"Unique games found: {len(grouped)}\n")
+            f.write(f"ROMs selected: {len(selected_urls)}\n\n")
+            f.write(f"Source size: {format_size(total_source_size)}\n")
+            f.write(f"Selected size: {format_size(selected_size)}\n")
+            size_saved = total_source_size - selected_size
+            f.write(f"Size saved: {format_size(size_saved)}\n\n")
+
+            f.write("SELECTED ROMS:\n")
+            f.write("-" * 60 + "\n")
+            for rom in sorted(selected_roms, key=lambda r: r.base_title.lower()):
+                f.write(f"{rom.filename}\n")
+                f.write(f"  Title: {rom.base_title}\n")
+                f.write(f"  Region: {rom.region}, Rev: {rom.revision}")
+                if rom.is_translation:
+                    f.write(", Translation: Yes")
+                f.write("\n\n")
+        Console.system_stat(system, f"Selection log written to {log_path}")
 
     return selected_urls, {'source_size': total_source_size, 'selected_size': selected_size}
 
@@ -7962,7 +7990,8 @@ def filter_teknoparrot_network_roms(rom_urls: List[str],
                                     exclude_patterns: List[str] = None,
                                     url_sizes: Dict[str, int] = None,
                                     verbose: bool = False,
-                                    no_filter: bool = False) -> Tuple[List[str], Dict[str, int]]:
+                                    no_filter: bool = False,
+                                    log_dir: str = None) -> Tuple[List[str], Dict[str, int]]:
     """
     Filter TeknoParrot network ROM URLs with TeknoParrot-specific logic.
     Applies version deduplication, platform filtering, and region priority.
@@ -8073,6 +8102,24 @@ def filter_teknoparrot_network_roms(rom_urls: List[str],
         reduction_pct = (size_saved / total_source_size) * 100
         Console.system_stat(label, f"Size reduction: {format_size(size_saved)} saved ({reduction_pct:.1f}%)")
 
+    # Write selection log
+    if log_dir:
+        log_dir_path = Path(log_dir)
+        log_dir_path.mkdir(parents=True, exist_ok=True)
+        log_path = log_dir_path / 'teknoparrot_selection_log.txt'
+        with open(log_path, 'w', encoding='utf-8') as f:
+            f.write(f"{label} Selection Log (network source)\n")
+            f.write("=" * 60 + "\n\n")
+            f.write(f"Total ROMs available: {len(rom_urls)}\n")
+            f.write(f"Selected: {len(selected_urls)}\n\n")
+            f.write(f"Source size: {format_size(total_source_size)}\n")
+            f.write(f"Selected size: {format_size(selected_size)}\n\n")
+            f.write("SELECTED ROMS:\n")
+            f.write("-" * 60 + "\n")
+            for url in sorted(selected_urls):
+                f.write(f"{get_filename_from_url(url)}\n")
+        Console.system_stat(label, f"Selection log written to {log_path}")
+
     return selected_urls, {'source_size': total_source_size, 'selected_size': selected_size}
 
 
@@ -8084,7 +8131,8 @@ def filter_mame_network_roms(rom_urls: List[str],
                               include_adult: bool = True,
                               url_sizes: Dict[str, int] = None,
                               verbose: bool = False,
-                              no_filter: bool = False) -> Tuple[List[str], dict]:
+                              no_filter: bool = False,
+                              log_dir: str = None) -> Tuple[List[str], dict]:
     """
     Filter MAME/FBNeo ROMs from network sources using category filtering.
 
@@ -8240,6 +8288,24 @@ def filter_mame_network_roms(rom_urls: List[str],
         size_saved = total_source_size - selected_size
         reduction_pct = (size_saved / total_source_size) * 100
         Console.system_stat(label, f"Size reduction: {format_size(size_saved)} saved ({reduction_pct:.1f}%)")
+
+    # Write selection log
+    if log_dir:
+        log_dir_path = Path(log_dir)
+        log_dir_path.mkdir(parents=True, exist_ok=True)
+        log_path = log_dir_path / f'{label.lower()}_selection_log.txt'
+        with open(log_path, 'w', encoding='utf-8') as f:
+            f.write(f"{label} Selection Log (network source)\n")
+            f.write("=" * 60 + "\n\n")
+            f.write(f"Total ROMs available: {len(rom_urls)}\n")
+            f.write(f"Selected: {len(selected_urls)}\n\n")
+            f.write(f"Source size: {format_size(total_source_size)}\n")
+            f.write(f"Selected size: {format_size(selected_size)}\n\n")
+            f.write("SELECTED ROMS:\n")
+            f.write("-" * 60 + "\n")
+            for url in sorted(selected_urls):
+                f.write(f"{get_filename_from_url(url)}\n")
+        Console.system_stat(label, f"Selection log written to {log_path}")
 
     return selected_urls, {'source_size': total_source_size, 'selected_size': selected_size}
 
@@ -9652,7 +9718,8 @@ Pattern examples (--include / --exclude):
                 exclude_patterns=args.exclude,
                 url_sizes=all_url_sizes,
                 verbose=args.verbose,
-                no_filter=getattr(args, 'all', False)
+                no_filter=getattr(args, 'all', False),
+                log_dir=args.log_dir
             )
         elif system in ('mame', 'fbneo', 'fba', 'arcade') and mame_categories and mame_games:
             # Special handling for MAME/FBNeo (uses category filtering)
@@ -9665,7 +9732,8 @@ Pattern examples (--include / --exclude):
                 include_adult=not args.exclude_adult if hasattr(args, 'exclude_adult') else True,
                 url_sizes=all_url_sizes,
                 verbose=args.verbose,
-                no_filter=getattr(args, 'all', False)
+                no_filter=getattr(args, 'all', False),
+                log_dir=args.log_dir
             )
         else:
             # Get DAT entries for this system if available
@@ -9692,7 +9760,8 @@ Pattern examples (--include / --exclude):
                 include_unrated=args.include_unrated,
                 ratings=ratings,
                 no_filter=getattr(args, 'all', False),
-                english_only=args.english_only
+                english_only=args.english_only,
+                log_dir=args.log_dir
             )
 
         # Apply top-N filter for paths that don't handle it internally
