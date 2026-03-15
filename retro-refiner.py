@@ -3692,6 +3692,8 @@ def filter_network_roms(rom_urls: List[str], system: str,
     if no_filter:
         # --all mode: select every URL without grouping or 1G1R selection
         selected_urls = [url_map[rom.filename] for rom in all_roms if rom.filename in url_map]
+        selected_roms = [rom for rom in all_roms if rom.filename in url_map]
+        grouped = {rom.base_title: [rom] for rom in selected_roms}
         Console.system_stat(system, f"--all mode, selecting all {len(selected_urls)} ROMs")
     else:
         # Group by normalized title (using DAT names when available for better matching)
