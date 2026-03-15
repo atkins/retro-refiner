@@ -151,9 +151,12 @@ Retro-Refiner includes a graphical interface with all the same options as the co
 python retro-refiner-gui.py
 ```
 
-- Tabbed settings for all ~60 CLI options (Sources, Filtering, Region/Dedup, Output, Network, Advanced)
-- Real-time scrollable output with progress bars
-- Dry Run and Commit modes with cancel support
+- 4 tabs: Setup, Selection, Output, Advanced (two-column layout)
+- Colorized real-time output with ANSI color parsing
+- Preview and Commit modes with cancel support
+- Command preview line showing constructed CLI arguments
+- Settings auto-saved between sessions, plus manual Save/Load
+- Maintenance buttons: Clean Cache, Update DATs, Update Ratings
 - Light/dark theme with automatic OS detection
 - No additional dependencies (uses tkinter from the Python standard library)
 
@@ -282,10 +285,10 @@ Folder names are flexible - these all work:
 - `genesis`, `megadrive`, `mega-drive`
 - `n64`, `nintendo64`, `nintendo-64`
 
-### Flat Directory (--auto-detect)
-For ROMs in a single folder, use `--auto-detect` to identify systems by file extension:
+### Flat Directory
+ROMs in a single folder are automatically detected by file extension — no special flag needed:
 ```bash
-python retro-refiner.py -s /path/to/mixed-roms --auto-detect
+python retro-refiner.py -s /path/to/mixed-roms
 ```
 
 ### Network Sources (HTTP/HTTPS)
@@ -571,11 +574,10 @@ When `--log-dir` is set, each system generates a `{system}_selection_log.txt` in
 |--------|-------------|
 | `-s, --source` | Source ROM directory (can specify multiple times) |
 | `-d, --dest` | Destination directory (default: `<source>_refined`) |
-| `-y, --systems` | Systems to process (default: auto-detect) |
-| `-a, --auto-detect` | Auto-detect systems from file extensions |
+| `-y, --systems` | Systems to process (default: auto-detect from folders and extensions) |
 | `-c, --commit` | Actually transfer files (default is dry run: no copy/move/link/download) |
 | `-v, --verbose` | Show detailed output (filtering decisions, selections) |
-| `--config` | Path to config file (default: `retro-refiner.yaml`) |
+| `--config` | Path to config file (auto-discovers existing configs in source dir, does not auto-generate) |
 | `--list-systems` | Show all supported systems |
 | `--yes` | Skip confirmation prompts (useful for scripting) |
 | `--print` | Print selected ROM filenames to stdout |
@@ -663,9 +665,10 @@ When `--log-dir` is set, each system generates a `{system}_selection_log.txt` in
 | `--dat-dir` | Directory for DAT files |
 | `--mame-version` | MAME version for downloads |
 | `--no-chd` | Skip CHD files for MAME |
-| `--clean` | Delete cache, DAT files, CRC caches, and generated data |
-| `--update-dats` | Re-download all DAT files, then exit |
-| `--log-dir` | Directory for timestamped run log files |
+| `--clean` | Delete cached downloads, DAT files, CRC caches, and generated data |
+| `--update-dats` | Re-download all DAT files (No-Intro, Redump, MAME, T-En), then exit |
+| `--update-ratings` | Re-download rating data (IGDB + LaunchBox), then exit |
+| `--log-dir` | Directory for timestamped run and selection log files |
 
 ### TeknoParrot Options
 | Option | Description |
@@ -684,7 +687,7 @@ When `--log-dir` is set, each system generates a `{system}_selection_log.txt` in
 
 ## Configuration File
 
-On first run, Retro-Refiner automatically generates `retro-refiner.yaml` in your source directory with all options documented. You can then customize it as needed.
+Retro-Refiner supports optional YAML or JSON config files. Config files are **not auto-generated** — create one manually or use the GUI's Save button to export your settings.
 
 To use a custom config file location:
 ```bash
@@ -795,11 +798,13 @@ Enable logging (`--log-dir ./logs`) and check the selection log for details. Com
 
 | Metric | Value |
 |--------|-------|
-| Systems supported | 145 |
-| DAT files available | 102 |
+| Systems supported | 144 |
+| DAT files (primary) | 114 |
+| DAT files (additional digital/PSN) | 11 |
+| Redump DATs | 28 |
 | Folder aliases | 200+ |
-| Title mappings | 1,194 |
-| Mapping categories | 50 |
+| Title mappings | 1,200+ |
+| Mapping categories | 50+ |
 | File extensions | 90+ |
 
 ## Supported Systems (145)

@@ -85,8 +85,8 @@ All output routes through the `Console` class using semantic color attributes fr
 - The ~15 remaining raw `print()` calls are justified exceptions: signal handlers, inline `end=''` output, KeyboardInterrupt
 
 ### Key data flow
-1. `main()` parses args, loads config, validates sources
-2. `scan_for_systems()` or `scan_network_source_urls()` discovers ROM files per system
+1. `main()` parses args, loads config (if `--config` specified or config file exists in source dir — no auto-generation), validates sources
+2. `scan_for_systems()` discovers ROM files per system (auto-detects from both folder names and file extensions — no `--auto-detect` flag needed). For network sources, `scan_network_source_urls()` discovers ROM URLs
 3. If `--dedupe-priority` is set without `--commit`, `run_dedupe_analysis()` runs a fast filename-only analysis and exits early. With `--dedupe-delete --commit`, it runs analysis then deletes duplicate files in-place from source directories (with confirmation prompt). With `--commit` alone (no `--dedupe-delete`), systems are reordered by priority (highest first), PC game lists are loaded as seed `claimed_titles`, and arcade systems are excluded from dedup
 4. For each system: either `filter_roms_from_files()` (console ROMs), `filter_mame_roms()` (arcade), or `filter_teknoparrot_roms()` (TeknoParrot)
 5. Console ROM filtering: `parse_rom_filename()` → `RomInfo` → group by `normalize_title()` → exclude `claimed_titles` (dedup) → `select_best_rom()` per group → post-selection CRC/DAT enrichment (only selected ROMs) → accumulate selected titles into `claimed_titles`
@@ -105,7 +105,8 @@ All system definitions (144 systems) live in `data/systems.json`. At module load
 - `EXTENSION_TO_SYSTEM` — file extension → system code (91 extensions)
 - `FOLDER_ALIASES` — folder name → system code (215 aliases)
 - `LIBRETRO_DAT_SYSTEMS` — system → No-Intro/Redump DAT name (114 systems)
-- `REDUMP_DAT_SYSTEMS` — system → Redump DAT name (25 systems)
+- `ADDITIONAL_DAT_SYSTEMS` — system → list of additional DAT names for digital/PSN variants (11 DATs across 7 systems)
+- `REDUMP_DAT_SYSTEMS` — system → Redump DAT name (28 systems, all 22 available Redump DATs mapped)
 - `TEN_DAT_SYSTEMS` — system → T-En DAT prefix (44 systems)
 - `LAUNCHBOX_PLATFORM_MAP` — LaunchBox platform name → system code (67 platforms)
 - `DAT_NAME_TO_SYSTEM` — reverse of DAT dicts (lowercase DAT name → system)
@@ -135,7 +136,10 @@ The generation script `tools/generate_systems_json.py` can regenerate the JSON f
 Auto-detects best tool: aria2c > curl > Python urllib. `DownloadUI` provides a curses-based real-time progress display with per-file status, stall detection, and automatic retry (3 attempts). Auto-tuning adjusts parallelism based on median file size.
 
 ### DAT download priority
-`get_libretro_dat_url()` returns URLs in priority order. For disc-based systems (in `REDUMP_DAT_SYSTEMS`), the Redump URL is tried **first** because the `dat/` folder on libretro-database often contains stub files instead of full DATs. For cartridge-based systems, No-Intro is tried first.
+`get_libretro_dat_url()` returns URLs in priority order. For disc-based systems (in `REDUMP_DAT_SYSTEMS`), the Redump URL is tried **first** because the `dat/` folder on libretro-database often contains stub files instead of full DATs. For cartridge-based systems, No-Intro is tried first. `download_additional_dats()` downloads digital/PSN variant DATs (from `additional_dat_names` in systems.json) as `{system}_extra1.dat`, etc. `load_all_system_dats()` merges primary + additional DAT entries.
+
+### Configuration
+Config files are NOT auto-generated. `--config` explicitly loads a YAML/JSON config file. Without `--config`, existing configs are auto-discovered in the source directory (`retro-refiner.yaml`, `.yml`, `.json`). CLI args always override config values. GUI state persistence uses a separate mechanism (`.retro-refiner-gui-state.yaml`).
 
 ## Testing
 
@@ -190,9 +194,10 @@ CRC/DAT enrichment runs only on selected ROMs (post-selection pass in `filter_ro
 - **GUI logging:** "Log output to file" checkbox passes `--log-dir ./logs`. "Open Logs" button opens the directory in the system file explorer
 
 ### Maintenance commands
-- **`--update-dats`:** Downloads No-Intro (76 cartridge) + Redump (25 disc) + MAME arcade data + T-En translation DATs. Does NOT download ratings
-- **`--update-ratings`:** Downloads IGDB + LaunchBox rating data independently. Requires IGDB credentials for IGDB data
+- **`--update-dats`:** Downloads No-Intro (76 cartridge) + Redump (28 disc) + additional digital/PSN DATs (11) + MAME arcade data + T-En translation DATs (44). Does NOT download ratings
+- **`--update-ratings`:** Downloads IGDB + LaunchBox rating data independently. Requires IGDB credentials for IGDB data. Progress bar renders in both CLI and GUI
 - **`--clean`:** Deletes cached downloads, DAT files, CRC caches, and generated data. Works without sources
+- **`--yes`:** Skips confirmation prompts (dedupe-delete). GUI always passes this since it handles confirmation via its own dialogs
 
 ## Local Data Files (not in git)
 
