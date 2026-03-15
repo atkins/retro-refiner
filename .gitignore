@@ -1,6 +1,9 @@
 # Worktrees
 .worktrees/
 
+# Windows NUL device artifact
+nul
+
 # Python
 __pycache__/
 *.py[cod]
