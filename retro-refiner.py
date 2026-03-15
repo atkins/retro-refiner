@@ -6679,6 +6679,58 @@ def detect_mame_set_format(source_path, games, available_roms):
     return vote_counts.most_common(1)[0][0]
 
 
+def build_mame_copy_set(selected_roms, games, available_roms, set_format):
+    """Build the set of zip names to copy based on ROM set format.
+
+    Returns (copy_set, dependency_list) where copy_set is a set of ROM names
+    to copy and dependency_list is a list of (name, reason) tuples for logging.
+    """
+    copy_set = set()
+    dependencies = []
+
+    if set_format == 'non-merged':
+        for game in selected_roms:
+            if game.name in available_roms:
+                copy_set.add(game.name)
+        return copy_set, dependencies
+
+    # Split or merged: need dependency resolution
+    for game in selected_roms:
+        if set_format == 'merged' and game.name not in available_roms:
+            # Clone has no separate zip — need the parent's merged zip
+            if game.parent_name and game.parent_name in available_roms:
+                if game.parent_name not in copy_set:
+                    dependencies.append((game.parent_name,
+                                         f"merged parent, contains {game.name}"))
+                copy_set.add(game.parent_name)
+        else:
+            if game.name in available_roms:
+                copy_set.add(game.name)
+
+        # Split: include parent zip for clones
+        if set_format == 'split' and not game.is_parent and game.parent_name:
+            if game.parent_name in available_roms and game.parent_name not in copy_set:
+                dependencies.append((game.parent_name, f"parent of {game.name}"))
+            copy_set.add(game.parent_name)
+
+    # Collect required BIOS zips (referenced by selected games and their parents)
+    required_bios = set()
+    for game in selected_roms:
+        if game.bios_name and game.bios_name in available_roms:
+            required_bios.add(game.bios_name)
+        if game.parent_name:
+            parent = games.get(game.parent_name)
+            if parent and parent.bios_name and parent.bios_name in available_roms:
+                required_bios.add(parent.bios_name)
+
+    for bios_name in required_bios:
+        if bios_name not in copy_set:
+            dependencies.append((bios_name, "BIOS"))
+        copy_set.add(bios_name)
+
+    return copy_set, dependencies
+
+
 def filter_mame_roms(source_dir: str, dest_dir: str, catver_path: str, dat_path: str,
                      copy_chds: bool = True, dry_run: bool = False, system_name: str = 'mame',
                      include_adult: bool = True, verbose: bool = False,
@@ -6723,6 +6775,10 @@ def filter_mame_roms(source_dir: str, dest_dir: str, catver_path: str, dat_path:
 
     Console.system_stat(label, f"Found {len(available_roms)} ROM files ({format_size(sum(rom_sizes.values()))})")
     Console.system_stat(label, f"Found {len(available_chds)} games with CHDs ({format_size(sum(chd_sizes.values()))})")
+
+    # Detect ROM set format
+    set_format = detect_mame_set_format(source_path, games, available_roms)
+    Console.system_stat(label, f"Detected ROM set format: {set_format}")
 
     # Group clones by parent
     parent_clones = defaultdict(list)
@@ -6830,24 +6886,44 @@ def filter_mame_roms(source_dir: str, dest_dir: str, catver_path: str, dat_path:
             shutil.rmtree(dest_path)
         dest_path.mkdir(parents=True, exist_ok=True)
 
+        # Build copy set with dependencies
+        copy_set, dep_list = build_mame_copy_set(
+            selected_roms, games, available_roms, set_format)
+
+        # Log dependencies
+        if dep_list and verbose:
+            for dep_name, reason in dep_list:
+                Console.verbose("DEP", f"{dep_name}.zip ({reason})")
+
+        if dep_list:
+            parent_deps = sum(1 for _, r in dep_list if r != 'BIOS')
+            bios_deps = sum(1 for _, r in dep_list if r == 'BIOS')
+            parts = []
+            if parent_deps:
+                parts.append(f"{parent_deps} parents")
+            if bios_deps:
+                parts.append(f"{bios_deps} BIOS")
+            Console.system_stat(label,
+                                f"{len(dep_list)} dependency ROMs included ({', '.join(parts)})")
+
         copied = 0
         copied_chds = 0
 
-        for game in tqdm(selected_roms, desc=f"{label} Copying", unit="ROM", leave=False):
+        for rom_name in tqdm(sorted(copy_set), desc=f"{label} Copying", unit="ROM", leave=False):
             if _shutdown_requested:
                 break
             # Copy ROM
-            src_rom = source_path / f"{game.name}.zip"
+            src_rom = source_path / f"{rom_name}.zip"
             if src_rom.exists():
-                shutil.copy2(src_rom, dest_path / f"{game.name}.zip")
+                shutil.copy2(src_rom, dest_path / f"{rom_name}.zip")
                 copied += 1
 
             # Copy CHDs if requested
-            if copy_chds and game.name in available_chds:
-                chd_dest = dest_path / game.name
+            if copy_chds and rom_name in available_chds:
+                chd_dest = dest_path / rom_name
                 chd_dest.mkdir(exist_ok=True)
-                src_chd_dir = source_path / game.name
-                for chd_name in available_chds[game.name]:
+                src_chd_dir = source_path / rom_name
+                for chd_name in available_chds[rom_name]:
                     src_chd = src_chd_dir / chd_name
                     if src_chd.exists():
                         shutil.copy2(src_chd, chd_dest / chd_name)

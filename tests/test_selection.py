@@ -3426,6 +3426,100 @@ def test_mame_romset_support():
     finally:
         shutil.rmtree(test_dir, ignore_errors=True)
 
+    # Test dependency resolution helper
+    build_mame_copy_set = _module.build_mame_copy_set
+
+    # Build test data: sf2 (parent) with clone sf2ce, neogeo BIOS
+    test_games = {
+        'sf2': MameGameInfo(
+            name='sf2', description='Street Fighter II', year='1991',
+            manufacturer='Capcom', category='Fighter', is_parent=True,
+            parent_name='', is_bios=False, is_device=False,
+            has_chd=False, chd_names=[], region='World',
+            bios_name='', rom_files=['sf2.01', 'sf2.02']
+        ),
+        'sf2ce': MameGameInfo(
+            name='sf2ce', description="Street Fighter II' CE", year='1992',
+            manufacturer='Capcom', category='Fighter', is_parent=False,
+            parent_name='sf2', is_bios=False, is_device=False,
+            has_chd=False, chd_names=[], region='World',
+            bios_name='', rom_files=['sf2ce.01']
+        ),
+        'mslug': MameGameInfo(
+            name='mslug', description='Metal Slug', year='1996',
+            manufacturer='SNK', category='Shooter', is_parent=True,
+            parent_name='', is_bios=False, is_device=False,
+            has_chd=False, chd_names=[], region='World',
+            bios_name='neogeo', rom_files=['201-p1.p1']
+        ),
+        'neogeo': MameGameInfo(
+            name='neogeo', description='Neo Geo BIOS', year='1990',
+            manufacturer='SNK', category='BIOS', is_parent=True,
+            parent_name='', is_bios=True, is_device=False,
+            has_chd=False, chd_names=[], region='World',
+            rom_files=['sp-s2.sp1']
+        ),
+    }
+    test_available = {'sf2', 'sf2ce', 'mslug', 'neogeo'}
+
+    # Non-merged: no dependencies needed
+    selected = [test_games['sf2ce'], test_games['mslug']]
+    copy_set, deps = build_mame_copy_set(selected, test_games, test_available, 'non-merged')
+    if copy_set == {'sf2ce', 'mslug'}:
+        results.ok("Non-merged: no dependency zips added")
+    else:
+        results.fail("Non-merged copy set",
+                     "{'sf2ce', 'mslug'}", repr(copy_set))
+    if not deps:
+        results.ok("Non-merged: empty dependency list")
+    else:
+        results.fail("Non-merged deps", "empty", repr(deps))
+
+    # Split: clone pulls in parent + BIOS chain
+    copy_set_s, deps_s = build_mame_copy_set(selected, test_games, test_available, 'split')
+    if 'sf2' in copy_set_s:
+        results.ok("Split: parent sf2 included for clone sf2ce")
+    else:
+        results.fail("Split: parent sf2 included",
+                     "sf2 in set", repr(copy_set_s))
+    if 'neogeo' in copy_set_s:
+        results.ok("Split: BIOS neogeo included for mslug")
+    else:
+        results.fail("Split: BIOS neogeo included",
+                     "neogeo in set", repr(copy_set_s))
+
+    # Merged: clone maps to parent zip
+    test_available_merged = {'sf2', 'mslug', 'neogeo'}  # no sf2ce zip
+    copy_set_m, deps_m = build_mame_copy_set(selected, test_games, test_available_merged, 'merged')
+    if 'sf2' in copy_set_m:
+        results.ok("Merged: parent sf2 included for clone sf2ce")
+    else:
+        results.fail("Merged: parent sf2 included",
+                     "sf2 in set", repr(copy_set_m))
+    if 'sf2ce' not in copy_set_m:
+        results.ok("Merged: clone sf2ce not in copy set (no zip)")
+    else:
+        results.fail("Merged: clone sf2ce should not be in copy set",
+                     "sf2ce not in set", repr(copy_set_m))
+
+    # Split: multiple clones of same parent → parent copied once (set dedup)
+    sf2hf = MameGameInfo(
+        name='sf2hf', description="Street Fighter II' HF", year='1992',
+        manufacturer='Capcom', category='Fighter', is_parent=False,
+        parent_name='sf2', is_bios=False, is_device=False,
+        has_chd=False, chd_names=[], region='USA',
+        bios_name='', rom_files=['sf2hf.01']
+    )
+    test_games['sf2hf'] = sf2hf
+    test_available.add('sf2hf')
+    selected2 = [test_games['sf2ce'], sf2hf]
+    copy_set2, _ = build_mame_copy_set(selected2, test_games, test_available, 'split')
+    if 'sf2' in copy_set2:
+        results.ok("Split: parent sf2 included once for multiple clones")
+    else:
+        results.fail("Split: parent dedup",
+                     "sf2 in set", repr(copy_set2))
+
 
 def test_version():
     """Test version metadata."""
