@@ -5410,7 +5410,7 @@ _RE_BRACKETS = re.compile(r'\[[^\]]+\]')
 _RE_PARENS = re.compile(r'\s*\([^)]+\)')
 _RE_WHITESPACE = re.compile(r'\s+')
 _RE_YEAR = re.compile(r'\((\d{4})\)')
-_RE_DISC = re.compile(r'\(Disc\s+(\d+)\)', re.IGNORECASE)
+_RE_DISC = re.compile(r'\((?:Disc|Disk|Part)\s+(\d+)(?:\s+of\s+\d+)?\)', re.IGNORECASE)
 
 # TOSEC naming convention patterns
 _RE_TOSEC_DATE = re.compile(r'^\(\d{4}(?:-\d{2}(?:-\d{2})?)?\)$|^\(\d{2}xx\)$')
