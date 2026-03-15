@@ -5472,7 +5472,8 @@ def parse_rom_filename(filename: str) -> RomInfo:
 
     # Check for beta/demo/promo/sample/proto
     is_beta = bool(_RE_BETA.search(name))
-    is_demo = ('(Demo)' in name or '(Kiosk)' in name or 'Caravan' in name or 'Taikenban' in name
+    is_demo = ('(Demo)' in name or '(demo' in name.lower()
+               or '(Kiosk)' in name or 'Caravan' in name or 'Taikenban' in name
                or '(Test Program)' in name or '(Program)' in name or '(Tech Demo)' in name
                or '(SDK' in name or 'Diagnostic' in name or 'Development Card' in name
                or 'Atari PAM' in name or '(Trade Demo)' in name or 'Boot Disc' in name
@@ -5521,6 +5522,14 @@ def parse_rom_filename(filename: str) -> RomInfo:
 
     # Check for translations
     is_translation = bool(_RE_TRANSLATION.search(name))
+
+    # Cracked ROMs should be filtered like pirate dumps
+    if tosec_cracked:
+        is_pirate = True
+
+    # Check for "Cracked" in title (pirate dumps)
+    if 'Cracked' in name and not any(x in name for x in ('Crack Down', 'Cracker')):
+        is_pirate = True
 
     # Check for hacks (but not translation-related patches)
     has_hacks = any(p.search(name) for p in _HACK_PATTERNS) or tosec_cracked
@@ -5626,9 +5635,12 @@ def parse_rom_filename(filename: str) -> RomInfo:
     base_title = _RE_BRACKETS.sub('', base_title)
     # Remove parenthetical tags
     base_title = _RE_PARENS.sub('', base_title)
-    # For TOSEC: strip trailing revision suffix (e.g., "Title r13" → "Title")
-    if is_tosec:
-        base_title = _RE_TOSEC_REVISION.sub('', base_title)
+    # Strip trailing revision suffix (e.g., "Title r13" → "Title")
+    # Common in TOSEC but can appear in any naming convention
+    tosec_rev_match = _RE_TOSEC_REVISION.search(base_title)
+    if tosec_rev_match:
+        revision = max(revision, int(tosec_rev_match.group(1)))
+        base_title = base_title[:tosec_rev_match.start()]
     # Strip trailing version from title (e.g., "Disk Manager v2.0" → "Disk Manager")
     # and incorporate it into the revision number for proper deduplication
     title_ver_match = _RE_TITLE_VERSION.search(base_title)
