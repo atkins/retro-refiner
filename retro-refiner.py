@@ -469,7 +469,9 @@ class Console:
 
 # Apply default theme, then disable colors if needed
 Style.apply_theme(DEFAULT_THEME)
-if not sys.stdout.isatty() or os.environ.get('NO_COLOR') is not None:
+if os.environ.get('NO_COLOR') is not None:
+    Style.disable()
+elif not sys.stdout.isatty() and not os.environ.get('FORCE_COLOR'):
     Style.disable()
 
 # Title mappings cache (loaded from title_mappings.json)
@@ -1344,7 +1346,9 @@ def extract_file_sizes_from_html(html: str) -> Dict[str, int]:
         re.IGNORECASE
     )
 
+    myrient_matched = False
     for match in myrient_pattern.finditer(html):
+        myrient_matched = True
         href = match.group(1)
         filename = match.group(2).strip()
         size_str = match.group(3).strip()
@@ -1356,8 +1360,9 @@ def extract_file_sizes_from_html(html: str) -> Dict[str, int]:
                 sizes[clean_href] = size
                 sizes[filename] = size
 
-    # If we found sizes with the Myrient pattern, skip slower patterns
-    if sizes:
+    # If this is a Myrient-format page, skip slower patterns (even if no sizes found,
+    # e.g. directory-only listings where all sizes are '-')
+    if myrient_matched:
         return sizes
 
     # Pattern 2: Apache/nginx autoindex format
@@ -3267,10 +3272,16 @@ def scan_network_source_urls(base_url: str, systems: List[str] = None,
         Console.text(f"Scanning network source: {format_url(base_url)}")
 
     try:
+        if not _indent:
+            print(f"  Fetching directory listing...", end='', flush=True)
         content, final_url = fetch_url(base_url, auth_header=auth_header)
         html = content.decode('utf-8', errors='replace')
         base_url = final_url
+        if not _indent:
+            print(f" OK ({format_size(len(content))})")
     except Exception as e:
+        if not _indent:
+            print()  # End the "Fetching..." line
         Console.error(f"Error fetching {format_url(base_url)}: {e}")
         return dict(detected), _url_sizes
 
@@ -3279,6 +3290,7 @@ def scan_network_source_urls(base_url: str, systems: List[str] = None,
 
     # Check for ROM files directly in this location (with sizes)
     rom_files_with_sizes = parse_html_for_files_with_sizes(html, base_url)
+    check_shutdown()
 
     if rom_files_with_sizes:
         total_size = sum(size for _, size in rom_files_with_sizes)
@@ -3314,6 +3326,8 @@ def scan_network_source_urls(base_url: str, systems: List[str] = None,
         url_system and not rom_files_with_sizes and max_depth > 0)
     if should_recurse:
         subdirs = parse_html_for_directories(html, base_url)
+        if not _indent and subdirs:
+            print(f"  Parsing {len(subdirs)} entries...", end='', flush=True)
 
         # Categorize subdirectories into system folders vs other folders
         system_subdirs = []  # [(url, system, folder_name)]
@@ -3410,6 +3424,18 @@ def scan_network_source_urls(base_url: str, systems: List[str] = None,
                                 for url, size in nested_files:
                                     if size > 0:
                                         _url_sizes[url] = size
+
+        if not _indent and subdirs:
+            total_found = len(system_subdirs) + len(other_subdirs)
+            parts = []
+            if system_subdirs:
+                parts.append(f"{len(system_subdirs)} system folders")
+            if other_subdirs:
+                parts.append(f"{len(other_subdirs)} game folders")
+            print(f" {total_found} found ({', '.join(parts)})" if parts else " 0 found")
+
+        if not _indent and not system_subdirs and not other_subdirs and not rom_files_with_sizes:
+            Console.text("  No ROM files or subdirectories found", indent=2)
 
         # Handle non-system subdirectories
         if other_subdirs:

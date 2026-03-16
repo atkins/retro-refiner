@@ -335,6 +335,10 @@ class QueueWriter:
 
     def __init__(self, out_queue):
         self._queue = out_queue
+        self._last_replace_time = 0
+        self._pending_replace = None
+        self._replace_interval = 0.25  # Throttle \r updates to 4/s max
+
     def write(self, text):
         """Write text to the queue, splitting on carriage returns."""
         if not text:
@@ -343,13 +347,29 @@ class QueueWriter:
         parts = text.split('\r')
         for i, part in enumerate(parts):
             if i > 0:
-                # \r means replace current line
-                self._queue.put(('replace', part))
+                # \r means replace current line — throttle rapid updates
+                now = time.monotonic()
+                if now - self._last_replace_time >= self._replace_interval:
+                    self._last_replace_time = now
+                    self._pending_replace = None
+                    self._queue.put(('replace', part))
+                else:
+                    # Store for later — flushed on next append or interval
+                    self._pending_replace = part
             else:
+                # Flush any pending replace before appending new content
+                if self._pending_replace is not None:
+                    self._queue.put(('replace', self._pending_replace))
+                    self._pending_replace = None
+                    self._last_replace_time = time.monotonic()
                 self._queue.put(('append', part))
 
     def flush(self):
-        """No-op flush for file-like interface compatibility."""
+        """Flush any pending throttled replace to the queue."""
+        if self._pending_replace is not None:
+            self._queue.put(('replace', self._pending_replace))
+            self._pending_replace = None
+            self._last_replace_time = time.monotonic()
 
     def isatty(self):
         """Return False to trigger non-TTY mode in retro-refiner."""
@@ -485,6 +505,7 @@ class RetroRefinerGUI:
 
         self._running = False
         self._worker_thread = None
+        self._subprocess = None
         self._output_queue = queue.Queue()
         self._start_time = None
 
@@ -2031,8 +2052,11 @@ class RetroRefinerGUI:
 
     def _cancel_run(self):
         """Request graceful cancellation of the running task."""
-        if self._running:
-            _module._shutdown_requested = True  # pylint: disable=protected-access
+        if self._running and self._subprocess:
+            try:
+                self._subprocess.terminate()
+            except OSError:
+                pass
             self._status_var.set("Cancelling...")
 
     def _start_run(self, commit):
@@ -2063,40 +2087,58 @@ class RetroRefinerGUI:
         self._status_var.set("Running...")
         self._elapsed_var.set("0:00")
 
-        # Reset shutdown flag from any previous run
-        _module._shutdown_requested = False  # pylint: disable=protected-access
-
         argv = self._build_argv(commit=commit)
+        self._subprocess = None
         self._worker_thread = threading.Thread(
             target=self._run_worker, args=(argv,), daemon=True
         )
         self._worker_thread.start()
 
     def _run_worker(self, argv):
-        """Worker thread: redirect IO, call main(), restore."""
-        old_stdout = sys.stdout
-        old_stderr = sys.stderr
-        writer = QueueWriter(self._output_queue)
+        """Worker thread: run retro-refiner as a subprocess and pipe output to the queue."""
+        script_path = str(Path(__file__).resolve().parent / 'retro-refiner.py')
+        cmd = [sys.executable, script_path] + argv[1:]  # Skip 'retro-refiner' argv[0]
 
-        old_argv = sys.argv
         try:
-            sys.stdout = writer
-            sys.stderr = writer
-            sys.argv = argv
+            env = os.environ.copy()
+            env['FORCE_COLOR'] = '1'  # Enable ANSI colors in subprocess
+            env['PYTHONUNBUFFERED'] = '1'  # Disable Python output buffering
+            # pylint: disable=consider-using-with
+            self._subprocess = subprocess.Popen(
+                cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                bufsize=0, env=env,
+                creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0
+            )
 
-            _module.main()
-        except SystemExit:
-            # main() calls sys.exit() in several paths (list-systems, clean, errors)
-            pass
+            # Read output byte by byte to avoid blocking on partial buffers.
+            # Split on \n (newlines) and \r (carriage returns) for progress bars.
+            buf = b''
+            while True:
+                byte = self._subprocess.stdout.read(1)
+                if not byte:
+                    break
+
+                if byte == b'\n':
+                    line = buf.decode('utf-8', errors='replace')
+                    buf = b''
+                    self._output_queue.put(('append', line + '\n'))
+                elif byte == b'\r':
+                    line = buf.decode('utf-8', errors='replace')
+                    buf = b''
+                    self._output_queue.put(('replace', line))
+                else:
+                    buf += byte
+
+            # Flush remaining buffer
+            if buf:
+                self._output_queue.put(('append', buf.decode('utf-8', errors='replace')))
+
+            self._subprocess.wait()
+
         except Exception as exc:
             self._output_queue.put(('append', f"\n--- ERROR ---\n{exc}\n"))
         finally:
-            # Close log file before restoring streams (unwraps TeeWriter)
-            _module.close_log()
-            sys.stdout = old_stdout
-            sys.stderr = old_stderr
-            sys.argv = old_argv
-
+            self._subprocess = None
             # Schedule completion callback on main thread
             self.root.after(0, self._on_run_complete)
 
@@ -2105,11 +2147,8 @@ class RetroRefinerGUI:
         self._running = False
 
         self._update_button_states()
-        # pylint: disable=protected-access
-        if _module._shutdown_requested:
+        if self._status_var.get() == "Cancelling...":
             self._status_var.set("Cancelled")
-            _module._shutdown_requested = False
-        # pylint: enable=protected-access
         else:
             self._status_var.set("Completed")
 
@@ -2382,32 +2421,50 @@ class RetroRefinerGUI:
                 self._output_text.insert(tk.END, segment)
 
     def _poll_queue(self):
-        """Drain the output queue into the Text widget (called every 50ms)."""
+        """Drain the output queue into the Text widget.
+
+        Time-boxed to 30ms max to prevent GUI freezes. Batches consecutive
+        appends into single inserts to reduce widget overhead.
+        """
         try:
             autoscroll = self._auto_scroll.get() and self._output_text.yview()[1] >= 0.95
-            batch_count = 0
+            deadline = time.monotonic() + 0.03  # 30ms budget
+            did_work = False
 
-            while batch_count < 200:  # Process up to 200 items per poll
+            self._output_text.configure(state=tk.NORMAL)
+            append_buf = []
+
+            while time.monotonic() < deadline:
                 try:
                     action, text = self._output_queue.get_nowait()
                 except queue.Empty:
                     break
 
-                self._output_text.configure(state=tk.NORMAL)
-
                 if action == 'replace':
-                    # Replace the current line (for \r progress bars)
-                    # Delete from start of current line to end of line
+                    # Flush pending appends first
+                    if append_buf:
+                        self._insert_ansi_text(''.join(append_buf))
+                        append_buf = []
+                    # Replace current line
                     current_line = self._output_text.index('end-1c linestart')
                     self._output_text.delete(current_line, 'end-1c')
                     self._insert_ansi_text(text)
                 else:
-                    self._insert_ansi_text(text)
+                    append_buf.append(text)
+                    # Flush every ~20 lines to keep inserts bounded
+                    if len(append_buf) >= 20:
+                        self._insert_ansi_text(''.join(append_buf))
+                        append_buf = []
 
-                self._output_text.configure(state=tk.DISABLED)
-                batch_count += 1
+                did_work = True
 
-            if autoscroll and batch_count > 0:
+            # Flush remaining appends
+            if append_buf:
+                self._insert_ansi_text(''.join(append_buf))
+
+            self._output_text.configure(state=tk.DISABLED)
+
+            if autoscroll and did_work:
                 self._output_text.see(tk.END)
 
             # Update elapsed time while running
@@ -2418,7 +2475,9 @@ class RetroRefinerGUI:
         except Exception:
             pass  # Don't crash the poll loop
 
-        self.root.after(50, self._poll_queue)
+        # Poll faster when queue has backlog, slower when idle
+        delay = 10 if not self._output_queue.empty() else 50
+        self.root.after(delay, self._poll_queue)
 
 
 def main():
