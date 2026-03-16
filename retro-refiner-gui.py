@@ -170,8 +170,11 @@ _ANSI_COLORS_LIGHT = {
     '3': None,          # italic
 }
 
-# Regex to match ANSI escape sequences
+# Regex to match ANSI SGR (color) escape sequences
 _RE_ANSI_SEQ = re.compile(r'\033\[([0-9;]*)m')
+# Regex to match non-SGR CSI sequences (erase line, cursor control, etc.)
+# Matches CSI sequences ending in any letter except 'm' (which is SGR/color)
+_RE_ANSI_CSI = re.compile(r'\033\[[0-9;?]*[A-Za-ln-z]')
 
 
 def _parse_ansi_text(text):
@@ -180,6 +183,9 @@ def _parse_ansi_text(text):
     Returns a list of (text, active_codes) tuples where active_codes
     is the set of ANSI SGR codes currently in effect.
     """
+    # Strip non-color CSI sequences (erase line, cursor control, etc.)
+    text = _RE_ANSI_CSI.sub('', text)
+
     segments = []
     active_codes = set()
     last_end = 0
@@ -492,6 +498,8 @@ class RetroRefinerGUI:
         self._exclude_listbox = None
         self._dedup_pc_listbox = None
 
+        # Auto-tune-dependent widgets (disabled when auto-tune is on)
+        self._autotune_widgets = []
         # Dedupe-dependent widgets (disabled when priority is empty)
         self._dedupe_dependent_widgets = []
         self._dedup_add_btn = None
@@ -951,17 +959,19 @@ class RetroRefinerGUI:
         region_frame = ttk.LabelFrame(right, text="Region / Dedupe", padding=6)
         region_frame.pack(fill=tk.X, pady=(0, 0))
 
+        _DEFAULT_REGION_PRIORITY = "USA,World,Europe,Australia,England,Spain,France,Germany,Italy,Netherlands,Sweden,Asia,Japan,Korea,China,Taiwan,Brazil"
+
         fields = [
-            (0, "Region priority:", 'region_priority',
-             "Comma-separated region order for version preference (e.g. USA,Europe,Japan). "
-             "The first region listed is most preferred. Default: USA, World, Europe, Australia."),
-            (1, "Keep regions:", 'keep_regions',
+            (0, "Region priority:", 'region_priority', _DEFAULT_REGION_PRIORITY,
+             "Comma-separated region order for version preference. "
+             "The first region listed is most preferred."),
+            (1, "Keep regions:", 'keep_regions', "",
              "Comma-separated regions to keep multiple versions of. "
              "For example, 'USA,Japan' keeps both the English and Japanese version of each game."),
         ]
-        for row, label, key, tip in fields:
+        for row, label, key, default_val, tip in fields:
             self._tip(ttk.Label(region_frame, text=label), tip).grid(row=row, column=0, sticky=tk.W, pady=1)
-            self._vars[key] = tk.StringVar()
+            self._vars[key] = tk.StringVar(value=default_val)
             self._tip(ttk.Entry(region_frame, textvariable=self._vars[key]), tip).grid(
                 row=row, column=1, sticky=tk.EW, padx=4, pady=1
             )
@@ -1136,32 +1146,45 @@ class RetroRefinerGUI:
             ("Scan workers:", 'scan_workers', tk.IntVar(value=16), 1, 64,
              "Parallel workers for scanning network directories."),
         ]
+        self._autotune_widgets = []  # Widgets disabled when auto-tune is on
         for label, key, var, lo, hi, tip in spinners:
             f = ttk.Frame(net_frame)
             f.pack(fill=tk.X, pady=1)
             self._vars[key] = var
-            self._tip(ttk.Label(f, text=label, width=13), tip).pack(side=tk.LEFT)
-            self._tip(ttk.Spinbox(f, from_=lo, to=hi, width=5, textvariable=var),
-                      tip).pack(side=tk.LEFT, padx=(4, 0))
+            lbl = self._tip(ttk.Label(f, text=label, width=13), tip)
+            lbl.pack(side=tk.LEFT)
+            spin = self._tip(ttk.Spinbox(f, from_=lo, to=hi, width=5, textvariable=var), tip)
+            spin.pack(side=tk.LEFT, padx=(4, 0))
+            if key in ('parallel', 'connections'):
+                self._autotune_widgets.extend([lbl, spin])
 
         self._vars['auto_tune'] = tk.BooleanVar(value=True)
-        cb = ttk.Checkbutton(net_frame, text="Auto-tune", variable=self._vars['auto_tune'])
+        cb = ttk.Checkbutton(net_frame, text="Auto-tune", variable=self._vars['auto_tune'],
+                             command=self._update_autotune_state)
         cb.pack(anchor=tk.W, pady=(2, 2))
         self._tip(cb, "Automatically adjust parallelism based on file sizes.")
+        self._update_autotune_state()
+
+        self._vars['resume_downloads'] = tk.BooleanVar(value=False)
+        cb = ttk.Checkbutton(net_frame, text="Resume downloads",
+                             variable=self._vars['resume_downloads'])
+        cb.pack(anchor=tk.W, pady=(0, 2))
+        self._tip(cb, "Resume incomplete downloads instead of re-downloading. "
+                       "Requires server support for byte-range requests.")
 
         dir_fields = [
-            ("Cache dir:", 'cache_dir',
+            ("Cache dir:", 'cache_dir', "./cache",
              "Directory for caching network downloads. Defaults to cache/ in source dir."),
-            ("DAT dir:", 'dat_dir',
+            ("DAT dir:", 'dat_dir', "./dat_files",
              "Directory for DAT verification files. Defaults to dat_files/ in source dir."),
         ]
-        for label, key, tip in dir_fields:
+        for label, key, default_val, tip in dir_fields:
             f = ttk.Frame(net_frame)
             f.pack(fill=tk.X, pady=1)
             self._tip(ttk.Label(f, text=label, width=10), tip).pack(side=tk.LEFT)
-            self._vars[key] = tk.StringVar()
-            self._tip(ttk.Entry(f, textvariable=self._vars[key]),
-                      tip).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=4)
+            self._vars[key] = tk.StringVar(value=default_val)
+            entry = self._tip(ttk.Entry(f, textvariable=self._vars[key]), tip)
+            entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=4)
             ttk.Button(f, text="...", width=3,
                        command=lambda k=key: self._browse_dir(k)).pack(side=tk.RIGHT)
 
@@ -1204,13 +1227,13 @@ class RetroRefinerGUI:
         self._tip(ttk.Entry(misc_frame, textvariable=self._vars['mame_version'], width=8),
                   mame_tip).pack(side=tk.LEFT, padx=(4, 12))
 
-        ratings_tip = ("Rating source for --top/--size: 'combined' (default with IGDB creds), "
+        ratings_tip = ("Rating source for --top/--size: 'combined' (default), "
                        "'igdb', or 'launchbox'.")
         self._tip(ttk.Label(misc_frame, text="Ratings:"), ratings_tip).pack(side=tk.LEFT)
-        self._vars['ratings_source'] = tk.StringVar()
+        self._vars['ratings_source'] = tk.StringVar(value="combined")
         self._tip(ttk.Combobox(
             misc_frame, textvariable=self._vars['ratings_source'],
-            values=["", "combined", "igdb", "launchbox"],
+            values=["combined", "igdb", "launchbox"],
             state="readonly", width=12
         ), ratings_tip).pack(side=tk.LEFT, padx=(4, 0))
 
@@ -1484,7 +1507,7 @@ class RetroRefinerGUI:
             ):
                 return
         dat_dir = self._vars.get('dat_dir')
-        if dat_dir and dat_dir.get().strip():
+        if dat_dir and dat_dir.get().strip() and dat_dir.get().strip() != './dat_files':
             argv.extend(['--dat-dir', dat_dir.get().strip()])
         argv.append('--update-dats')
         self._running = True
@@ -1507,7 +1530,7 @@ class RetroRefinerGUI:
             for src in self._listbox_data.get('source', []):
                 argv.extend(['--source', src])
         dat_dir = self._vars.get('dat_dir')
-        if dat_dir and dat_dir.get().strip():
+        if dat_dir and dat_dir.get().strip() and dat_dir.get().strip() != './dat_files':
             argv.extend(['--dat-dir', dat_dir.get().strip()])
         # Pass IGDB credentials if configured
         igdb_id = self._vars.get('igdb_client_id')
@@ -1527,6 +1550,16 @@ class RetroRefinerGUI:
             target=self._run_worker, args=(argv,), daemon=True
         )
         self._worker_thread.start()
+
+    def _update_autotune_state(self):
+        """Enable/disable parallel/connections spinners based on auto-tune state."""
+        state = tk.DISABLED if self._vars['auto_tune'].get() else tk.NORMAL
+        for widget in self._autotune_widgets:
+            try:
+                widget.configure(state=state)
+            except tk.TclError:
+                pass
+        self._update_preview()
 
     def _update_dedupe_state(self):
         """Enable/disable dedupe-dependent widgets based on whether priority is set."""
@@ -1604,6 +1637,13 @@ class RetroRefinerGUI:
         # Restore defaults that aren't empty
         self._vars['transfer_mode'].set('Copy')
         self._vars['auto_tune'].set(True)
+        self._vars['ratings_source'].set('combined')
+        self._vars['cache_dir'].set('./cache')
+        self._vars['dat_dir'].set('./dat_files')
+        self._vars['region_priority'].set(
+            'USA,World,Europe,Australia,England,Spain,France,Germany,'
+            'Italy,Netherlands,Sweden,Asia,Japan,Korea,China,Taiwan,Brazil'
+        )
 
         # Simple YAML parsing (key: value and key:\n  - item)
         current_list_key = None
@@ -1781,9 +1821,13 @@ class RetroRefinerGUI:
             'tp_include_platforms': '--tp-include-platforms',
             'tp_exclude_platforms': '--tp-exclude-platforms',
         }
+        _str_defaults = {
+            'region_priority': "USA,World,Europe,Australia,England,Spain,France,Germany,"
+                               "Italy,Netherlands,Sweden,Asia,Japan,Korea,China,Taiwan,Brazil",
+        }
         for var_key, arg_name in str_args.items():
             val = self._vars[var_key].get().strip()
-            if val:
+            if val and val != _str_defaults.get(var_key, ''):
                 argv.extend([arg_name, val])
 
         # Dedupe PC lists
@@ -1819,9 +1863,9 @@ class RetroRefinerGUI:
         if prefer_src:
             argv.extend(['--prefer-source', prefer_src])
 
-        # Ratings source
+        # Ratings source (only pass if not the default 'combined')
         ratings = self._vars['ratings_source'].get().strip()
-        if ratings:
+        if ratings and ratings != 'combined':
             argv.extend(['--ratings-source', ratings])
 
         # Network settings
@@ -1836,16 +1880,19 @@ class RetroRefinerGUI:
         if not self._vars['auto_tune'].get():
             argv.append('--no-auto-tune')
 
+        if self._vars['resume_downloads'].get():
+            argv.append('--resume-downloads')
+
         scan_workers = self._vars['scan_workers'].get()
         if scan_workers != 16:
             argv.extend(['--scan-workers', str(scan_workers)])
 
         cache_dir = self._vars['cache_dir'].get().strip()
-        if cache_dir:
+        if cache_dir and cache_dir != './cache':
             argv.extend(['--cache-dir', cache_dir])
 
         dat_dir = self._vars['dat_dir'].get().strip()
-        if dat_dir:
+        if dat_dir and dat_dir != './dat_files':
             argv.extend(['--dat-dir', dat_dir])
 
         # Advanced booleans

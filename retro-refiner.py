@@ -1919,23 +1919,20 @@ def get_ia_auth_header(access_key: Optional[str], secret_key: Optional[str]) -> 
 AUTOTUNE_SMALL_THRESHOLD = 10 * 1024 * 1024   # 10 MB
 AUTOTUNE_LARGE_THRESHOLD = 100 * 1024 * 1024  # 100 MB
 
-# Optimal settings from benchmarks:
-# - Small files (<10MB): parallel=8, connections=1 (many files, minimal overhead)
-# - Large files (>100MB): parallel=8, connections=4 (fewer files, max bandwidth)
-# - Medium files: parallel=8, connections=2 (balanced)
-AUTOTUNE_SMALL = (8, 1)   # (parallel, connections)
-AUTOTUNE_MEDIUM = (8, 2)
-AUTOTUNE_LARGE = (8, 4)
+# Starting settings per file size category (parallel, connections)
+# Adaptive ramping increases parallel by 1 every 60s of stable downloads,
+# then backs off by 1 on errors (minimum = starting parallel for category)
+AUTOTUNE_SMALL = (8, 1)   # Small files (<10MB): many files, minimal overhead
+AUTOTUNE_MEDIUM = (8, 2)  # Medium files (10-100MB): balanced
+AUTOTUNE_LARGE = (4, 1)   # Large files (>100MB): conservative start, ramp up
 
 
 def calculate_autotune_settings(file_sizes: List[int]) -> Tuple[int, int]:
     """
-    Calculate optimal parallel/connections settings based on file sizes.
+    Calculate starting parallel/connections settings based on file sizes.
 
-    Uses median file size to determine settings:
-    - Small files (<10MB): parallel=2, connections=2 (reduce overhead)
-    - Medium files (10-100MB): parallel=4, connections=4 (balanced)
-    - Large files (>100MB): parallel=8, connections=4 (maximize bandwidth)
+    Uses median file size to determine initial settings. The DownloadUI
+    adaptively ramps parallel up during stable periods and backs off on errors.
 
     Returns (parallel, connections) tuple.
     """
@@ -2138,6 +2135,11 @@ class Aria2cRPC:
         """Get global download stats (speed, active count)."""
         return self._call('aria2.getGlobalStat')
 
+    def change_global_option(self, options: dict) -> bool:
+        """Change aria2c global options at runtime (e.g., max-concurrent-downloads)."""
+        result = self._call('aria2.changeGlobalOption', [options])
+        return result == 'OK'
+
     def shutdown(self):
         """Gracefully shutdown aria2c."""
         self._call('aria2.shutdown')
@@ -2166,7 +2168,8 @@ class DownloadUI:
                  parallel: int = 4, connections: int = 4, auth_header: Optional[str] = None,
                  max_retries: int = 3, stall_timeout: int = 60,
                  on_file_complete: Optional[object] = None,
-                 crc_indexer: Optional[object] = None):
+                 crc_indexer: Optional[object] = None,
+                 resume: bool = False):
         self.system_name = system_name
         self.parallel = parallel
         self.connections = connections
@@ -2175,6 +2178,7 @@ class DownloadUI:
         self.stall_timeout = stall_timeout  # seconds without progress = stalled
         self.on_file_complete = on_file_complete  # callback(filepath) when a file finishes
         self.crc_indexer = crc_indexer  # BackgroundCrcIndexer for verified count display
+        self._resume_enabled = resume  # User opted into resume via --resume-downloads
         self.rpc: Optional[Aria2cRPC] = None
         self.rpc_available = False
         self.download_thread: Optional[threading.Thread] = None
@@ -2212,6 +2216,12 @@ class DownloadUI:
         self.last_progress_time = 0
         self.last_completed_count = 0
 
+        # Adaptive ramping: increase parallel during stable periods, back off on errors
+        self._min_parallel = 1         # Floor for back-off
+        self._last_failed_count = 0    # Track new errors since last check
+        self._stable_since = 0         # Timestamp of last error (or start)
+        self._ramp_interval = 60       # Seconds of stability before ramping up
+
     @property
     def shutdown_requested(self) -> bool:
         """Check both local and module-level shutdown flags."""
@@ -2244,6 +2254,15 @@ class DownloadUI:
 
     def _identify_resume_candidates(self) -> None:
         """Identify partial files that could be resumed and check server support."""
+        if not self._resume_enabled:
+            # Resume disabled — delete partial files so they re-download fresh
+            for f in self.files:
+                if f['path'].exists() and f['path'].stat().st_size > 0:
+                    try:
+                        f['path'].unlink()
+                    except OSError:
+                        pass
+            return
         for f in self.files:
             if f['path'].exists() and f['path'].stat().st_size > 0:
                 self._resume_files.add(f['url'])
@@ -2258,6 +2277,34 @@ class DownloadUI:
                         except OSError:
                             pass
                 self._resume_files.clear()
+
+    def _check_adaptive_ramp(self) -> None:
+        """Adjust parallel downloads based on stability: ramp up if stable, back off on errors."""
+        now = _time.time()
+        current_failed = self.failed_count
+
+        if current_failed > self._last_failed_count:
+            # New errors detected — back off
+            self._last_failed_count = current_failed
+            self._stable_since = now
+            new_parallel = max(self._min_parallel, self.parallel - 1)
+            if new_parallel < self.parallel:
+                self.parallel = new_parallel
+                self._apply_parallel_change()
+        elif now - self._stable_since >= self._ramp_interval:
+            # Stable for ramp_interval — increase by 1
+            self._stable_since = now
+            new_parallel = self.parallel + 1
+            if new_parallel != self.parallel:
+                self.parallel = new_parallel
+                self._apply_parallel_change()
+
+    def _apply_parallel_change(self) -> None:
+        """Apply the current parallel setting to a running aria2c via RPC."""
+        if self.rpc_available and self.rpc:
+            self.rpc.change_global_option({
+                'max-concurrent-downloads': str(self.parallel)
+            })
 
     def _delete_failed_resume_files(self) -> None:
         """Delete partial files that failed to resume so retry starts fresh."""
@@ -3036,6 +3083,8 @@ class DownloadUI:
         self.download_tool = get_download_tool()  # Set early for display
         self.last_progress_time = _time.time()
         self.last_completed_count = 0
+        self._stable_since = _time.time()
+        self._last_failed_count = 0
 
         # Check for partial files and server resume support
         self._identify_resume_candidates()
@@ -3069,6 +3118,7 @@ class DownloadUI:
                     break
 
                 self._update_from_rpc()
+                self._check_adaptive_ramp()
                 self._render_simple()
 
                 # Check for stall - if no progress for stall_timeout, abort and retry
@@ -3139,6 +3189,7 @@ class DownloadUI:
                         break
 
                     self._update_from_rpc()
+                    self._check_adaptive_ramp()
                     self._render_simple()
 
                     # Check for stall during retry
@@ -9270,6 +9321,8 @@ Pattern examples (--include / --exclude):
                         help='Auto-tune parallel/connections based on file sizes (default: enabled)')
     parser.add_argument('--no-auto-tune', action='store_false', dest='auto_tune',
                         help='Disable auto-tuning, use fixed --parallel and --connections values')
+    parser.add_argument('--resume-downloads', action='store_true',
+                        help='Resume incomplete downloads instead of re-downloading (requires server support)')
     parser.add_argument('--scan-workers', type=int, default=16,
                         help='Number of parallel workers for network directory scanning (default: 16)')
 
@@ -10465,7 +10518,8 @@ Pattern examples (--include / --exclude):
             connections=connections,
             auth_header=auth_header,
             on_file_complete=crc_indexer.submit if crc_indexer else None,
-            crc_indexer=crc_indexer
+            crc_indexer=crc_indexer,
+            resume=args.resume_downloads
         )
         cached_files = ui.run()
 
