@@ -1066,7 +1066,7 @@ class RetroRefinerGUI:
         self._tip(ttk.Label(tab, text="Transfer mode:"), transfer_tip).grid(
             row=row, column=0, sticky=tk.W, pady=2
         )
-        self._vars['transfer_mode'] = tk.StringVar(value="Copy")
+        self._vars['transfer_mode'] = tk.StringVar(value="Move")
         self._tip(ttk.Combobox(
             tab, textvariable=self._vars['transfer_mode'],
             values=["Copy", "Symlink", "Hardlink", "Move"],
@@ -1627,7 +1627,7 @@ class RetroRefinerGUI:
             elif isinstance(var, tk.StringVar):
                 var.set('')
         # Restore defaults that aren't empty
-        self._vars['transfer_mode'].set('Copy')
+        self._vars['transfer_mode'].set('Move')
         self._vars['auto_tune'].set(True)
         self._vars['ratings_source'].set('combined')
         self._vars['cache_dir'].set('./cache')
