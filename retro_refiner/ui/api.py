@@ -437,7 +437,7 @@ class Api:
         """Open a folder browser dialog. Returns selected path or empty."""
         if self._window:
             result = self._window.create_file_dialog(
-                webview.FOLDER_DIALOG
+                webview.FileDialog.FOLDER
             )
             if result and len(result) > 0:
                 return result[0]
@@ -447,7 +447,7 @@ class Api:
         """Open a file browser dialog."""
         if self._window:
             result = self._window.create_file_dialog(
-                webview.OPEN_DIALOG,
+                webview.FileDialog.OPEN,
                 file_types=file_types or ('All files (*.*)',),
             )
             if result and len(result) > 0:
@@ -458,7 +458,7 @@ class Api:
         """Open a save file dialog."""
         if self._window:
             result = self._window.create_file_dialog(
-                webview.SAVE_DIALOG,
+                webview.FileDialog.SAVE,
                 file_types=file_types or ('YAML files (*.yaml)',),
             )
             if result:
