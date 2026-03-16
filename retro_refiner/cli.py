@@ -9,21 +9,9 @@ import tempfile
 from pathlib import Path
 
 from retro_refiner.config import Config, load_config, save_config
-from retro_refiner.network import is_url, validate_source, scan_network_source
+from retro_refiner.network import format_size, is_url, validate_source
+from retro_refiner.scanner import scan_network_source
 from retro_refiner.paths import get_runtime_path
-
-
-def format_size(size_bytes: int) -> str:
-    """Format bytes as human-readable string."""
-    if size_bytes < 1024:
-        return f"{size_bytes} B"
-    if size_bytes < 1024 * 1024:
-        return f"{size_bytes / 1024:.1f} KB"
-    if size_bytes < 1024 * 1024 * 1024:
-        return f"{size_bytes / 1024 / 1024:.1f} MB"
-    if size_bytes < 1024 * 1024 * 1024 * 1024:
-        return f"{size_bytes / 1024 / 1024 / 1024:.2f} GB"
-    return f"{size_bytes / 1024 / 1024 / 1024 / 1024:.2f} TB"
 
 
 def run_headless(args: list):
