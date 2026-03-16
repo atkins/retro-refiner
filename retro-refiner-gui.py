@@ -500,6 +500,8 @@ class RetroRefinerGUI:
 
         # Auto-tune-dependent widgets (disabled when auto-tune is on)
         self._autotune_widgets = []
+        # Log-dependent widgets (disabled when logging is off)
+        self._log_dir_widgets = []
         # Dedupe-dependent widgets (disabled when priority is empty)
         self._dedupe_dependent_widgets = []
         self._dedup_add_btn = None
@@ -648,13 +650,13 @@ class RetroRefinerGUI:
         self._cancel_btn.pack(side=tk.LEFT, padx=(0, 4))
         self._tip(self._cancel_btn, "Gracefully stop the current run. Processing finishes the current operation then exits.")
 
-        ttk.Button(
-            ctrl_frame, text="Clear", command=self._clear_output
-        ).pack(side=tk.LEFT, padx=(0, 4))
+        clear_btn = ttk.Button(ctrl_frame, text="Clear", command=self._clear_output)
+        clear_btn.pack(side=tk.LEFT, padx=(0, 4))
+        self._tip(clear_btn, "Clear the output panel.")
 
-        ttk.Button(
-            ctrl_frame, text="Copy", command=self._copy_output
-        ).pack(side=tk.LEFT, padx=(0, 4))
+        copy_btn = ttk.Button(ctrl_frame, text="Copy", command=self._copy_output)
+        copy_btn.pack(side=tk.LEFT, padx=(0, 4))
+        self._tip(copy_btn, "Copy all output text to the clipboard.")
 
         # Auto-scroll checkbox
         self._auto_scroll = tk.BooleanVar(value=True)
@@ -729,6 +731,9 @@ class RetroRefinerGUI:
             fill=tk.X, pady=1
         )
         ttk.Button(src_btn_frame, text="Remove", command=self._remove_source).pack(
+            fill=tk.X, pady=1
+        )
+        ttk.Button(src_btn_frame, text="Clear All", command=self._clear_sources).pack(
             fill=tk.X, pady=1
         )
 
@@ -1241,19 +1246,46 @@ class RetroRefinerGUI:
         log_frame = ttk.LabelFrame(left, text="Logging", padding=6)
         log_frame.pack(fill=tk.X)
 
+        log_top = ttk.Frame(log_frame)
+        log_top.pack(fill=tk.X)
+
         self._vars['log_enabled'] = tk.BooleanVar()
-        log_cb = ttk.Checkbutton(log_frame, text="Log output to file",
-                                 variable=self._vars['log_enabled'])
+        log_cb = ttk.Checkbutton(log_top, text="Log output to file",
+                                 variable=self._vars['log_enabled'],
+                                 command=self._update_log_state)
         log_cb.pack(side=tk.LEFT, padx=(0, 12))
         self._tip(log_cb, (
-            "Save a timestamped copy of all output to the logs/ directory. "
+            "Save a timestamped copy of all output to the log directory. "
             "Each run creates a new log file."
         ))
 
-        log_open_btn = ttk.Button(log_frame, text="Open Logs",
+        log_open_btn = ttk.Button(log_top, text="Open Logs",
                                   command=self._open_logs_folder)
-        log_open_btn.pack(side=tk.LEFT)
-        self._tip(log_open_btn, "Open the logs/ directory in the system file explorer.")
+        log_open_btn.pack(side=tk.LEFT, padx=(0, 4))
+        self._tip(log_open_btn, "Open the log directory in the system file explorer.")
+
+        log_delete_btn = ttk.Button(log_top, text="Delete Logs",
+                                    command=self._delete_logs_folder)
+        log_delete_btn.pack(side=tk.LEFT)
+        self._tip(log_delete_btn, "Delete the entire log directory and all log files.")
+
+        log_dir_frame = ttk.Frame(log_frame)
+        log_dir_frame.pack(fill=tk.X, pady=(4, 0))
+        log_dir_tip = "Directory for log files. Each run creates a timestamped log."
+        self._log_dir_widgets = []
+        log_dir_lbl = self._tip(ttk.Label(log_dir_frame, text="Log dir:", width=10), log_dir_tip)
+        log_dir_lbl.pack(side=tk.LEFT)
+        self._log_dir_widgets.append(log_dir_lbl)
+        self._vars['log_dir'] = tk.StringVar(value="./logs")
+        log_dir_entry = self._tip(ttk.Entry(log_dir_frame, textvariable=self._vars['log_dir']),
+                                  log_dir_tip)
+        log_dir_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=4)
+        self._log_dir_widgets.append(log_dir_entry)
+        log_dir_btn = ttk.Button(log_dir_frame, text="...", width=3,
+                                 command=lambda: self._browse_dir('log_dir'))
+        log_dir_btn.pack(side=tk.RIGHT)
+        self._log_dir_widgets.append(log_dir_btn)
+        self._update_log_state()
 
         # ── Right column ──
         right = ttk.Frame(tab)
@@ -1323,11 +1355,16 @@ class RetroRefinerGUI:
 
         ratings_btn = ttk.Button(maint_frame, text="Update Ratings",
                                  command=self._run_update_ratings)
-        ratings_btn.pack(side=tk.LEFT)
+        ratings_btn.pack(side=tk.LEFT, padx=(0, 8))
         self._tip(ratings_btn, (
             "Re-download game rating data (IGDB + LaunchBox). "
             "Used by --top and --size to rank games."
         ))
+
+        reset_btn = ttk.Button(maint_frame, text="Reset Defaults",
+                               command=self._confirm_reset_defaults)
+        reset_btn.pack(side=tk.LEFT)
+        self._tip(reset_btn, "Reset all GUI settings to their default values.")
 
         tab.columnconfigure(0, weight=1)
         tab.columnconfigure(1, weight=1)
@@ -1404,6 +1441,14 @@ class RetroRefinerGUI:
             self._update_button_states()
             self._update_preview()
 
+    def _clear_sources(self):
+        if not self._listbox_data.get('source'):
+            return
+        self._source_listbox.delete(0, tk.END)
+        self._listbox_data['source'] = []
+        self._update_button_states()
+        self._update_preview()
+
     def _add_pattern(self, key):
         pattern = tk.simpledialog.askstring(
             f"Add {key} pattern", "Enter glob pattern:", parent=self.root
@@ -1444,9 +1489,14 @@ class RetroRefinerGUI:
         """Return True if at least one source is configured."""
         return bool(self._listbox_data.get('source'))
 
+    def _get_log_dir(self) -> Path:
+        """Resolve the current log directory path."""
+        log_dir = self._vars['log_dir'].get().strip() or './logs'
+        return Path(log_dir).resolve()
+
     def _open_logs_folder(self):
         """Open the logs directory in the system file explorer."""
-        logs_dir = _module._get_runtime_path() / 'logs'  # pylint: disable=protected-access
+        logs_dir = self._get_log_dir()
         logs_dir.mkdir(exist_ok=True)
         if sys.platform == 'win32':
             os.startfile(str(logs_dir))  # pylint: disable=no-member
@@ -1454,6 +1504,24 @@ class RetroRefinerGUI:
             subprocess.Popen(['open', str(logs_dir)])  # pylint: disable=consider-using-with
         else:
             subprocess.Popen(['xdg-open', str(logs_dir)])  # pylint: disable=consider-using-with
+
+    def _delete_logs_folder(self):
+        """Delete the entire log directory."""
+        logs_dir = self._get_log_dir()
+        if not logs_dir.exists():
+            messagebox.showinfo("Delete Logs", "Log directory does not exist.")
+            return
+        if not messagebox.askyesno(
+            "Confirm Delete",
+            f"This will delete the entire log directory:\n\n{logs_dir}\n\nContinue?"
+        ):
+            return
+        try:
+            import shutil
+            shutil.rmtree(logs_dir)
+            messagebox.showinfo("Delete Logs", "Log directory deleted.")
+        except Exception as exc:
+            messagebox.showerror("Delete Logs", f"Failed to delete logs:\n{exc}")
 
     def _run_clean(self):
         """Run --clean to delete cache, DATs, and generated data."""
@@ -1543,6 +1611,16 @@ class RetroRefinerGUI:
         )
         self._worker_thread.start()
 
+    def _update_log_state(self):
+        """Enable/disable log directory input based on log checkbox."""
+        state = tk.NORMAL if self._vars['log_enabled'].get() else tk.DISABLED
+        for widget in self._log_dir_widgets:
+            try:
+                widget.configure(state=state)
+            except tk.TclError:
+                pass
+        self._update_preview()
+
     def _update_autotune_state(self):
         """Enable/disable parallel/connections spinners based on auto-tune state."""
         state = tk.DISABLED if self._vars['auto_tune'].get() else tk.NORMAL
@@ -1609,9 +1687,8 @@ class RetroRefinerGUI:
                     lines.append(f'  - "{item}"')
         return '\n'.join(lines)
 
-    def _restore_state(self, text):
-        """Restore GUI state from YAML text. Clears existing state first."""
-        # Clear existing state
+    def _reset_to_defaults(self):
+        """Reset all GUI settings to their default values."""
         for key in ('source', 'include', 'exclude', 'dedup_pc_lists'):
             self._listbox_data[key] = []
         self._source_listbox.delete(0, tk.END)
@@ -1626,16 +1703,34 @@ class RetroRefinerGUI:
                 var.set(int_defaults.get(key, 0))
             elif isinstance(var, tk.StringVar):
                 var.set('')
-        # Restore defaults that aren't empty
         self._vars['transfer_mode'].set('Move')
         self._vars['auto_tune'].set(True)
         self._vars['ratings_source'].set('combined')
         self._vars['cache_dir'].set('./cache')
         self._vars['dat_dir'].set('./dat_files')
+        self._vars['log_dir'].set('./logs')
         self._vars['region_priority'].set(
             'USA,World,Europe,Australia,England,Spain,France,Germany,'
             'Italy,Netherlands,Sweden,Asia,Japan,Korea,China,Taiwan,Brazil'
         )
+        self._update_autotune_state()
+        self._update_log_state()
+        self._update_dedupe_state()
+        self._update_preview()
+
+    def _confirm_reset_defaults(self):
+        """Prompt and reset all GUI settings to defaults."""
+        if not messagebox.askyesno(
+            "Reset to Defaults",
+            "This will reset all settings to their default values.\n\nContinue?"
+        ):
+            return
+        self._reset_to_defaults()
+        self._status_var.set("Settings reset to defaults")
+
+    def _restore_state(self, text):
+        """Restore GUI state from YAML text. Clears existing state first."""
+        self._reset_to_defaults()
 
         # Simple YAML parsing (key: value and key:\n  - item)
         current_list_key = None
@@ -1910,7 +2005,7 @@ class RetroRefinerGUI:
 
         # Logging
         if self._vars['log_enabled'].get():
-            log_dir = str(_module._get_runtime_path() / 'logs')  # pylint: disable=protected-access
+            log_dir = self._vars['log_dir'].get().strip() or './logs'
             argv.extend(['--log-dir', log_dir])
 
         return argv

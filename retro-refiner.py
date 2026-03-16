@@ -9541,7 +9541,14 @@ Pattern examples (--include / --exclude):
     systems_with_ten_sources = set()  # Track systems that have T-En translation sources
     tosec_source_urls = {}  # {system: source_url} for Myrient TOSEC sources
 
-    for network_url in network_sources:
+    scan_progress = None
+    if len(network_sources) > 1:
+        scan_progress = ScanProgressBar(
+            total=len(network_sources),
+            desc=f"Scanning {len(network_sources)} network sources"
+        )
+
+    for src_idx, network_url in enumerate(network_sources):
         check_shutdown()
         Console.blank()  # Blank line before network source
 
@@ -9589,6 +9596,12 @@ Pattern examples (--include / --exclude):
             # Track if this is a Myrient TOSEC source
             if is_myrient_tosec_url(network_url):
                 tosec_source_urls[system] = network_url
+
+        if scan_progress:
+            scan_progress.update(src_idx + 1)
+
+    if scan_progress:
+        scan_progress.finish()
 
     # Step 1.5: Download DAT files for detected network systems (improves filtering accuracy)
     # DAT files provide official game names for better title matching
