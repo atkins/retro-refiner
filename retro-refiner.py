@@ -7879,6 +7879,7 @@ def filter_teknoparrot_roms(source_dir: str, dest_dir: str, dat_path: str = None
                              exclude_patterns: List[str] = None,
                              verbose: bool = False,
                              no_filter: bool = False,
+                             english_only: bool = False,
                              log_dir: str = None):
     """Filter TeknoParrot ROMs based on platform, version, and region preferences.
 
@@ -8025,6 +8026,16 @@ def filter_teknoparrot_roms(source_dir: str, dest_dir: str, dat_path: str = None
                 best = select_best_teknoparrot_version(valid_games, region_priority,
                                                        verbose=verbose)
                 if best:
+                    # Filter non-English games
+                    if english_only and best.region in ('Japan', 'JPN', 'Korea'):
+                        has_english = any(g.region in ('World', 'USA', 'Export', 'Unknown', '')
+                                          for g in valid_games)
+                        if not has_english:
+                            excluded_reasons[f'Non-English ({best.region})'] += 1
+                            if verbose:
+                                Console.verbose('skip', f"{best.name}: non-English ({best.region})")
+                            continue
+
                     selected_roms.append(best)
                     included_reasons[f"Platform: {best.platform}"] += 1
                     if verbose:
@@ -8152,6 +8163,7 @@ def filter_teknoparrot_network_roms(rom_urls: List[str],
                                     url_sizes: Dict[str, int] = None,
                                     verbose: bool = False,
                                     no_filter: bool = False,
+                                    english_only: bool = False,
                                     log_dir: str = None) -> Tuple[List[str], Dict[str, int]]:
     """
     Filter TeknoParrot network ROM URLs with TeknoParrot-specific logic.
@@ -8251,11 +8263,23 @@ def filter_teknoparrot_network_roms(rom_urls: List[str],
             else:
                 # Select best version
                 best = select_best_teknoparrot_version(roms, region_priority, verbose=verbose)
-                if best and best.filename in url_map:
-                    selected_urls.append(url_map[best.filename])
-                    selected_size += size_map.get(best.filename, 0)
-                    if verbose:
-                        Console.verbose("select", f"{best.filename} (best of {len(roms)} for '{title}')")
+                if not best or best.filename not in url_map:
+                    continue
+
+                # Filter non-English games (Japan/Korea only, no English version available)
+                if english_only and best.region in ('Japan', 'JPN', 'Korea'):
+                    # Check if any version in this group has an English-friendly region
+                    has_english = any(r.region in ('World', 'USA', 'Export', 'Unknown', '')
+                                      for r in roms)
+                    if not has_english:
+                        if verbose:
+                            Console.verbose("skip", f"{best.filename}: non-English ({best.region})")
+                        continue
+
+                selected_urls.append(url_map[best.filename])
+                selected_size += size_map.get(best.filename, 0)
+                if verbose:
+                    Console.verbose("select", f"{best.filename} (best of {len(roms)} for '{title}')")
 
     Console.system_stat(label, f"Selected {len(selected_urls)} ROMs to download ({format_size(selected_size)})")
     if total_source_size > 0:
@@ -9955,6 +9979,7 @@ Pattern examples (--include / --exclude):
                 url_sizes=all_url_sizes,
                 verbose=args.verbose,
                 no_filter=getattr(args, 'all', False),
+                english_only=args.english_only,
                 log_dir=args.log_dir
             )
         elif system in ('mame', 'fbneo', 'fba', 'arcade') and mame_categories and mame_games:
@@ -10588,6 +10613,7 @@ Pattern examples (--include / --exclude):
                     exclude_patterns=args.exclude,
                     verbose=args.verbose,
                     no_filter=getattr(args, 'all', False),
+                    english_only=args.english_only,
                     log_dir=args.log_dir
                 )
                 selected, size_info = result
