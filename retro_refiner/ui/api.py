@@ -144,10 +144,10 @@ class Api:
 
             # Import core modules
             from retro_refiner.network import (  # pylint: disable=import-outside-toplevel
-                is_url, scan_network_source, validate_source,
+                is_url, validate_source,
             )
             from retro_refiner.scanner import (  # pylint: disable=import-outside-toplevel
-                scan_local_sources,
+                scan_local_sources, scan_network_source,
             )
             from retro_refiner.paths import get_runtime_path  # pylint: disable=import-outside-toplevel
 
