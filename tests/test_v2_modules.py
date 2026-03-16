@@ -38,49 +38,41 @@ results = TestResult()
 
 
 # =============================================================================
-# Monolith Import Tests
+# Systems Module Tests
 # =============================================================================
 
-def test_monolith_import():
-    """Test that _monolith.get_module() imports retro-refiner.py."""
+def test_systems():
+    """Test that the systems module loads correctly."""
     print("\n" + "="*60)
-    print("MONOLITH IMPORT TESTS")
+    print("SYSTEMS MODULE TESTS")
     print("="*60)
 
-    from retro_refiner._monolith import get_module
-    mod = get_module()
+    from retro_refiner.systems import load_system_data, SystemData
 
-    if mod is not None:
-        results.ok("get_module returns non-None")
+    sysdata = load_system_data()
+    if isinstance(sysdata, SystemData):
+        results.ok("load_system_data returns SystemData")
     else:
-        results.fail("get_module returns non-None", "module", "None")
+        results.fail("load_system_data returns SystemData",
+                     "SystemData", type(sysdata).__name__)
 
-    # Verify it has expected attributes
-    if hasattr(mod, 'parse_rom_filename'):
-        results.ok("module has parse_rom_filename")
+    if len(sysdata.known_systems) > 100:
+        results.ok(f"loaded {len(sysdata.known_systems)} known systems")
     else:
-        results.fail("module has parse_rom_filename",
-                     "attribute exists", "missing")
+        results.fail("loaded many known systems",
+                     ">100", str(len(sysdata.known_systems)))
 
-    if hasattr(mod, 'normalize_title'):
-        results.ok("module has normalize_title")
+    if '.sfc' in sysdata.extension_to_system:
+        results.ok("extension_to_system has .sfc")
     else:
-        results.fail("module has normalize_title",
-                     "attribute exists", "missing")
+        results.fail("extension_to_system has .sfc",
+                     ".sfc in map", "missing")
 
-    if hasattr(mod, 'is_url'):
-        results.ok("module has is_url")
+    if 'super-nintendo' in sysdata.folder_aliases:
+        results.ok("folder_aliases has 'super-nintendo'")
     else:
-        results.fail("module has is_url",
-                     "attribute exists", "missing")
-
-    # Calling get_module again returns cached instance
-    mod2 = get_module()
-    if mod is mod2:
-        results.ok("get_module returns cached instance")
-    else:
-        results.fail("get_module returns cached instance",
-                     "same object", "different object")
+        results.fail("folder_aliases has 'super-nintendo'",
+                     "alias exists", "missing")
 
 
 # =============================================================================
@@ -403,20 +395,71 @@ def test_teknoparrot():
 # =============================================================================
 
 def test_downloader():
-    """Test downloader wrapper functions."""
+    """Test downloader standalone functions."""
     print("\n" + "="*60)
     print("DOWNLOADER MODULE TESTS")
     print("="*60)
 
-    from retro_refiner.downloader import get_download_tool
+    from retro_refiner.downloader import (
+        get_download_tool, calculate_autotune_settings,
+        Aria2cRPC, DownloadUI,
+        AUTOTUNE_SMALL, AUTOTUNE_MEDIUM, AUTOTUNE_LARGE,
+    )
 
     tool = get_download_tool()
-    # Should be one of the known tools or None
-    if tool in ('aria2c', 'curl', 'urllib', None):
+    if tool in ('aria2c', 'curl', None):
         results.ok(f"get_download_tool returns valid tool: {tool}")
     else:
         results.fail("get_download_tool returns valid tool",
-                     "aria2c|curl|urllib|None", repr(tool))
+                     "aria2c|curl|None", repr(tool))
+
+    # calculate_autotune_settings
+    result = calculate_autotune_settings([])
+    if result == AUTOTUNE_MEDIUM:
+        results.ok("autotune empty list returns MEDIUM")
+    else:
+        results.fail("autotune empty list returns MEDIUM",
+                     repr(AUTOTUNE_MEDIUM), repr(result))
+
+    result = calculate_autotune_settings([1024, 2048, 4096])
+    if result == AUTOTUNE_SMALL:
+        results.ok("autotune small files returns SMALL")
+    else:
+        results.fail("autotune small files returns SMALL",
+                     repr(AUTOTUNE_SMALL), repr(result))
+
+    result = calculate_autotune_settings([500_000_000, 600_000_000])
+    if result == AUTOTUNE_LARGE:
+        results.ok("autotune large files returns LARGE")
+    else:
+        results.fail("autotune large files returns LARGE",
+                     repr(AUTOTUNE_LARGE), repr(result))
+
+    # Aria2cRPC construction
+    rpc = Aria2cRPC(port=6800, secret='test')
+    if rpc.url == 'http://localhost:6800/jsonrpc':
+        results.ok("Aria2cRPC constructs with correct URL")
+    else:
+        results.fail("Aria2cRPC constructs with correct URL",
+                     "http://localhost:6800/jsonrpc", rpc.url)
+
+    # DownloadUI construction (no actual downloads)
+    ui = DownloadUI(
+        system_name='snes',
+        files=[('http://example.com/game.sfc', Path('/tmp/game.sfc'))],
+        parallel=4, connections=2
+    )
+    if ui.system_name == 'snes' and len(ui.files) == 1:
+        results.ok("DownloadUI constructs correctly")
+    else:
+        results.fail("DownloadUI constructs correctly",
+                     "snes, 1 file", f"{ui.system_name}, {len(ui.files)}")
+
+    if ui.files[0]['status'] == DownloadUI.STATUS_QUEUED:
+        results.ok("DownloadUI files start as queued")
+    else:
+        results.fail("DownloadUI files start as queued",
+                     "queued", ui.files[0]['status'])
 
 
 # =============================================================================
@@ -424,13 +467,15 @@ def test_downloader():
 # =============================================================================
 
 def test_transfer():
-    """Test transfer wrapper functions."""
+    """Test transfer file operations."""
     print("\n" + "="*60)
     print("TRANSFER MODULE TESTS")
     print("="*60)
 
+    import tempfile
     from retro_refiner.transfer import transfer_files
 
+    # Empty file list
     result = transfer_files([], Path("/tmp/test"))
     if isinstance(result, dict) and 'transferred' in result:
         results.ok("transfer_files returns result dict")
@@ -439,10 +484,54 @@ def test_transfer():
                      "dict with transferred key", repr(result))
 
     if result['transferred'] == 0 and result['errors'] == 0:
-        results.ok("transfer_files stub returns zeros")
+        results.ok("transfer_files empty list returns zeros")
     else:
-        results.fail("transfer_files stub returns zeros",
+        results.fail("transfer_files empty list returns zeros",
                      "all zeros", repr(result))
+
+    # Actual file transfer
+    with tempfile.TemporaryDirectory() as tmpdir:
+        src_dir = Path(tmpdir) / 'src'
+        dst_dir = Path(tmpdir) / 'dst'
+        src_dir.mkdir()
+
+        # Create test files
+        test_file = src_dir / 'game.sfc'
+        test_file.write_text('rom data')
+
+        result = transfer_files([test_file], dst_dir, mode='copy',
+                                system='snes')
+        if result['transferred'] == 1:
+            results.ok("transfer_files copies 1 file")
+        else:
+            results.fail("transfer_files copies 1 file",
+                         "1", str(result['transferred']))
+
+        expected = dst_dir / 'snes' / 'game.sfc'
+        if expected.exists():
+            results.ok("transfer_files creates system subdirectory")
+        else:
+            results.fail("transfer_files creates system subdirectory",
+                         str(expected), "not found")
+
+        # Duplicate transfer should skip
+        result2 = transfer_files([test_file], dst_dir, mode='copy',
+                                 system='snes')
+        if result2['skipped'] == 1:
+            results.ok("transfer_files skips existing files")
+        else:
+            results.fail("transfer_files skips existing files",
+                         "1 skipped", repr(result2))
+
+        # Flat mode
+        flat_dir = Path(tmpdir) / 'flat'
+        result3 = transfer_files([test_file], flat_dir, mode='copy',
+                                 flat=True)
+        if (flat_dir / 'game.sfc').exists():
+            results.ok("transfer_files flat mode works")
+        else:
+            results.fail("transfer_files flat mode works",
+                         "file in flat_dir", "not found")
 
 
 # =============================================================================
@@ -456,8 +545,9 @@ def test_all_imports():
     print("="*60)
 
     modules_to_import = [
-        'retro_refiner._monolith',
         'retro_refiner.models',
+        'retro_refiner.paths',
+        'retro_refiner.systems',
         'retro_refiner.network',
         'retro_refiner.scanner',
         'retro_refiner.dat',
@@ -466,6 +556,7 @@ def test_all_imports():
         'retro_refiner.teknoparrot',
         'retro_refiner.downloader',
         'retro_refiner.transfer',
+        'retro_refiner.config',
     ]
 
     import importlib
@@ -478,12 +569,54 @@ def test_all_imports():
                          "successful import", str(exc))
 
 
+def test_scanner_local():
+    """Test local source scanning."""
+    print("\n" + "="*60)
+    print("SCANNER LOCAL TESTS")
+    print("="*60)
+
+    import tempfile
+    from retro_refiner.scanner import scan_local_sources
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        # Create a system folder with ROM files
+        snes_dir = Path(tmpdir) / 'snes'
+        snes_dir.mkdir()
+        (snes_dir / 'game1.sfc').write_text('rom1')
+        (snes_dir / 'game2.sfc').write_text('rom2')
+        (snes_dir / 'readme.txt').write_text('not a rom')
+
+        result = scan_local_sources([Path(tmpdir)], recursive=True)
+        if 'snes' in result:
+            results.ok("scan_local_sources detects snes folder")
+        else:
+            results.fail("scan_local_sources detects snes folder",
+                         "snes in result", repr(list(result.keys())))
+
+        if 'snes' in result and len(result['snes']) == 2:
+            results.ok("scan_local_sources finds 2 sfc files")
+        else:
+            count = len(result.get('snes', []))
+            results.fail("scan_local_sources finds 2 sfc files",
+                         "2", str(count))
+
+    # Empty directory
+    with tempfile.TemporaryDirectory() as tmpdir:
+        result = scan_local_sources([Path(tmpdir)])
+        if len(result) == 0:
+            results.ok("scan_local_sources empty dir returns empty dict")
+        else:
+            results.fail("scan_local_sources empty dir returns empty dict",
+                         "{}", repr(result))
+
+
 if __name__ == '__main__':
     test_all_imports()
-    test_monolith_import()
+    test_systems()
     test_models()
     test_network()
     test_scanner()
+    test_scanner_local()
     test_dat()
     test_filter()
     test_mame()
