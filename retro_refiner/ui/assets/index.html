@@ -252,6 +252,58 @@
   /* Hide views */
   .view-hidden { display: none !important; }
 
+  /* ===== ROM Picker ===== */
+  .picker-view { height: 100%; display: flex; flex-direction: column; overflow: hidden; }
+  .picker-toolbar {
+    padding: 8px 16px; border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 8px; flex-shrink: 0;
+  }
+  .picker-back {
+    background: var(--accent-bg); color: var(--text-secondary); border: none; border-radius: 3px;
+    padding: 5px 12px; font-size: 11px; cursor: pointer; font-family: var(--font-ui);
+  }
+  .picker-back:hover { background: var(--accent-hover); color: var(--text-primary); }
+  .picker-title { color: #fff; font-size: 14px; font-weight: bold; flex-shrink: 0; }
+  .picker-search {
+    background: var(--bg-input); border: 1px solid var(--border); border-radius: 3px;
+    padding: 4px 8px; color: var(--text-primary); font-size: 11px; font-family: var(--font-ui);
+    width: 220px; margin-left: auto;
+  }
+  .picker-search:focus { outline: none; border-color: var(--accent); }
+  .picker-toggle {
+    background: none; border: 1px solid var(--border); border-radius: 3px;
+    padding: 4px 10px; font-size: 10px; cursor: pointer; color: var(--text-secondary);
+    font-family: var(--font-ui); white-space: nowrap;
+  }
+  .picker-toggle:hover { border-color: var(--accent); color: var(--text-primary); }
+  .picker-toggle.active { border-color: var(--accent); color: var(--accent); }
+  .picker-stats { color: var(--text-secondary); font-size: 10px; white-space: nowrap; }
+
+  .picker-table-wrap { flex: 1; overflow-y: auto; }
+  .picker-table { width: 100%; border-collapse: collapse; font-size: 11px; }
+  .picker-table th {
+    position: sticky; top: 0; background: var(--bg-secondary); color: var(--text-secondary);
+    text-align: left; padding: 6px 12px; font-size: 10px; text-transform: uppercase;
+    letter-spacing: 0.5px; cursor: pointer; user-select: none; border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+  }
+  .picker-table th:hover { color: var(--text-primary); }
+  .picker-table th .sort-arrow { margin-left: 4px; font-size: 8px; }
+  .picker-table td { padding: 5px 12px; border-bottom: 1px solid #1a1a2e; }
+  .picker-table tr:nth-child(even) { background: #0f1629; }
+  .picker-table tr:hover { background: var(--accent-bg); }
+  .picker-table tr.rom-excluded { opacity: 0.5; }
+  .picker-table tr.rom-excluded .rom-fname { color: var(--accent); text-decoration: line-through; }
+  .picker-table .rom-fname { color: var(--text-primary); font-family: var(--font-mono); font-size: 11px; }
+  .picker-table .rom-size-cell { color: var(--text-secondary); white-space: nowrap; }
+  .picker-table .rom-region-cell { color: var(--info); }
+  .picker-table .rom-status-cell { font-size: 10px; }
+  .picker-table .rom-status-cell.selected { color: var(--success); }
+  .picker-table .rom-status-cell.excluded { color: var(--accent); }
+  .picker-table .rom-reason-cell { color: var(--text-muted); font-size: 10px; }
+  .picker-table td:first-child, .picker-table th:first-child { width: 32px; text-align: center; }
+  .picker-table input[type="checkbox"] { accent-color: var(--accent); }
+
   /* Scrollbar styling */
   ::-webkit-scrollbar { width: 8px; }
   ::-webkit-scrollbar-track { background: var(--bg-primary); }
@@ -426,6 +478,9 @@
 
       <!-- Results view -->
       <div class="results-view view-hidden" id="view-results"></div>
+
+      <!-- ROM Picker view -->
+      <div class="picker-view view-hidden" id="view-picker"></div>
     </div>
 
     <!-- Bottom bar -->
@@ -478,6 +533,7 @@ function showView(view) {
   document.getElementById('view-welcome').classList.add('view-hidden');
   document.getElementById('view-log').classList.add('view-hidden');
   document.getElementById('view-results').classList.add('view-hidden');
+  document.getElementById('view-picker').classList.add('view-hidden');
   document.getElementById('tab-log').classList.remove('active');
   document.getElementById('tab-results').classList.remove('active');
 
@@ -486,6 +542,9 @@ function showView(view) {
     document.getElementById('tab-log').classList.add('active');
   } else if (view === 'results') {
     document.getElementById('view-results').classList.remove('view-hidden');
+    document.getElementById('tab-results').classList.add('active');
+  } else if (view === 'picker') {
+    document.getElementById('view-picker').classList.remove('view-hidden');
     document.getElementById('tab-results').classList.add('active');
   }
 }
@@ -762,6 +821,19 @@ function updateCardComplete(card, data) {
     filtersDiv.appendChild(tagsDiv);
     card.appendChild(filtersDiv);
   }
+
+  /* Card actions */
+  var actionsDiv = document.createElement('div');
+  actionsDiv.className = 'card-actions';
+  var reviewBtn = document.createElement('button');
+  reviewBtn.className = 'card-btn';
+  reviewBtn.textContent = 'Review & Edit';
+  reviewBtn.setAttribute('data-system', data.system);
+  reviewBtn.addEventListener('click', function() {
+    openPicker(this.getAttribute('data-system'));
+  });
+  actionsDiv.appendChild(reviewBtn);
+  card.appendChild(actionsDiv);
 }
 
 function renderSummary(data) {
@@ -774,7 +846,10 @@ function renderSummary(data) {
   summary.className = 'summary';
   var modeLabel = data.commit ? 'Commit' : 'Preview';
   summary.innerHTML =
-    '<div class="summary-title">' + modeLabel + ' Complete</div>' +
+    '<div style="display:flex;justify-content:space-between;align-items:center;">' +
+      '<div class="summary-title">' + modeLabel + ' Complete</div>' +
+      '<button class="card-btn" onclick="openPickerAll()">Review All</button>' +
+    '</div>' +
     '<div class="summary-stats">' +
       '<div class="summary-stat"><div class="value">' + (data.total_selected || 0) + '</div><div class="label">ROMs Selected</div></div>' +
       '<div class="summary-stat"><div class="value">' + formatSize(data.total_size || 0) + '</div><div class="label">Total Size</div></div>' +
@@ -823,6 +898,221 @@ window.handlePythonEvent = function(event) {
     renderSummary(d);
   }
 };
+
+/* ===== ROM Picker ===== */
+var pickerRoms = [];       /* current ROM data array */
+var pickerSystem = null;   /* null = all systems */
+var pickerSort = { col: 'filename', asc: true };
+var pickerShowExcluded = false;
+var pickerFilter = '';
+
+function openPicker(system) {
+  pickerSystem = system;
+  if (!window.pywebview) return;
+  window.pywebview.api.get_system_roms(system).then(function(jsonStr) {
+    pickerRoms = JSON.parse(jsonStr);
+    renderPicker(system.toUpperCase());
+    showView('picker');
+  });
+}
+
+function openPickerAll() {
+  pickerSystem = null;
+  if (!window.pywebview) return;
+  window.pywebview.api.get_all_roms().then(function(jsonStr) {
+    pickerRoms = JSON.parse(jsonStr);
+    renderPicker('All Systems');
+    showView('picker');
+  });
+}
+
+function closePicker() {
+  showView('results');
+}
+
+function renderPicker(title) {
+  pickerFilter = '';
+  pickerSort = { col: 'filename', asc: true };
+  pickerShowExcluded = false;
+
+  var container = document.getElementById('view-picker');
+  var hasSystem = (pickerSystem === null);
+  container.innerHTML =
+    '<div class="picker-toolbar">' +
+      '<button class="picker-back" onclick="closePicker()">&larr; Back</button>' +
+      '<span class="picker-title">' + title + '</span>' +
+      '<span class="picker-stats" id="picker-stats"></span>' +
+      '<input type="text" class="picker-search" id="picker-search" placeholder="Filter by filename..." oninput="onPickerSearch(this.value)">' +
+      '<button class="picker-toggle" id="picker-excl-toggle" onclick="toggleExcluded()">Show excluded</button>' +
+    '</div>' +
+    '<div class="picker-table-wrap">' +
+      '<table class="picker-table">' +
+        '<thead><tr>' +
+          '<th><input type="checkbox" id="picker-check-all" onchange="pickerToggleAll(this.checked)"></th>' +
+          (hasSystem ? '<th data-col="system" onclick="pickerSortBy(\'system\')">System <span class="sort-arrow"></span></th>' : '') +
+          '<th data-col="filename" onclick="pickerSortBy(\'filename\')">Filename <span class="sort-arrow"></span></th>' +
+          '<th data-col="size" onclick="pickerSortBy(\'size\')">Size <span class="sort-arrow"></span></th>' +
+          '<th data-col="region" onclick="pickerSortBy(\'region\')">Region <span class="sort-arrow"></span></th>' +
+          '<th data-col="status" onclick="pickerSortBy(\'status\')">Status <span class="sort-arrow"></span></th>' +
+          '<th>Reason</th>' +
+        '</tr></thead>' +
+        '<tbody id="picker-tbody"></tbody>' +
+      '</table>' +
+    '</div>';
+
+  updatePickerTable();
+}
+
+function getFilteredRoms() {
+  var query = pickerFilter.toLowerCase();
+  return pickerRoms.filter(function(rom) {
+    if (!pickerShowExcluded && rom.status === 'excluded') return false;
+    if (query && rom.filename.toLowerCase().indexOf(query) === -1) return false;
+    return true;
+  });
+}
+
+function updatePickerTable() {
+  var filtered = getFilteredRoms();
+
+  /* Sort */
+  var col = pickerSort.col;
+  var asc = pickerSort.asc ? 1 : -1;
+  filtered.sort(function(a, b) {
+    var va = a[col], vb = b[col];
+    if (col === 'size') return (va - vb) * asc;
+    if (va == null) va = '';
+    if (vb == null) vb = '';
+    va = String(va).toLowerCase();
+    vb = String(vb).toLowerCase();
+    if (va < vb) return -1 * asc;
+    if (va > vb) return 1 * asc;
+    return 0;
+  });
+
+  /* Stats */
+  var selectedCount = 0;
+  filtered.forEach(function(r) { if (r.status === 'selected') selectedCount++; });
+  var statsEl = document.getElementById('picker-stats');
+  if (statsEl) {
+    statsEl.textContent = selectedCount + ' selected / ' + filtered.length + ' shown / ' + pickerRoms.length + ' total';
+  }
+
+  /* Update sort arrows */
+  var ths = document.querySelectorAll('.picker-table th[data-col]');
+  ths.forEach(function(th) {
+    var arrow = th.querySelector('.sort-arrow');
+    if (th.getAttribute('data-col') === col) {
+      arrow.textContent = asc > 0 ? '\u25B4' : '\u25BE';
+    } else {
+      arrow.textContent = '';
+    }
+  });
+
+  /* Update header checkbox */
+  var allCheck = document.getElementById('picker-check-all');
+  if (allCheck) {
+    var allSelected = filtered.length > 0 && filtered.every(function(r) { return r.status === 'selected'; });
+    allCheck.checked = allSelected;
+  }
+
+  /* Render rows */
+  var hasSystem = (pickerSystem === null);
+  var tbody = document.getElementById('picker-tbody');
+  var html = '';
+  filtered.forEach(function(rom, idx) {
+    var isExcl = rom.status === 'excluded';
+    var rowClass = isExcl ? 'rom-excluded' : '';
+    var checked = rom.status === 'selected' ? ' checked' : '';
+    var statusClass = rom.status === 'selected' ? 'selected' : 'excluded';
+    html += '<tr class="' + rowClass + '">' +
+      '<td><input type="checkbox"' + checked + ' onchange="pickerToggleRow(' + idx + ',this.checked)"></td>' +
+      (hasSystem ? '<td>' + (rom.system || '').toUpperCase() + '</td>' : '') +
+      '<td class="rom-fname">' + escapeHtml(rom.filename) + '</td>' +
+      '<td class="rom-size-cell">' + formatSize(rom.size) + '</td>' +
+      '<td class="rom-region-cell">' + escapeHtml(rom.region || '') + '</td>' +
+      '<td class="rom-status-cell ' + statusClass + '">' + rom.status + '</td>' +
+      '<td class="rom-reason-cell">' + escapeHtml(rom.reason || '') + '</td>' +
+    '</tr>';
+  });
+  tbody.innerHTML = html;
+}
+
+function escapeHtml(text) {
+  var div = document.createElement('div');
+  div.appendChild(document.createTextNode(text));
+  return div.innerHTML;
+}
+
+function onPickerSearch(value) {
+  pickerFilter = value;
+  updatePickerTable();
+}
+
+function pickerSortBy(col) {
+  if (pickerSort.col === col) {
+    pickerSort.asc = !pickerSort.asc;
+  } else {
+    pickerSort.col = col;
+    pickerSort.asc = true;
+  }
+  updatePickerTable();
+}
+
+function toggleExcluded() {
+  pickerShowExcluded = !pickerShowExcluded;
+  var btn = document.getElementById('picker-excl-toggle');
+  if (btn) {
+    if (pickerShowExcluded) {
+      btn.classList.add('active');
+      btn.textContent = 'Hide excluded';
+    } else {
+      btn.classList.remove('active');
+      btn.textContent = 'Show excluded';
+    }
+  }
+  updatePickerTable();
+}
+
+function pickerToggleAll(checked) {
+  var filtered = getFilteredRoms();
+  filtered.forEach(function(rom) {
+    rom.status = checked ? 'selected' : 'excluded';
+  });
+  updatePickerTable();
+  savePickerSelections();
+}
+
+function pickerToggleRow(filteredIdx, checked) {
+  var filtered = getFilteredRoms();
+  if (filteredIdx >= 0 && filteredIdx < filtered.length) {
+    filtered[filteredIdx].status = checked ? 'selected' : 'excluded';
+  }
+  updatePickerTable();
+  savePickerSelections();
+}
+
+function savePickerSelections() {
+  if (!window.pywebview) return;
+  if (pickerSystem) {
+    /* Single system */
+    var selections = pickerRoms.map(function(r) {
+      return { filename: r.filename, selected: r.status === 'selected' };
+    });
+    window.pywebview.api.update_rom_selection(pickerSystem, JSON.stringify(selections));
+  } else {
+    /* All systems: group by system */
+    var bySystem = {};
+    pickerRoms.forEach(function(r) {
+      var sys = r.system || '';
+      if (!bySystem[sys]) bySystem[sys] = [];
+      bySystem[sys].push({ filename: r.filename, selected: r.status === 'selected' });
+    });
+    Object.keys(bySystem).forEach(function(sys) {
+      window.pywebview.api.update_rom_selection(sys, JSON.stringify(bySystem[sys]));
+    });
+  }
+}
 
 /* ===== Init ===== */
 (function init() {

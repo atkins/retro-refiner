@@ -2,6 +2,7 @@
 
 import json
 import threading
+import urllib.parse
 from pathlib import Path
 
 import webview
@@ -19,6 +20,8 @@ class Api:
         self._running = False
         self._exclude_systems = []
         self._systems_data = load_system_data()
+        self._last_results = {}  # system -> {urls, sizes, local_files}
+        self._manual_selections = {}  # system -> {filename: bool}
 
     def set_window(self, window):
         """Store a reference to the pywebview window."""
@@ -254,6 +257,16 @@ class Api:
                 })
                 return
 
+            # Store scan results for the ROM picker
+            self._last_results = {}
+            for sys_code in set(all_urls.keys()) | set(local_systems.keys()):
+                self._last_results[sys_code] = {
+                    'urls': all_urls.get(sys_code, []),
+                    'sizes': {u: all_sizes.get(u, 0)
+                              for u in all_urls.get(sys_code, [])},
+                    'local_files': local_systems.get(sys_code, []),
+                }
+
             # Combine all discovered systems
             all_systems = set(all_urls.keys()) | set(local_systems.keys())
             if not all_systems:
@@ -353,6 +366,64 @@ class Api:
             })
         finally:
             self._running = False
+
+    def get_system_roms(self, system: str) -> str:
+        """Get ROM list for a system as JSON.
+
+        Returns list of {filename, url, size, region, status, reason} dicts.
+        """
+        roms = []
+        result = self._last_results.get(system, {})
+        for url in result.get('urls', []):
+            filename = urllib.parse.unquote(url.split('/')[-1])
+            size = result.get('sizes', {}).get(url, 0)
+            roms.append({
+                'filename': filename,
+                'url': url,
+                'size': size,
+                'region': '',
+                'status': 'selected',
+                'reason': '',
+            })
+        for filepath in result.get('local_files', []):
+            filename = Path(filepath).name
+            try:
+                size = Path(filepath).stat().st_size
+            except OSError:
+                size = 0
+            roms.append({
+                'filename': filename,
+                'url': '',
+                'size': size,
+                'region': '',
+                'status': 'selected',
+                'reason': '',
+            })
+        return json.dumps(roms)
+
+    def get_all_roms(self) -> str:
+        """Get all ROMs across all systems as JSON.
+
+        Returns list of dicts with a system field added.
+        """
+        all_roms = []
+        for system in sorted(self._last_results):
+            roms = json.loads(self.get_system_roms(system))
+            for rom in roms:
+                rom['system'] = system
+                all_roms.append(rom)
+        return json.dumps(all_roms)
+
+    def update_rom_selection(self, system: str, selections_json: str):
+        """Update which ROMs are selected for a system.
+
+        selections_json is a JSON list of {filename, selected} dicts.
+        """
+        selections = json.loads(selections_json)
+        if system not in self._manual_selections:
+            self._manual_selections[system] = {}
+        for sel in selections:
+            self._manual_selections[system][sel['filename']] = sel['selected']
 
     def _push_event(self, event_type: str, data: dict):
         """Push an event to the JavaScript frontend."""
