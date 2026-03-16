@@ -1358,14 +1358,6 @@ class RetroRefinerGUI:
             return f"[HTTP]  {path}"
         return f"[LOCAL] {path}"
 
-    @staticmethod
-    def _source_raw(display_text):
-        """Strip the display prefix to get the raw source path/URL."""
-        for prefix in ('[HTTP]  ', '[LOCAL] '):
-            if display_text.startswith(prefix):
-                return display_text[len(prefix):]
-        return display_text
-
     def _add_source_folder(self):
         path = filedialog.askdirectory()
         if path:

@@ -34,7 +34,6 @@ DEFAULT_REGION_PRIORITY = _module.DEFAULT_REGION_PRIORITY
 
 # Config handling
 load_config = _module.load_config
-generate_default_config = _module.generate_default_config
 apply_config_to_args = _module.apply_config_to_args
 
 # Network source functions
@@ -71,7 +70,6 @@ run_dedupe_analysis = _module.run_dedupe_analysis
 normalize_title_for_dedupe = _module.normalize_title_for_dedupe
 
 # CRC functions
-build_download_crc_index = _module.build_download_crc_index
 get_cached_crc = _module.get_cached_crc
 DownloadUI = _module.DownloadUI
 
@@ -489,15 +487,9 @@ def test_config_handling():
     with tempfile.TemporaryDirectory() as tmpdir:
         config_path = Path(tmpdir) / "retro-refiner.yaml"
 
-        # Test config generation
-        result = generate_default_config(config_path)
-        if result and config_path.exists():
-            results.ok("Config file generation")
-        else:
-            results.fail("Config file generation", "file created", "file not created")
-            return
-
         # Test config loading (built-in YAML parser)
+        with open(config_path, 'w') as f:
+            f.write("region_priority: Japan,USA\nenglish_only: true\n")
         config = load_config(config_path)
         if isinstance(config, dict) and "region_priority" in config:
             results.ok("Config file loading (YAML)")
@@ -2330,65 +2322,6 @@ def test_tosec_parsing():
         results.fail("No-Intro detection", "USA/True", f"{rom.region}/{rom.is_english}")
 
 
-def test_download_crc_index():
-    """Test download-time CRC indexing."""
-    print("\n" + "="*60)
-    print("DOWNLOAD CRC INDEX TESTS")
-    print("="*60)
-
-    with tempfile.TemporaryDirectory() as tmp:
-        cache_dir = Path(tmp)
-
-        # Create a test file
-        test_file = cache_dir / "test_rom.bin"
-        test_file.write_bytes(b"Hello World ROM data for CRC testing")
-
-        # Build index
-        index = build_download_crc_index(cache_dir, [test_file])
-
-        key = str(test_file)
-        if key in index and 'crc' in index[key]:
-            results.ok("CRC index: file indexed with CRC")
-        else:
-            results.fail("CRC index entry", "present", index.get(key))
-
-        # Verify index persisted to disk
-        index_path = cache_dir / '_crc_index.json'
-        if index_path.exists():
-            results.ok("CRC index: persisted to _crc_index.json")
-        else:
-            results.fail("CRC index persist", "exists", "missing")
-
-        # Reload index and verify same CRC
-        reloaded = build_download_crc_index(cache_dir, [test_file])
-        if reloaded[key]['crc'] == index[key]['crc']:
-            results.ok("CRC index: reload returns same CRC")
-        else:
-            results.fail("CRC index reload", index[key]['crc'], reloaded[key]['crc'])
-
-        # Test get_cached_crc with download_crc_index
-        crc_cache = {}
-        crc = get_cached_crc(test_file, crc_cache, download_crc_index=index)
-        if crc == index[key]['crc']:
-            results.ok("get_cached_crc: uses download index")
-        else:
-            results.fail("get_cached_crc index", index[key]['crc'], crc)
-
-        # Verify it was promoted to per-dest cache
-        if key in crc_cache and crc_cache[key]['crc'] == crc:
-            results.ok("get_cached_crc: promoted to dest cache")
-        else:
-            results.fail("CRC promotion", "in crc_cache", crc_cache.get(key))
-
-        # Test without index falls back to calculation
-        crc_cache2 = {}
-        crc2 = get_cached_crc(test_file, crc_cache2, download_crc_index=None)
-        if crc2 == crc:
-            results.ok("get_cached_crc: fallback calculation matches")
-        else:
-            results.fail("CRC fallback", crc, crc2)
-
-
 def test_igdb():
     """Test IGDB integration."""
     print("\n" + "="*60)
@@ -3601,7 +3534,6 @@ def main():
     test_english_only_flag()
     test_multi_disc_games()
     test_tosec_parsing()
-    test_download_crc_index()
     test_igdb()
     test_download_throttle_backoff()
     test_cross_platform_dedupe()
