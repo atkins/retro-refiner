@@ -441,6 +441,7 @@ class Console:
             'MATCH': Style.TAG_MATCH, 'INCLUDE': Style.TAG_INCLUDE,
             'EXCLUDE': Style.TAG_EXCLUDE, 'CLONE': Style.TAG_SELECT,
             'VERSION': Style.TAG_FILTER, 'DEDUPE': Style.TAG_DEDUPE, 'DEP': Style.TAG_DEP,
+            'INCOMPLETE': Style.WARNING,
         }
         color = tag_colors.get(tag_upper, Style.DETAIL)
         print(f"  {color}[{tag_upper}]{Style.RESET} {Style.DETAIL}{text}{Style.RESET}")
@@ -1986,7 +1987,7 @@ def download_with_external_tool(url: str, dest_path: Path, connections: int = 4,
         return False
 
 
-def download_batch_with_curl(downloads: List[Tuple[str, Path]], parallel: int = 4, timeout_per_file: int = 60, auth_header: Optional[str] = None) -> List[Path]:
+def download_batch_with_curl(downloads: List[Tuple[str, Path]], parallel: int = 4, timeout_per_file: int = 60, auth_header: Optional[str] = None, resume: bool = False) -> List[Path]:
     """
     Download multiple files with a single curl call (connection reuse).
     Returns list of successfully downloaded paths.
@@ -1996,6 +1997,8 @@ def download_batch_with_curl(downloads: List[Tuple[str, Path]], parallel: int = 
 
     # Build curl command with multiple URL/output pairs
     cmd = ['curl', '-sSL', '--connect-timeout', '30', '--parallel', '--parallel-max', str(parallel)]
+    if resume:
+        cmd.extend(['-C', '-'])
     if auth_header:
         cmd.extend(['-H', f'Authorization: {auth_header}'])
 
@@ -2179,9 +2182,11 @@ class DownloadUI:
         self.lock = threading.Lock()
         self.download_tool = 'unknown'
         self.detailed_mode = False
-        self.shutdown_requested = False
+        self._shutdown_flag = False
         self._old_term_settings = None  # For keyboard input handling
         self._notified_done = set()  # Track files already notified via callback
+        self._resume_supported = False  # Server supports byte-range resume
+        self._resume_files = set()  # URLs of partial files attempting resume
 
         # File tracking
         self.files = []
@@ -2207,9 +2212,63 @@ class DownloadUI:
         self.last_progress_time = 0
         self.last_completed_count = 0
 
+    @property
+    def shutdown_requested(self) -> bool:
+        """Check both local and module-level shutdown flags."""
+        return self._shutdown_flag or _shutdown_requested
+
     def _is_tty(self) -> bool:
         """Check if running in a terminal."""
         return sys.stdout.isatty()
+
+    def _check_resume_support(self) -> bool:
+        """Check if the server supports byte-range requests via HEAD."""
+        # Find a URL to test (prefer one with a partial file)
+        test_url = None
+        for f in self.files:
+            if f['url'] in self._resume_files:
+                test_url = f['url']
+                break
+        if not test_url:
+            return False
+        try:
+            headers = {'User-Agent': 'Mozilla/5.0'}
+            if self.auth_header:
+                headers['Authorization'] = self.auth_header
+            req = urllib.request.Request(test_url, method='HEAD', headers=headers)
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                accept_ranges = resp.headers.get('Accept-Ranges', '')
+                return accept_ranges.lower() == 'bytes'
+        except Exception:
+            return False
+
+    def _identify_resume_candidates(self) -> None:
+        """Identify partial files that could be resumed and check server support."""
+        for f in self.files:
+            if f['path'].exists() and f['path'].stat().st_size > 0:
+                self._resume_files.add(f['url'])
+        if self._resume_files:
+            self._resume_supported = self._check_resume_support()
+            if not self._resume_supported:
+                # Server doesn't support resume — delete partial files
+                for f in self.files:
+                    if f['url'] in self._resume_files:
+                        try:
+                            f['path'].unlink()
+                        except OSError:
+                            pass
+                self._resume_files.clear()
+
+    def _delete_failed_resume_files(self) -> None:
+        """Delete partial files that failed to resume so retry starts fresh."""
+        for f in self.files:
+            if f['status'] == self.STATUS_FAILED and f['url'] in self._resume_files:
+                try:
+                    if f['path'].exists():
+                        f['path'].unlink()
+                except OSError:
+                    pass
+                self._resume_files.discard(f['url'])
 
     def _format_time(self, seconds: float) -> str:
         """Format seconds as MM:SS or HH:MM:SS."""
@@ -2598,6 +2657,8 @@ class DownloadUI:
             '--retry-wait=5',         # Wait between retries
             '--file-allocation=none',
         ]
+        if self._resume_supported and self._resume_files:
+            cmd.append('--continue=true')
         if self.auth_header:
             cmd.append(f'--header=Authorization: {self.auth_header}')
         cmd.extend(['-i', input_file])
@@ -2663,7 +2724,9 @@ class DownloadUI:
 
     def _run_curl_batch(self, downloads: List[Tuple[str, Path]]) -> None:
         """Run curl batch download (no per-file progress)."""
-        successful = download_batch_with_curl(downloads, parallel=self.parallel, auth_header=self.auth_header)
+        resume = self._resume_supported and self._resume_files
+        successful = download_batch_with_curl(downloads, parallel=self.parallel,
+                                              auth_header=self.auth_header, resume=resume)
         attempted_paths = {path for _, path in downloads}
 
         with self.lock:
@@ -2684,6 +2747,8 @@ class DownloadUI:
     def _run_python_downloads(self, downloads: List[Tuple[str, Path]]) -> None:
         """Fall back to Python urllib sequential downloads."""
         for url, dest_path in downloads:
+            if self.shutdown_requested:
+                break
             for f in self.files:
                 if f['url'] == url:
                     f['status'] = self.STATUS_DOWNLOADING
@@ -2695,10 +2760,34 @@ class DownloadUI:
                 headers = {'User-Agent': 'Mozilla/5.0'}
                 if self.auth_header:
                     headers['Authorization'] = self.auth_header
+
+                # Attempt resume for partial files
+                resume_from = 0
+                if self._resume_supported and url in self._resume_files and dest_path.exists():
+                    resume_from = dest_path.stat().st_size
+                    headers['Range'] = f'bytes={resume_from}-'
+
                 req = urllib.request.Request(url, headers=headers)
-                with urllib.request.urlopen(req, timeout=60) as resp:
-                    with open(dest_path, 'wb') as out:
-                        shutil.copyfileobj(resp, out)
+                try:
+                    with urllib.request.urlopen(req, timeout=60) as resp:
+                        if resume_from > 0 and resp.status == 206:
+                            with open(dest_path, 'ab') as out:
+                                shutil.copyfileobj(resp, out)
+                        else:
+                            # Server ignored Range or sent full content
+                            with open(dest_path, 'wb') as out:
+                                shutil.copyfileobj(resp, out)
+                except urllib.error.HTTPError:
+                    if resume_from > 0:
+                        # Resume failed (416 etc.) — fall back to full download
+                        headers.pop('Range', None)
+                        req = urllib.request.Request(url, headers=headers)
+                        with urllib.request.urlopen(req, timeout=60) as resp:
+                            with open(dest_path, 'wb') as out:
+                                shutil.copyfileobj(resp, out)
+                    else:
+                        raise
+
                 success = dest_path.exists() and dest_path.stat().st_size > 0
             except Exception:
                 pass
@@ -2916,7 +3005,7 @@ class DownloadUI:
                     self.detailed_mode = False
                     break
                 if key == ord('q'):
-                    self.shutdown_requested = True
+                    self._shutdown_flag = True
                     self.detailed_mode = False
                     break
 
@@ -2948,6 +3037,9 @@ class DownloadUI:
         self.last_progress_time = _time.time()
         self.last_completed_count = 0
 
+        # Check for partial files and server resume support
+        self._identify_resume_candidates()
+
         # Start download thread
         self.download_thread = threading.Thread(target=self._download_worker, daemon=True)
         self.download_thread.start()
@@ -2973,7 +3065,7 @@ class DownloadUI:
                     if self.shutdown_requested:
                         break
                 elif key == 'q':
-                    self.shutdown_requested = True
+                    self._shutdown_flag = True
                     break
 
                 self._update_from_rpc()
@@ -3005,6 +3097,9 @@ class DownloadUI:
         # Retry failed downloads
         retry_round = 1
         while not self.shutdown_requested:
+            # Delete partial files that failed resume so retry starts fresh
+            self._delete_failed_resume_files()
+
             failed_downloads = self._get_failed_downloads()
             if not failed_downloads:
                 break  # All done or max retries reached
@@ -3040,7 +3135,7 @@ class DownloadUI:
                 while self.download_thread.is_alive() and not self.shutdown_requested:
                     key = self._check_keypress()
                     if key == 'q':
-                        self.shutdown_requested = True
+                        self._shutdown_flag = True
                         break
 
                     self._update_from_rpc()
@@ -10183,9 +10278,20 @@ Pattern examples (--include / --exclude):
             # Show download summary only when committing
             Console.header("NETWORK DOWNLOAD SUMMARY")
 
+            total_cached = 0
+            total_cached_size = 0
+            total_incomplete = 0
+            total_incomplete_size = 0
+            total_to_download = 0
+            total_download_size = 0
+            all_incomplete_files = []  # (filename, actual_size, expected_size) for verbose
+
             for system, urls in sorted(network_downloads.items()):
-                # Check how many are already cached
+                # Check cache status for each file
                 cached_count = 0
+                cached_size = 0
+                incomplete_count = 0
+                incomplete_size = 0
                 for url in urls:
                     filename = get_filename_from_url(url)
                     url_clean = url.split('?')[0].split('#')[0]
@@ -10193,22 +10299,64 @@ Pattern examples (--include / --exclude):
                     path_parts = [p for p in url_path.split('/') if p]
                     subdir = path_parts[-2] if len(path_parts) >= 2 else 'misc'
                     cached_path = cache_dir / subdir / filename
+                    expected_size = all_url_sizes.get(url, 0)
                     if cached_path.exists():
-                        cached_count += 1
+                        actual_size = cached_path.stat().st_size
+                        if expected_size > 0 and actual_size < expected_size:
+                            incomplete_count += 1
+                            incomplete_size += expected_size
+                            all_incomplete_files.append((filename, actual_size, expected_size))
+                        else:
+                            cached_count += 1
+                            cached_size += expected_size
+                    else:
+                        incomplete_size += expected_size  # Not cached — counts toward download
 
-                new_count = len(urls) - cached_count
+                new_count = len(urls) - cached_count - incomplete_count
+                download_count = new_count + incomplete_count
                 sys_size = network_system_stats.get(system, {}).get('selected_size', 0)
                 size_str = f" ({format_size(sys_size)})" if sys_size > 0 else ""
+
+                parts = []
                 if cached_count > 0:
-                    Console.system_stat(system, f"{len(urls)} files{size_str} ({cached_count} cached, {new_count} to download)")
+                    parts.append(f"{cached_count} cached")
+                if incomplete_count > 0:
+                    parts.append(f"{incomplete_count} incomplete")
+                if parts:
+                    Console.system_stat(system, f"{len(urls)} files{size_str} ({', '.join(parts)}, {download_count} to download)")
                 else:
                     Console.system_stat(system, f"{len(urls)} files{size_str} to download")
+
+                total_cached += cached_count
+                total_cached_size += cached_size
+                total_incomplete += incomplete_count
+                total_incomplete_size += incomplete_size
+                total_to_download += download_count
+                total_download_size += network_system_stats.get(system, {}).get('selected_size', 0) - cached_size
+
+            # Verbose: list incomplete files
+            if args.verbose and all_incomplete_files:
+                Console.blank()
+                for fname, actual, expected in all_incomplete_files:
+                    Console.verbose("INCOMPLETE", f"{fname}: {format_size(actual)} / {format_size(expected)}")
 
             Console.blank()
             if total_network_selected_size > 0:
                 Console.text(f"Total: {total_network_files} files ({format_size(total_network_selected_size)})", indent=2)
             else:
                 Console.text(f"Total: {total_network_files} files", indent=2)
+            if total_cached > 0:
+                cached_str = f"Cached: {total_cached} files"
+                if total_cached_size > 0:
+                    cached_str += f" ({format_size(total_cached_size)})"
+                if total_incomplete > 0:
+                    cached_str += f", {total_incomplete} incomplete"
+                Console.text(cached_str, indent=2)
+            if total_to_download > 0:
+                dl_str = f"Download: {total_to_download} files"
+                if total_download_size > 0:
+                    dl_str += f" ({format_size(total_download_size)})"
+                Console.text(dl_str, indent=2)
             Console.text(f"Cache directory: {cache_dir}", indent=2)
 
             # Show download tool info
@@ -10255,9 +10403,13 @@ Pattern examples (--include / --exclude):
 
             url_to_system[url] = system
 
-            # Skip already downloaded (unless --no-cache)
+            # Skip fully cached files (re-queue incomplete ones)
             if args.no_cache or not download_path.exists():
                 all_downloads.append((url, download_path, system))
+            else:
+                expected_size = all_url_sizes.get(url, 0)
+                if expected_size > 0 and download_path.stat().st_size < expected_size:
+                    all_downloads.append((url, download_path, system))
 
     # Sort alphabetically by filename
     all_downloads.sort(key=lambda x: x[1].name.lower())

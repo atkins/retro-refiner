@@ -481,7 +481,6 @@ class RetroRefinerGUI:
         self._worker_thread = None
         self._output_queue = queue.Queue()
         self._start_time = None
-        self._progress_is_indeterminate = False
 
         # Track all widget variables for argv construction
         self._vars = {}
@@ -559,19 +558,6 @@ class RetroRefinerGUI:
         self._main_pane = main_pane
         self._notebook_frame = notebook_frame
         self.root.after(50, self._position_sash)
-
-        # Progress bar
-        self._progress_var = tk.DoubleVar(value=0)
-        self._progress_label = tk.StringVar(value="")
-        self._prog_frame = ttk.Frame(bottom_frame)
-        # Hidden by default — shown when a run starts
-        self._progress_bar = ttk.Progressbar(
-            self._prog_frame, variable=self._progress_var, maximum=100
-        )
-        self._progress_bar.pack(fill=tk.X, side=tk.LEFT, expand=True)
-        ttk.Label(self._prog_frame, textvariable=self._progress_label, width=30).pack(
-            side=tk.RIGHT, padx=(8, 0)
-        )
 
         # Output text
         output_frame = ttk.Frame(bottom_frame)
@@ -1940,15 +1926,8 @@ class RetroRefinerGUI:
         self._running = True
         self._start_time = time.monotonic()
         self._update_button_states()
-        self._progress_var.set(0)
         self._status_var.set("Running...")
         self._elapsed_var.set("0:00")
-
-        # Show and start indeterminate progress bar
-        self._prog_frame.pack(fill=tk.X, pady=(0, 4), before=self._output_text.master)
-        self._progress_bar.configure(mode='indeterminate')
-        self._progress_bar.start(15)
-        self._progress_is_indeterminate = True
 
         # Reset shutdown flag from any previous run
         _module._shutdown_requested = False  # pylint: disable=protected-access
@@ -1991,12 +1970,6 @@ class RetroRefinerGUI:
         """Called on the main thread when the worker finishes."""
         self._running = False
 
-        # Stop indeterminate animation if still running
-        if self._progress_is_indeterminate:
-            self._progress_bar.stop()
-            self._progress_bar.configure(mode='determinate')
-            self._progress_is_indeterminate = False
-
         self._update_button_states()
         # pylint: disable=protected-access
         if _module._shutdown_requested:
@@ -2005,10 +1978,6 @@ class RetroRefinerGUI:
         # pylint: enable=protected-access
         else:
             self._status_var.set("Completed")
-        self._progress_var.set(100)
-
-        # Hide progress bar after completion
-        self._prog_frame.pack_forget()
 
         # Show final elapsed time
         if self._start_time:
@@ -2238,10 +2207,6 @@ class RetroRefinerGUI:
               background=[('active', theme['button_hover_bg']),
                           ('pressed', theme['button_pressed_bg'])])
 
-        # Progressbar
-        s.configure('TProgressbar', background=theme['focus_color'],
-                     troughcolor=theme['trough_color'], bordercolor=bc)
-
         # Panedwindow
         s.configure('TPanedwindow', background=theme['frame_bg'])
         s.configure('Sash', sashthickness=6, gripcount=0,
@@ -2302,7 +2267,6 @@ class RetroRefinerGUI:
                     current_line = self._output_text.index('end-1c linestart')
                     self._output_text.delete(current_line, 'end-1c')
                     self._insert_ansi_text(text)
-                    self._try_parse_progress(text)
                 else:
                     self._insert_ansi_text(text)
 
@@ -2321,30 +2285,6 @@ class RetroRefinerGUI:
             pass  # Don't crash the poll loop
 
         self.root.after(50, self._poll_queue)
-
-    def _try_parse_progress(self, text):
-        """Try to extract progress percentage from progress bar text."""
-        # Strip ANSI codes before parsing
-        text = _RE_ANSI_SEQ.sub('', text)
-        # ProgressBar output looks like: [####----] 10/20 (50%)
-        try:
-            if '(' in text and '%)' in text:
-                pct_str = text.split('(')[-1].split('%')[0]
-                pct = float(pct_str)
-
-                # Switch from indeterminate to determinate on first percentage
-                if self._progress_is_indeterminate:
-                    self._progress_bar.stop()
-                    self._progress_bar.configure(mode='determinate')
-                    self._progress_is_indeterminate = False
-
-                self._progress_var.set(pct)
-                # Extract label if present after the percentage
-                after_pct = text.split('%)')[1].strip() if '%)' in text else ''
-                if after_pct:
-                    self._progress_label.set(after_pct.strip())
-        except (ValueError, IndexError):
-            pass
 
 
 def main():
