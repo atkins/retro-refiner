@@ -276,7 +276,8 @@ def test_dat():
     print("DAT MODULE TESTS")
     print("="*60)
 
-    from retro_refiner.dat import parse_rom_filename, normalize_title
+    from retro_refiner.filter import parse_rom_filename
+    from retro_refiner.dat import normalize_title
 
     # parse_rom_filename
     info = parse_rom_filename("Super Mario World (USA).sfc")
