@@ -16,65 +16,58 @@ import sys
 import json
 import shutil
 import tempfile
-import importlib.util
 from pathlib import Path
 from collections import defaultdict
 
-# Import from retro-refiner (using importlib since module name has hyphen)
-_spec = importlib.util.spec_from_file_location("retro_refiner", Path(__file__).parent.parent / "retro-refiner.py")
-_module = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(_module)
+# Add project root to path so retro_refiner package is importable
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 # Core parsing
-parse_rom_filename = _module.parse_rom_filename
-normalize_title = _module.normalize_title
-select_best_rom = _module.select_best_rom
-RomInfo = _module.RomInfo
-DEFAULT_REGION_PRIORITY = _module.DEFAULT_REGION_PRIORITY
+from retro_refiner.filter import (
+    parse_rom_filename, select_best_rom, matches_patterns,
+    filter_network_roms, filter_roms_from_files,
+    _collect_sibling_discs,
+)
+from retro_refiner.dat import (
+    RomInfo, normalize_title, normalize_title_for_dedupe, get_cached_crc,
+)
+from retro_refiner.config import (
+    load_config, apply_config_to_args, DEFAULT_REGION_PRIORITY,
+)
+from retro_refiner.network import (
+    is_url, parse_url, normalize_url, extract_links_from_html,
+    parse_html_for_files, parse_html_for_directories,
+    is_rom_file, is_directory_link, get_filename_from_url,
+    ROM_EXTENSIONS, parse_size_string,
+)
+from retro_refiner.systems import load_system_data
+from retro_refiner.downloader import DownloadUI
+from retro_refiner.transfer import generate_m3u_playlist, generate_gamelist_xml
+from retro_refiner.ratings import (
+    combine_ratings, boost_exclusive_ratings,
+    resolve_top_n, apply_top_n_filter, apply_size_budget,
+    build_ratings_cache, download_launchbox_data,
+)
+from retro_refiner.dedup import run_dedupe_analysis, parse_pc_game_list
+from retro_refiner.mame import (
+    MameGameInfo, parse_mame_dat, detect_mame_set_format,
+    build_mame_copy_set,
+)
+from retro_refiner.paths import get_base_path, get_runtime_path
+import retro_refiner
 
-# Config handling
-load_config = _module.load_config
-apply_config_to_args = _module.apply_config_to_args
-
-# Network source functions
-is_url = _module.is_url
-parse_url = _module.parse_url
-normalize_url = _module.normalize_url
-extract_links_from_html = _module.extract_links_from_html
-parse_html_for_files = _module.parse_html_for_files
-parse_html_for_directories = _module.parse_html_for_directories
-is_rom_file = _module.is_rom_file
-is_directory_link = _module.is_directory_link
-get_filename_from_url = _module.get_filename_from_url
-ROM_EXTENSIONS = _module.ROM_EXTENSIONS
-
-# Filtering
-matches_patterns = _module.matches_patterns
-filter_network_roms = _module.filter_network_roms
-filter_roms_from_files = _module.filter_roms_from_files
-
-# Playlist generation
-generate_m3u_playlist = _module.generate_m3u_playlist
-generate_gamelist_xml = _module.generate_gamelist_xml
-
-# System detection
-KNOWN_SYSTEMS = _module.KNOWN_SYSTEMS
-FOLDER_ALIASES = _module.FOLDER_ALIASES
-EXTENSION_TO_SYSTEM = _module.EXTENSION_TO_SYSTEM
-
-# IGDB
-IGDB_PLATFORM_MAP = _module.IGDB_PLATFORM_MAP
-combine_ratings = _module.combine_ratings
-boost_exclusive_ratings = _module.boost_exclusive_ratings
-run_dedupe_analysis = _module.run_dedupe_analysis
-normalize_title_for_dedupe = _module.normalize_title_for_dedupe
-
-# CRC functions
-get_cached_crc = _module.get_cached_crc
-DownloadUI = _module.DownloadUI
-
-# Dedup
-parse_pc_game_list = _module.parse_pc_game_list
+# System data globals
+_sys_data = load_system_data()
+KNOWN_SYSTEMS = _sys_data.known_systems
+FOLDER_ALIASES = _sys_data.folder_aliases
+EXTENSION_TO_SYSTEM = _sys_data.extension_to_system
+IGDB_PLATFORM_MAP = _sys_data.igdb_platform_map
+LIBRETRO_DAT_SYSTEMS = _sys_data.libretro_dat_systems
+REDUMP_DAT_SYSTEMS = _sys_data.redump_dat_systems
+TEN_DAT_SYSTEMS = _sys_data.ten_dat_systems
+LAUNCHBOX_PLATFORM_MAP = _sys_data.launchbox_platform_map
+DAT_NAME_TO_SYSTEM = _sys_data.dat_name_to_system
+SYSTEM_TO_LAUNCHBOX = _sys_data.system_to_launchbox
 
 
 class TestResult:
@@ -106,6 +99,34 @@ class TestResult:
 
 
 results = TestResult()
+
+
+# =============================================================================
+# Legacy API wrappers for tests
+# =============================================================================
+
+def _filter_network_roms_compat(urls, system, include_patterns=None,
+                                 exclude_patterns=None, include_betas=False,
+                                 exclude_protos=False, include_unlicensed=False,
+                                 region_priority=None, no_filter=False,
+                                 english_only=False, keep_regions=None,
+                                 url_sizes=None, **_kwargs):
+    """Wrap v2 filter_network_roms with the old keyword API for tests."""
+    from retro_refiner.config import Config, SelectionConfig
+    sel = SelectionConfig(
+        include_patterns=include_patterns or [],
+        exclude_patterns=exclude_patterns or [],
+        include_betas=include_betas,
+        exclude_protos=exclude_protos,
+        include_unlicensed=include_unlicensed,
+        region_priority=region_priority or DEFAULT_REGION_PRIORITY,
+        all_roms=no_filter,
+        english_only=english_only,
+        keep_regions=keep_regions,
+    )
+    config = Config(selection=sel)
+    result = filter_network_roms(system, urls, config, url_sizes=url_sizes)
+    return result.selected, result.size_info
 
 
 # =============================================================================
@@ -489,24 +510,26 @@ def test_config_handling():
 
         # Test config loading (built-in YAML parser)
         with open(config_path, 'w') as f:
-            f.write("region_priority: Japan,USA\nenglish_only: true\n")
+            f.write("selection:\n  english_only: true\n")
         config = load_config(config_path)
-        if isinstance(config, dict) and "region_priority" in config:
+        if hasattr(config, 'selection') and config.selection.english_only:
             results.ok("Config file loading (YAML)")
         else:
             results.fail("Config file loading (YAML)",
-                        "dict with region_priority", f"{type(config)}")
+                        "Config with selection.english_only=True",
+                        f"{type(config)}")
 
         # Test JSON config
         json_path = Path(tmpdir) / "config.json"
         with open(json_path, 'w') as f:
-            json.dump({"region_priority": "Japan,USA", "flat": True}, f)
+            json.dump({"output": {"flat": True}}, f)
 
         config = load_config(json_path)
-        if config.get("flat") == True:
+        if config.output.flat is True:
             results.ok("JSON config loading")
         else:
-            results.fail("JSON config loading", "flat=True", f"flat={config.get('flat')}")
+            results.fail("JSON config loading", "flat=True",
+                        f"flat={config.output.flat}")
 
 
 # =============================================================================
@@ -750,7 +773,7 @@ def test_network_rom_filtering():
     ]
 
     # Test include pattern filtering
-    filtered, _ = filter_network_roms(
+    filtered, _ = _filter_network_roms_compat(
         test_urls, "nes",
         include_patterns=["*Mario*"],
         region_priority=DEFAULT_REGION_PRIORITY
@@ -763,7 +786,7 @@ def test_network_rom_filtering():
                     f"{mario_count} Mario, Zelda present: {any('Zelda' in u for u in filtered)}")
 
     # Test beta exclusion (default)
-    filtered, _ = filter_network_roms(
+    filtered, _ = _filter_network_roms_compat(
         test_urls, "nes",
         include_betas=False,
         region_priority=DEFAULT_REGION_PRIORITY
@@ -779,7 +802,7 @@ def test_network_rom_filtering():
     proto_urls = [
         "https://example.com/nes/Proto Game (USA) (Proto).zip",
     ]
-    filtered, _ = filter_network_roms(
+    filtered, _ = _filter_network_roms_compat(
         proto_urls, "nes",
         exclude_protos=False,
         region_priority=DEFAULT_REGION_PRIORITY
@@ -790,7 +813,7 @@ def test_network_rom_filtering():
         results.fail("Proto ROM inclusion", "1 ROM", f"{len(filtered)} ROMs")
 
     # Test region selection (USA preferred)
-    filtered, _ = filter_network_roms(
+    filtered, _ = _filter_network_roms_compat(
         test_urls, "nes",
         region_priority=["USA", "Japan"],
         include_patterns=["*Mario Bros.*"]  # Match both USA and Japan versions
@@ -803,7 +826,7 @@ def test_network_rom_filtering():
         results.fail("Region priority", "USA version selected", f"Selected: {filtered}")
 
     # Test exclude pattern filtering
-    filtered, _ = filter_network_roms(
+    filtered, _ = _filter_network_roms_compat(
         test_urls, "nes",
         exclude_patterns=["*Mario*"],
         region_priority=DEFAULT_REGION_PRIORITY
@@ -820,7 +843,7 @@ def test_network_rom_filtering():
         "https://example.com/nes/Super Mario Bros. (USA) (Beta).zip",
         "https://example.com/nes/Super Mario Bros. 2 (USA).zip",
     ]
-    filtered, _ = filter_network_roms(
+    filtered, _ = _filter_network_roms_compat(
         mixed_urls, "nes",
         include_patterns=["*Mario*"],
         exclude_patterns=["*Beta*"],
@@ -835,7 +858,7 @@ def test_network_rom_filtering():
                     f"Mario: {has_mario}, Beta: {not no_beta}")
 
     # Test unlicensed exclusion (default)
-    filtered, _ = filter_network_roms(
+    filtered, _ = _filter_network_roms_compat(
         test_urls, "nes",
         include_unlicensed=False,
         region_priority=DEFAULT_REGION_PRIORITY
@@ -848,7 +871,7 @@ def test_network_rom_filtering():
     # Test unlicensed inclusion - unlicensed ROMs should pass through filter
     # Note: select_best_rom may still filter unlicensed if pirate flag is set
     unlicensed_urls = ["https://example.com/nes/Bible Adventures (USA) (Unl).zip"]
-    filtered, _ = filter_network_roms(
+    filtered, _ = _filter_network_roms_compat(
         unlicensed_urls, "nes",
         include_unlicensed=True,
         region_priority=DEFAULT_REGION_PRIORITY
@@ -971,7 +994,7 @@ def test_launchbox_platform_mapping():
 
     # Import after implementation
     try:
-        LAUNCHBOX_PLATFORM_MAP = _module.LAUNCHBOX_PLATFORM_MAP
+        LAUNCHBOX_PLATFORM_MAP = _sys_data.launchbox_platform_map
     except AttributeError:
         print("  [SKIP] LAUNCHBOX_PLATFORM_MAP not yet implemented")
         return
@@ -999,12 +1022,7 @@ def test_launchbox_download_function():
     print("LAUNCHBOX DOWNLOAD TESTS")
     print("="*60)
 
-    try:
-        download_launchbox_data = _module.download_launchbox_data
-        results.ok("download_launchbox_data function exists")
-    except AttributeError:
-        results.fail("download_launchbox_data function exists", "function", "not found")
-        return
+    results.ok("download_launchbox_data function exists")
 
     # Test that it returns expected structure (without actually downloading)
     import inspect
@@ -1023,11 +1041,7 @@ def test_build_ratings_cache():
     print("RATINGS CACHE TESTS")
     print("="*60)
 
-    try:
-        build_ratings_cache = _module.build_ratings_cache
-    except AttributeError:
-        print("  [SKIP] build_ratings_cache not yet implemented")
-        return
+    # build_ratings_cache is imported from retro_refiner.ratings
 
     # Create sample XML
     sample_xml = '''<?xml version="1.0" encoding="utf-8"?>
@@ -1101,11 +1115,7 @@ def test_apply_top_n_filter():
     print("TOP-N FILTER TESTS")
     print("="*60)
 
-    try:
-        apply_top_n_filter = _module.apply_top_n_filter
-    except AttributeError:
-        print("  [SKIP] apply_top_n_filter not yet implemented")
-        return
+    # apply_top_n_filter is imported from retro_refiner.ratings
 
     # Create sample ROMs
     roms = [
@@ -1183,12 +1193,7 @@ def test_resolve_top_n():
     print("TOP-N PERCENTAGE TESTS")
     print("="*60)
 
-    try:
-        resolve_top_n = _module.resolve_top_n
-        apply_top_n_filter = _module.apply_top_n_filter
-    except AttributeError:
-        print("  [SKIP] resolve_top_n not yet implemented")
-        return
+    # resolve_top_n and apply_top_n_filter imported from retro_refiner.ratings
 
     # Test absolute integer
     if resolve_top_n(10, 100) == 10:
@@ -1288,12 +1293,8 @@ def test_apply_size_budget():
     print("SIZE BUDGET TESTS")
     print("="*60)
 
-    try:
-        apply_size_budget = _module.apply_size_budget
-        parse_size_string = _module.parse_size_string
-    except AttributeError:
-        print("  [SKIP] apply_size_budget not yet implemented")
-        return
+    # apply_size_budget imported from retro_refiner.ratings
+    # parse_size_string imported from retro_refiner.network
 
     # Create sample ROMs
     roms = [
@@ -1396,7 +1397,7 @@ def test_parse_size_arg():
     print("SIZE ARGUMENT PARSING TESTS")
     print("="*60)
 
-    parse_size_string = _module.parse_size_string
+    # parse_size_string imported from retro_refiner.network
 
     # Test basic formats
     result = parse_size_string("10G")
@@ -1502,13 +1503,6 @@ def test_system_detection():
 # =============================================================================
 # Systems JSON Validation Tests
 # =============================================================================
-
-LIBRETRO_DAT_SYSTEMS = _module.LIBRETRO_DAT_SYSTEMS
-REDUMP_DAT_SYSTEMS = _module.REDUMP_DAT_SYSTEMS
-TEN_DAT_SYSTEMS = _module.TEN_DAT_SYSTEMS
-LAUNCHBOX_PLATFORM_MAP = _module.LAUNCHBOX_PLATFORM_MAP
-DAT_NAME_TO_SYSTEM = _module.DAT_NAME_TO_SYSTEM
-SYSTEM_TO_LAUNCHBOX = _module.SYSTEM_TO_LAUNCHBOX
 
 
 def test_systems_json():
@@ -1781,12 +1775,12 @@ def test_all_flag():
     ]
 
     # Without no_filter: 1G1R should reduce Super Mario Bros. to one version
-    filtered_normal, _ = filter_network_roms(
+    filtered_normal, _ = _filter_network_roms_compat(
         test_urls, "nes",
         region_priority=DEFAULT_REGION_PRIORITY
     )
     # With no_filter: all ROMs should be kept (including betas, protos, unlicensed)
-    filtered_all, _ = filter_network_roms(
+    filtered_all, _ = _filter_network_roms_compat(
         test_urls, "nes",
         region_priority=DEFAULT_REGION_PRIORITY,
         no_filter=True
@@ -1806,7 +1800,7 @@ def test_all_flag():
         "https://example.com/nes/Super Mario Bros. (USA).zip",
         "https://example.com/nes/Super Mario Bros. (Japan).zip",
     ]
-    filtered_all_dup, _ = filter_network_roms(
+    filtered_all_dup, _ = _filter_network_roms_compat(
         dup_urls, "nes",
         region_priority=DEFAULT_REGION_PRIORITY,
         no_filter=True
@@ -1896,7 +1890,7 @@ def test_english_only_flag():
     ]
 
     # With english_only: Japan-only ROM should be excluded, T-En kept
-    filtered, _ = filter_network_roms(
+    filtered, _ = _filter_network_roms_compat(
         test_urls, "snes",
         region_priority=DEFAULT_REGION_PRIORITY,
         english_only=True
@@ -1928,7 +1922,7 @@ def test_english_only_flag():
         results.fail("english_only excludes Japan-only ROM (network)", "excluded", "present")
 
     # Without english_only: all ROMs should be present
-    filtered_all, _ = filter_network_roms(
+    filtered_all, _ = _filter_network_roms_compat(
         test_urls, "snes",
         region_priority=DEFAULT_REGION_PRIORITY,
         english_only=False
@@ -1984,7 +1978,7 @@ def test_english_only_flag():
         "https://example.com/nes/Super Mario Bros. (USA).zip",
         "https://example.com/nes/Zelda (USA).zip",
     ]
-    filtered_eng, _ = filter_network_roms(
+    filtered_eng, _ = _filter_network_roms_compat(
         english_urls, "nes",
         region_priority=DEFAULT_REGION_PRIORITY,
         english_only=True
@@ -2029,7 +2023,7 @@ def test_multi_disc_games():
         results.fail("disc case insensitive", "2", str(rom_lower.disc_number))
 
     # Test _collect_sibling_discs helper
-    _collect_sibling_discs = _module._collect_sibling_discs
+    # _collect_sibling_discs imported from retro_refiner.filter
 
     disc1 = parse_rom_filename("Final Fantasy VII (USA) (Disc 1).bin")
     disc2 = parse_rom_filename("Final Fantasy VII (USA) (Disc 2).bin")
@@ -2070,7 +2064,7 @@ def test_multi_disc_games():
         "https://example.com/psx/Final Fantasy VII (Japan) (Disc 3).bin",
         "https://example.com/psx/Crash Bandicoot (USA).bin",
     ]
-    filtered, _ = filter_network_roms(
+    filtered, _ = _filter_network_roms_compat(
         multi_disc_urls, "psx",
         region_priority=DEFAULT_REGION_PRIORITY
     )
@@ -3104,7 +3098,7 @@ def test_mame_romset_support():
     print("MAME ROM SET FORMAT TESTS")
     print("="*60)
 
-    MameGameInfo = _module.MameGameInfo
+    # MameGameInfo imported from retro_refiner.mame
 
     # Test new fields have correct defaults
     game = MameGameInfo(
@@ -3176,7 +3170,7 @@ def test_mame_romset_support():
                      f"is_parent={parent_with_bios.is_parent}, bios_name='{parent_with_bios.bios_name}'")
 
     # Integration test: parse_mame_dat() with cloneof/romof separation
-    parse_mame_dat = _module.parse_mame_dat
+    # parse_mame_dat imported from retro_refiner.mame
     test_xml = '''<?xml version="1.0"?>
 <datafile>
   <machine name="neogeo" isbios="yes">
@@ -3216,7 +3210,7 @@ def test_mame_romset_support():
     dat_file = Path(tempfile.mktemp(suffix='.xml'))
     try:
         dat_file.write_text(test_xml, encoding='utf-8')
-        parsed = parse_mame_dat(str(dat_file), show_progress=False)
+        parsed = parse_mame_dat(str(dat_file))
 
         # neogeo: BIOS, no cloneof, no romof → is_parent=True, bios_name=''
         neo = parsed.get('neogeo')
@@ -3273,7 +3267,7 @@ def test_mame_romset_support():
         if dat_file.exists():
             dat_file.unlink()
 
-    detect_mame_set_format = _module.detect_mame_set_format
+    # detect_mame_set_format imported from retro_refiner.mame
 
     # Test with no parent/clone pairs available → fallback to non-merged
     games_no_clones = {
@@ -3360,7 +3354,7 @@ def test_mame_romset_support():
         shutil.rmtree(test_dir, ignore_errors=True)
 
     # Test dependency resolution helper
-    build_mame_copy_set = _module.build_mame_copy_set
+    # build_mame_copy_set imported from retro_refiner.mame
 
     # Build test data: sf2 (parent) with clone sf2ce, neogeo BIOS
     test_games = {
@@ -3467,7 +3461,7 @@ def test_version():
     print("="*60)
 
     # __version__ should exist and be a non-empty string
-    version = getattr(_module, '__version__', None)
+    version = getattr(retro_refiner, '__version__', None)
     if isinstance(version, str) and len(version) > 0:
         results.ok("__version__ is a non-empty string")
     else:
@@ -3475,7 +3469,7 @@ def test_version():
                      "non-empty str", repr(version))
 
     # _get_base_path() should return a Path pointing to dir with data/
-    base_path = _module._get_base_path()
+    base_path = get_base_path()
     if isinstance(base_path, Path):
         results.ok("_get_base_path() returns a Path")
     else:
@@ -3489,7 +3483,7 @@ def test_version():
                      "data/ exists", "not found")
 
     # _get_runtime_path() should return an absolute Path
-    runtime_path = _module._get_runtime_path()
+    runtime_path = get_runtime_path()
     if isinstance(runtime_path, Path):
         results.ok("_get_runtime_path() returns a Path")
     else:

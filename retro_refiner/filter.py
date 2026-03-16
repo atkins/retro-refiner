@@ -4,7 +4,9 @@ Standalone implementations extracted from the monolith.  Console output is
 replaced by optional ``on_progress`` callbacks and plain stderr for errors.
 """
 import fnmatch
+import os
 import re
+import shutil
 from collections import defaultdict
 from pathlib import Path
 from typing import Callable, Dict, List, Optional
@@ -13,9 +15,13 @@ from retro_refiner.config import Config, DEFAULT_REGION_PRIORITY
 from retro_refiner.dat import (
     RomInfo,
     normalize_title,
+    normalize_title_for_dedupe,
+    get_cached_crc,
+    load_crc_cache,
+    save_crc_cache,
 )
 from retro_refiner.models import FilterResult, FilterStats
-from retro_refiner.network import get_filename_from_url
+from retro_refiner.network import format_size, get_filename_from_url
 
 
 # =============================================================================
@@ -617,3 +623,254 @@ def filter_network_roms(system, urls, config, url_sizes=None,
         'selected_size': selected_size,
     }
     return result
+
+
+# =============================================================================
+# File-size helper
+# =============================================================================
+
+def get_file_size(filepath: Path) -> int:
+    """Get the size of a file in bytes, returning 0 on error."""
+    try:
+        return filepath.stat().st_size
+    except (OSError, IOError):
+        return 0
+
+
+# =============================================================================
+# Local ROM filtering (filter_roms_from_files)
+# =============================================================================
+
+def filter_roms_from_files(rom_files: list, dest_dir: str, system: str,
+                           dry_run: bool = False,
+                           dat_entries: Dict[str, 'DatRomEntry'] = None,
+                           include_patterns: List[str] = None,
+                           exclude_patterns: List[str] = None,
+                           exclude_protos: bool = False,
+                           include_betas: bool = False,
+                           include_unlicensed: bool = False,
+                           region_priority: List[str] = None,
+                           keep_regions: List[str] = None,
+                           flat_output: bool = False,
+                           transfer_mode: str = 'copy',
+                           year_from: int = None,
+                           year_to: int = None,
+                           verbose: bool = False,
+                           top_n: int = None,
+                           include_unrated: bool = False,
+                           ratings: dict = None,
+                           no_filter: bool = False,
+                           english_only: bool = False,
+                           download_crc_index: dict = None,
+                           exclude_titles: set = None,
+                           no_verify: bool = False,
+                           no_cache: bool = False,
+                           log_dir: str = None):
+    """Filter ROMs from a list of file paths.
+
+    If dat_entries is provided, uses DAT metadata to enhance/override
+    filename parsing.
+
+    Returns:
+        (selected_roms, size_info_dict) where size_info_dict has keys
+        'source_size', 'selected_size', and 'rom_sizes'.
+    """
+    if flat_output:
+        dest_path = Path(dest_dir)
+    else:
+        dest_path = Path(dest_dir) / system
+
+    if region_priority is None:
+        region_priority = DEFAULT_REGION_PRIORITY
+
+    crc_to_dat = dat_entries or {}
+    dat_matched = 0
+
+    crc_cache_path = dest_path / '_crc_cache.json'
+    crc_cache = (load_crc_cache(crc_cache_path)
+                 if crc_to_dat and not no_cache else {})
+
+    all_roms = []
+    file_map = {}
+    size_map = {}
+    filtered_by_pattern = 0
+    total_source_size = 0
+
+    for filepath in rom_files:
+        filename = filepath.name
+
+        if not no_filter:
+            if (include_patterns
+                    and not matches_patterns(filename, include_patterns)):
+                filtered_by_pattern += 1
+                continue
+            if (exclude_patterns
+                    and matches_patterns(filename, exclude_patterns)):
+                filtered_by_pattern += 1
+                continue
+
+        rom_info = parse_rom_filename(filename)
+
+        if not no_filter:
+            if rom_info.is_proto and exclude_protos:
+                continue
+            if rom_info.is_beta and not include_betas:
+                continue
+            if rom_info.is_unlicensed and not include_unlicensed:
+                continue
+
+            if rom_info.year > 0:
+                if year_from and rom_info.year < year_from:
+                    continue
+                if year_to and rom_info.year > year_to:
+                    continue
+
+        all_roms.append(rom_info)
+        file_map[filename] = filepath
+        file_size = get_file_size(filepath)
+        size_map[filename] = file_size
+        total_source_size += file_size
+
+    skipped_games = []
+
+    if no_filter:
+        selected_roms = all_roms
+        grouped = {rom.base_title: [rom] for rom in all_roms}
+    else:
+        grouped = defaultdict(list)
+        for rom in all_roms:
+            normalized = normalize_title(rom.base_title)
+            grouped[normalized].append(rom)
+
+        if exclude_titles:
+            for title in list(grouped.keys()):
+                sample_rom = grouped[title][0]
+                dedupe_key = normalize_title_for_dedupe(
+                    sample_rom.base_title)
+                if dedupe_key in exclude_titles:
+                    del grouped[title]
+
+        selected_roms = []
+
+        for title, roms in grouped.items():
+            if keep_regions:
+                for region in keep_regions:
+                    region_roms = [r for r in roms
+                                   if r.region.lower() == region.lower()]
+                    if region_roms:
+                        best = select_best_rom(region_roms, region_priority,
+                                               verbose=verbose)
+                        if best:
+                            selected_roms.extend(
+                                _collect_sibling_discs(best, roms))
+                if not any(r in selected_roms for r in roms):
+                    best = select_best_rom(roms, region_priority,
+                                           verbose=verbose)
+                    if best:
+                        selected_roms.extend(
+                            _collect_sibling_discs(best, roms))
+            else:
+                best = select_best_rom(roms, region_priority,
+                                       verbose=verbose)
+                if best:
+                    selected_roms.extend(
+                        _collect_sibling_discs(best, roms))
+                else:
+                    sample = roms[0].filename if roms else "unknown"
+                    skipped_games.append((title, sample))
+
+        if english_only:
+            selected_roms = [r for r in selected_roms if r.is_english]
+
+        # Post-selection DAT enrichment
+        if crc_to_dat and not no_verify:
+            for rom in selected_roms:
+                filepath = file_map.get(rom.filename)
+                if not filepath:
+                    continue
+                crc = get_cached_crc(filepath, crc_cache,
+                                     download_crc_index)
+                if crc and crc in crc_to_dat:
+                    dat_entry = crc_to_dat[crc]
+                    if dat_entry.region != 'Unknown':
+                        rom.region = dat_entry.region
+                    dat_matched += 1
+            if not no_cache:
+                save_crc_cache(crc_cache_path, crc_cache)
+
+        # Apply top-N filter
+        if top_n and ratings:
+            from retro_refiner.ratings import apply_top_n_filter  # pylint: disable=import-outside-toplevel
+            system_ratings = ratings.get(system, {})
+            selected_roms = apply_top_n_filter(
+                selected_roms, system_ratings, top_n, include_unrated)
+
+    selected_size = sum(size_map.get(rom.filename, 0)
+                        for rom in selected_roms)
+
+    if dry_run:
+        return selected_roms, {
+            'source_size': total_source_size,
+            'selected_size': selected_size,
+            'rom_sizes': size_map,
+        }
+
+    # Transfer
+    dest_path.mkdir(parents=True, exist_ok=True)
+
+    for rom in selected_roms:
+        src = file_map.get(rom.filename)
+        if src and src.exists():
+            dst = dest_path / rom.filename
+            _transfer_file(src, dst, transfer_mode)
+
+    # Write selection log
+    if log_dir:
+        log_dir_path = Path(log_dir)
+        log_dir_path.mkdir(parents=True, exist_ok=True)
+        log_path = log_dir_path / f"{system}_selection_log.txt"
+        with open(log_path, 'w', encoding='utf-8') as f:
+            f.write(f"ROM Selection Log for {system.upper()}\n")
+            f.write("=" * 60 + "\n\n")
+            f.write(f"Total ROMs scanned: {len(all_roms)}\n")
+            f.write(f"Unique games found: {len(grouped)}\n")
+            f.write(f"ROMs selected: {len(selected_roms)}\n\n")
+            f.write(f"Source size: {format_size(total_source_size)}\n")
+            f.write(f"Selected size: {format_size(selected_size)}\n\n")
+            f.write("SELECTED ROMS:\n")
+            f.write("-" * 60 + "\n")
+            for rom in sorted(selected_roms,
+                              key=lambda r: r.base_title.lower()):
+                f.write(f"{rom.filename}\n")
+                f.write(f"  Title: {rom.base_title}\n")
+                f.write(f"  Region: {rom.region}, "
+                        f"Rev: {rom.revision}\n\n")
+
+    return selected_roms, {
+        'source_size': total_source_size,
+        'selected_size': selected_size,
+        'rom_sizes': size_map,
+    }
+
+
+def _transfer_file(src: Path, dst: Path, mode: str = 'copy'):
+    """Transfer a single file using the specified mode."""
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    if mode == 'link':
+        if dst.exists() or dst.is_symlink():
+            dst.unlink()
+        try:
+            dst.symlink_to(src.resolve())
+        except OSError:
+            shutil.copy2(src, dst)
+    elif mode == 'hardlink':
+        if dst.exists():
+            dst.unlink()
+        try:
+            os.link(src, dst)
+        except OSError:
+            shutil.copy2(src, dst)
+    elif mode == 'move':
+        shutil.move(str(src), str(dst))
+    else:
+        shutil.copy2(src, dst)
