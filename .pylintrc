@@ -38,6 +38,10 @@ disable=
     try-except-raise,
     missing-class-docstring,
     disallowed-name,
+    # Duplicate code across cli.py and api.py is intentional (shared patterns)
+    duplicate-code,
+    # TODO/FIXME notes are intentional bookmarks, not bugs
+    fixme,
 
 [TYPECHECK]
 # curses members are dynamically loaded from a C extension and not visible to pylint on Windows

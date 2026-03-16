@@ -450,23 +450,6 @@ def matches_patterns(name: str, patterns: List[str]) -> bool:
 
 
 # =============================================================================
-# Console ROM filtering (stub delegates to monolith for local files)
-# =============================================================================
-
-def filter_console_roms(system, rom_files, config, dat_entries=None,
-                        on_progress=None):
-    # type: (str, list, Config, dict, Callable) -> FilterResult
-    """Filter console ROMs for a system using the v1 engine.
-
-    Wraps the monolith's filter_roms_from_files with structured results.
-    Local filtering has many deep dependencies (transfer, budget, etc.),
-    so it still delegates to the monolith.
-    """
-    _ = rom_files, config, dat_entries, on_progress
-    return FilterResult(system=system)
-
-
-# =============================================================================
 # Network ROM filtering (standalone)
 # =============================================================================
 

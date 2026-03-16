@@ -13,10 +13,8 @@ import zipfile
 from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
-from retro_refiner.config import Config
-from retro_refiner.models import FilterResult
 from retro_refiner.network import get_filename_from_url
 
 from retro_refiner.filter import matches_patterns
@@ -411,18 +409,6 @@ def should_include_teknoparrot_game(
 # =============================================================================
 # Network TeknoParrot filtering (standalone)
 # =============================================================================
-
-def filter_teknoparrot_network(urls, config, url_sizes=None,
-                               on_progress=None):
-    # type: (List[str], Config, Dict[str, int], Callable) -> FilterResult
-    """Filter TeknoParrot network ROM URLs.
-
-    This is a stub that returns an empty FilterResult.
-    Use filter_teknoparrot_network_roms() for the full implementation.
-    """
-    _ = urls, config, url_sizes, on_progress
-    return FilterResult(system='teknoparrot')
-
 
 def filter_teknoparrot_network_roms(
         rom_urls,
