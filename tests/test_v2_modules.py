@@ -321,19 +321,11 @@ def test_filter():
     print("FILTER MODULE TESTS")
     print("="*60)
 
-    from retro_refiner.filter import filter_console_roms, filter_network_roms
+    from retro_refiner.filter import filter_network_roms
     from retro_refiner.config import Config
     from retro_refiner.models import FilterResult
 
     config = Config()
-
-    # filter_console_roms returns FilterResult
-    result = filter_console_roms("snes", [], config)
-    if isinstance(result, FilterResult) and result.system == "snes":
-        results.ok("filter_console_roms returns FilterResult")
-    else:
-        results.fail("filter_console_roms returns FilterResult",
-                     "FilterResult(system=snes)", repr(result))
 
     # filter_network_roms returns FilterResult
     result2 = filter_network_roms("genesis", [], config)
@@ -354,17 +346,31 @@ def test_mame():
     print("MAME MODULE TESTS")
     print("="*60)
 
-    from retro_refiner.mame import filter_mame_network
-    from retro_refiner.config import Config
-    from retro_refiner.models import FilterResult
+    from retro_refiner.mame import (
+        filter_mame_network_roms, should_include_mame_game, MameGameInfo,
+    )
 
-    config = Config()
-    result = filter_mame_network([], config)
-    if isinstance(result, FilterResult) and result.system == "mame":
-        results.ok("filter_mame_network returns FilterResult")
+    # filter_mame_network_roms with empty inputs
+    selected, info = filter_mame_network_roms([], categories={}, games={})
+    if selected == [] and info.get('source_size') == 0:
+        results.ok("filter_mame_network_roms empty returns empty")
     else:
-        results.fail("filter_mame_network returns FilterResult",
-                     "FilterResult(system=mame)", repr(result))
+        results.fail("filter_mame_network_roms empty returns empty",
+                     "([], {source_size: 0})", repr((selected, info)))
+
+    # should_include_mame_game
+    game = MameGameInfo(
+        name='pacman', description='Pac-Man', year='1980',
+        manufacturer='Namco', category='Maze', is_parent=True,
+        parent_name='', is_bios=False, is_device=False,
+        has_chd=False, chd_names=[], region='USA',
+    )
+    include, reason = should_include_mame_game(game, 'Maze')
+    if include:
+        results.ok("should_include_mame_game includes Maze")
+    else:
+        results.fail("should_include_mame_game includes Maze",
+                     "True", f"False ({reason})")
 
 
 # =============================================================================
@@ -377,17 +383,26 @@ def test_teknoparrot():
     print("TEKNOPARROT MODULE TESTS")
     print("="*60)
 
-    from retro_refiner.teknoparrot import filter_teknoparrot_network
-    from retro_refiner.config import Config
-    from retro_refiner.models import FilterResult
+    from retro_refiner.teknoparrot import (
+        filter_teknoparrot_network_roms, parse_teknoparrot_filename,
+    )
 
-    config = Config()
-    result = filter_teknoparrot_network([], config)
-    if isinstance(result, FilterResult) and result.system == "teknoparrot":
-        results.ok("filter_teknoparrot_network returns FilterResult")
+    # filter_teknoparrot_network_roms with empty inputs
+    selected, info = filter_teknoparrot_network_roms([])
+    if selected == [] and info.get('source_size') == 0:
+        results.ok("filter_teknoparrot_network_roms empty returns empty")
     else:
-        results.fail("filter_teknoparrot_network returns FilterResult",
-                     "FilterResult(system=teknoparrot)", repr(result))
+        results.fail("filter_teknoparrot_network_roms empty returns empty",
+                     "([], {source_size: 0})", repr((selected, info)))
+
+    # parse_teknoparrot_filename
+    info2 = parse_teknoparrot_filename(
+        "House of the Dead 4 (1.00) [Sega Lindbergh] [TP].zip")
+    if info2 and info2.base_title:
+        results.ok("parse_teknoparrot_filename extracts title")
+    else:
+        results.fail("parse_teknoparrot_filename extracts title",
+                     "non-empty title", repr(info2))
 
 
 # =============================================================================

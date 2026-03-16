@@ -16,8 +16,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Tuple
 
-from retro_refiner.config import Config
-from retro_refiner.models import FilterResult
 
 
 # =============================================================================
@@ -573,20 +571,6 @@ def build_mame_copy_set(selected_roms, games, available_roms, set_format):
 # =============================================================================
 # Network MAME filtering (standalone)
 # =============================================================================
-
-def filter_mame_network(urls, config, url_sizes=None,
-                        on_progress=None):
-    # type: (List[str], Config, Dict[str, int], Callable) -> FilterResult
-    """Filter MAME network ROM URLs.
-
-    This is a stub that returns an empty FilterResult.
-    The full network filtering requires pre-loaded categories and games
-    dicts, which are loaded separately via parse_catver_ini / parse_mame_dat.
-    Use filter_mame_network_roms() for the full implementation.
-    """
-    _ = urls, config, url_sizes, on_progress
-    return FilterResult(system='mame')
-
 
 def filter_mame_network_roms(rom_urls, categories, games,
                              include_patterns=None,

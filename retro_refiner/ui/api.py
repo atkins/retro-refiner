@@ -375,10 +375,26 @@ class Api:
                             )
                             filter_breakdown = _info.get('filter_breakdown', {}) if isinstance(_info, dict) else {}
                         else:
-                            # Console system filtering — returns FilterResult
+                            # Console system — load DATs for better filtering
+                            dat_entries = None
+                            if not config.advanced.no_dat:
+                                from retro_refiner.dat import (  # pylint: disable=import-outside-toplevel
+                                    download_libretro_dat, load_all_system_dats,
+                                )
+                                dat_dir = Path(config.advanced.dat_dir or './dat_files')
+                                dat_dir.mkdir(parents=True, exist_ok=True)
+                                dat_path = download_libretro_dat(system, dat_dir)
+                                if dat_path:
+                                    dat_entries = load_all_system_dats(system, dat_dir)
+                                    if dat_entries:
+                                        self._push_event('log', {
+                                            'text': f'  Loaded {len(dat_entries)} DAT entries\n',
+                                        })
+
                             result = filter_network_roms(
                                 system, urls, config,
                                 url_sizes=all_sizes,
+                                dat_entries=dat_entries,
                             )
                             selected_urls = result.selected if result.selected else urls
                             filter_breakdown = result.stats.filter_breakdown if result.stats else {}
@@ -405,11 +421,134 @@ class Api:
                     'filter_breakdown': filter_breakdown,
                 })
 
+                # Store selected URLs for commit mode
+                if system in self._last_results:
+                    self._last_results[system]['selected_urls'] = selected_urls
+
+            # TODO: Budget filters (--top, --limit, --size) require ratings
+            # data to apply properly. For now, simple limit is noted but not
+            # applied since it requires proportional truncation across systems.
+            # Dedup is available in the core engine but not yet exposed in the
+            # GUI — wire it when the dedup UI is built.
+
             if not self._running:
                 self._push_event('status', {
                     'state': 'cancelled', 'message': 'Cancelled',
                 })
                 return
+
+            # Commit mode: download and transfer files
+            if commit and self._running:
+                from retro_refiner.downloader import (  # pylint: disable=import-outside-toplevel
+                    get_download_tool, download_batch_with_aria2c,
+                    download_batch_with_curl,
+                )
+                from retro_refiner.transfer import (  # pylint: disable=import-outside-toplevel
+                    transfer_files, generate_m3u_playlist,
+                    generate_gamelist_xml,
+                )
+
+                dest_dir = (Path(config.destination) if config.destination
+                            else get_runtime_path() / 'refined')
+                dest_dir.mkdir(parents=True, exist_ok=True)
+
+                for system in sorted(all_systems):
+                    if not self._running:
+                        break
+                    sys_urls = self._last_results.get(
+                        system, {}).get('selected_urls', [])
+                    if not sys_urls:
+                        continue
+
+                    # Build download list for uncached files
+                    downloads = []
+                    for url in sys_urls:
+                        filename = urllib.parse.unquote(
+                            url.split('?')[0].split('#')[0].split('/')[-1])
+                        cache_path = cache_dir / system / filename
+                        cache_path.parent.mkdir(parents=True, exist_ok=True)
+                        if not cache_path.exists():
+                            downloads.append((url, cache_path))
+
+                    if downloads:
+                        self._push_event('log', {
+                            'text': f'  {system.upper()}: downloading '
+                                    f'{len(downloads)} files...\n',
+                        })
+                        tool = get_download_tool()
+                        if tool == 'aria2c':
+                            download_batch_with_aria2c(
+                                downloads,
+                                parallel=config.network.parallel)
+                        elif tool == 'curl':
+                            download_batch_with_curl(
+                                downloads,
+                                parallel=config.network.parallel)
+                        else:
+                            # urllib fallback
+                            import urllib.request as urllib_req  # pylint: disable=import-outside-toplevel
+                            for dl_url, dl_path in downloads:
+                                try:
+                                    req = urllib_req.Request(
+                                        dl_url,
+                                        headers={
+                                            'User-Agent': 'Mozilla/5.0'})
+                                    with urllib_req.urlopen(
+                                            req, timeout=60) as resp:
+                                        import shutil as _shutil  # pylint: disable=import-outside-toplevel
+                                        with open(dl_path, 'wb') as f_out:
+                                            _shutil.copyfileobj(resp, f_out)
+                                except Exception:  # pylint: disable=broad-except
+                                    pass
+
+                    # Transfer cached files to destination
+                    cached_files = []
+                    for url in sys_urls:
+                        filename = urllib.parse.unquote(
+                            url.split('?')[0].split('#')[0].split('/')[-1])
+                        cache_path = cache_dir / system / filename
+                        if cache_path.exists():
+                            cached_files.append(cache_path)
+
+                    if cached_files:
+                        stats = transfer_files(
+                            cached_files, dest_dir, system=system,
+                            mode=config.output.transfer_mode,
+                            flat=config.output.flat,
+                        )
+                        self._push_event('log', {
+                            'text': f'  {system.upper()}: transferred '
+                                    f'{stats["transferred"]}, '
+                                    f'skipped {stats["skipped"]}, '
+                                    f'errors {stats["errors"]}\n',
+                        })
+
+                # Generate playlists if configured
+                if config.output.playlists and self._running:
+                    self._push_event('log', {
+                        'text': '\nGenerating playlists...\n',
+                    })
+                    for system in sorted(all_systems):
+                        sys_dir = (dest_dir / system
+                                   if not config.output.flat else dest_dir)
+                        if sys_dir.exists():
+                            rom_files = list(sys_dir.iterdir())
+                            if rom_files:
+                                generate_m3u_playlist(
+                                    system, rom_files, sys_dir)
+
+                if config.output.gamelist and self._running:
+                    self._push_event('log', {
+                        'text': 'Generating gamelists...\n',
+                    })
+                    for system in sorted(all_systems):
+                        sys_dir = (dest_dir / system
+                                   if not config.output.flat else dest_dir)
+                        if sys_dir.exists():
+                            rom_files = list(sys_dir.iterdir())
+                            if rom_files:
+                                generate_gamelist_xml(
+                                    system, rom_files, sys_dir)
 
             # Push summary
             self._push_event('summary', {

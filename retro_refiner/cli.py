@@ -6,11 +6,12 @@ Usage:
 """
 import sys
 import tempfile
+import urllib.parse
 from pathlib import Path
 
 from retro_refiner.config import Config, load_config, save_config
 from retro_refiner.network import format_size, is_url, validate_source
-from retro_refiner.scanner import scan_network_source
+from retro_refiner.scanner import scan_local_sources, scan_network_source
 from retro_refiner.paths import get_runtime_path
 
 
@@ -106,20 +107,178 @@ def run_headless(args: list):
             all_urls.setdefault(system, []).extend(urls)
         all_sizes.update(result.url_sizes)
 
-    # Summary
-    total_files = sum(len(urls) for urls in all_urls.values())
-    total_size = sum(all_sizes.get(u, 0) for urls in all_urls.values()
-                     for u in urls)
+    # Scan local sources
+    local_systems = {}
+    if local_sources:
+        print("\nScanning local sources...")
+        local_systems = scan_local_sources(
+            local_sources,
+            recursive=config.advanced.recursive,
+            max_depth=config.advanced.max_depth,
+            verbose=config.selection.verbose,
+        )
+
+    all_systems = set(all_urls.keys()) | set(local_systems.keys())
+    if not all_systems:
+        print("No systems found in sources.")
+        return
+
+    # Scan summary
+    total_source = sum(len(all_urls.get(s, []))
+                       + len(local_systems.get(s, []))
+                       for s in all_systems)
+    print(f"\nFound {len(all_systems)} systems, {total_source} total files")
+
+    # Filter each system
+    from retro_refiner.filter import filter_network_roms  # pylint: disable=import-outside-toplevel
+    from retro_refiner.mame import (  # pylint: disable=import-outside-toplevel
+        download_mame_data, parse_catver_ini, parse_mame_dat,
+        filter_mame_network_roms,
+    )
+    from retro_refiner.teknoparrot import (  # pylint: disable=import-outside-toplevel
+        filter_teknoparrot_network_roms,
+    )
+
+    total_selected = 0
+    total_size = 0
+    system_selected_urls = {}  # system -> selected URLs
 
     print(f"\n{'='*60}")
-    print(f"Results: {total_files} ROMs across {len(all_urls)} systems"
-          f" ({format_size(total_size)})")
-    for system, urls in sorted(all_urls.items()):
-        sys_size = sum(all_sizes.get(u, 0) for u in urls)
-        print(f"  {system.upper()}: {len(urls)} files ({format_size(sys_size)})")
+    for system in sorted(all_systems):
+        urls = all_urls.get(system, [])
+        local_files = local_systems.get(system, [])
+        source_count = len(urls) + len(local_files)
+
+        selected_urls = urls  # default: keep all
+
+        if urls:
+            try:
+                if system in ('mame', 'fbneo', 'fba', 'arcade'):
+                    dat_dir = Path(config.advanced.dat_dir or './dat_files')
+                    dat_dir.mkdir(parents=True, exist_ok=True)
+                    catver_path, dat_path = download_mame_data(
+                        dat_dir, version=config.advanced.mame_version)
+                    if catver_path and dat_path:
+                        categories = parse_catver_ini(str(catver_path))
+                        games = parse_mame_dat(str(dat_path))
+                        selected_urls, _ = filter_mame_network_roms(
+                            urls, categories=categories, games=games,
+                            url_sizes=all_sizes,
+                            verbose=config.selection.verbose,
+                            no_filter=config.selection.all_roms,
+                            english_only=config.selection.english_only,
+                        )
+                elif system == 'teknoparrot':
+                    selected_urls, _ = filter_teknoparrot_network_roms(
+                        urls, url_sizes=all_sizes,
+                        verbose=config.selection.verbose,
+                        no_filter=config.selection.all_roms,
+                        english_only=config.selection.english_only,
+                    )
+                else:
+                    # Console system — load DATs if available
+                    dat_entries = None
+                    if not config.advanced.no_dat:
+                        from retro_refiner.dat import (  # pylint: disable=import-outside-toplevel
+                            download_libretro_dat, load_all_system_dats,
+                        )
+                        dat_dir = Path(config.advanced.dat_dir or './dat_files')
+                        dat_dir.mkdir(parents=True, exist_ok=True)
+                        dat_path = download_libretro_dat(system, dat_dir)
+                        if dat_path:
+                            dat_entries = load_all_system_dats(
+                                system, dat_dir)
+
+                    fr = filter_network_roms(
+                        system, urls, config,
+                        url_sizes=all_sizes,
+                        dat_entries=dat_entries,
+                    )
+                    selected_urls = fr.selected if fr.selected else urls
+            except Exception as exc:  # pylint: disable=broad-except
+                print(f"  {system.upper()}: filter error: {exc}",
+                      file=sys.stderr)
+
+        selected_size = sum(all_sizes.get(u, 0) for u in selected_urls)
+        total_selected += len(selected_urls)
+        total_size += selected_size
+        system_selected_urls[system] = selected_urls
+
+        print(f"  {system.upper()}: {len(selected_urls)}/{source_count} "
+              f"selected ({format_size(selected_size)})")
+
     print(f"{'='*60}")
+    print(f"Total: {total_selected} ROMs ({format_size(total_size)})")
 
     if not commit:
         print("\nDry run complete. Use --commit to download/transfer files.")
     else:
-        print("\nCommit mode not yet implemented in v2 CLI.")
+        from retro_refiner.downloader import (  # pylint: disable=import-outside-toplevel
+            get_download_tool, download_batch_with_aria2c,
+            download_batch_with_curl,
+        )
+        from retro_refiner.transfer import transfer_files  # pylint: disable=import-outside-toplevel
+
+        dest_dir = (Path(config.destination) if config.destination
+                    else get_runtime_path() / 'refined')
+        dest_dir.mkdir(parents=True, exist_ok=True)
+
+        print(f"\nDownloading to cache and transferring to {dest_dir}...")
+        for system in sorted(system_selected_urls):
+            sys_urls = system_selected_urls[system]
+            if not sys_urls:
+                continue
+
+            downloads = []
+            for url in sys_urls:
+                filename = urllib.parse.unquote(
+                    url.split('?')[0].split('#')[0].split('/')[-1])
+                cp = cache_dir / system / filename
+                cp.parent.mkdir(parents=True, exist_ok=True)
+                if not cp.exists():
+                    downloads.append((url, cp))
+
+            if downloads:
+                print(f"  {system.upper()}: downloading "
+                      f"{len(downloads)} files...")
+                tool = get_download_tool()
+                if tool == 'aria2c':
+                    download_batch_with_aria2c(
+                        downloads, parallel=config.network.parallel)
+                elif tool == 'curl':
+                    download_batch_with_curl(
+                        downloads, parallel=config.network.parallel)
+                else:
+                    import urllib.request as urllib_req  # pylint: disable=import-outside-toplevel
+                    for dl_url, dl_path in downloads:
+                        try:
+                            req = urllib_req.Request(
+                                dl_url,
+                                headers={'User-Agent': 'Mozilla/5.0'})
+                            with urllib_req.urlopen(
+                                    req, timeout=60) as resp:
+                                import shutil  # pylint: disable=import-outside-toplevel
+                                with open(dl_path, 'wb') as f_out:
+                                    shutil.copyfileobj(resp, f_out)
+                        except Exception:  # pylint: disable=broad-except
+                            pass
+
+            cached = []
+            for url in sys_urls:
+                filename = urllib.parse.unquote(
+                    url.split('?')[0].split('#')[0].split('/')[-1])
+                cp = cache_dir / system / filename
+                if cp.exists():
+                    cached.append(cp)
+
+            if cached:
+                stats = transfer_files(
+                    cached, dest_dir, system=system,
+                    mode=config.output.transfer_mode,
+                    flat=config.output.flat,
+                )
+                print(f"  {system.upper()}: transferred "
+                      f"{stats['transferred']}, skipped "
+                      f"{stats['skipped']}, errors {stats['errors']}")
+
+        print("\nCommit complete.")
