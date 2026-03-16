@@ -316,10 +316,81 @@ class Api:
                             f'Filtering {source_count} ROMs...\n',
                 })
 
-                # For now, all items pass (filtering will be wired in detail
-                # when filter.py is connected to the monolith engine)
-                selected_count = source_count
-                selected_size = sys_size
+                # Run actual filtering
+                from retro_refiner.filter import filter_network_roms  # pylint: disable=import-outside-toplevel
+                from retro_refiner.mame import filter_mame_network_roms  # pylint: disable=import-outside-toplevel
+                from retro_refiner.teknoparrot import filter_teknoparrot_network_roms  # pylint: disable=import-outside-toplevel
+
+                selected_urls = urls
+                excluded_count = 0
+                filter_breakdown = {}
+
+                if urls:
+                    try:
+                        if system in ('mame', 'fbneo', 'fba', 'arcade'):
+                            from retro_refiner.mame import (  # pylint: disable=import-outside-toplevel
+                                download_mame_data, parse_catver_ini, parse_mame_dat,
+                            )
+                            dat_dir = Path(config.advanced.dat_dir or './dat_files')
+                            dat_dir.mkdir(parents=True, exist_ok=True)
+                            self._push_event('log', {'text': '  Downloading MAME data...\n'})
+                            catver_path, dat_path = download_mame_data(
+                                dat_dir, version=config.advanced.mame_version
+                            )
+                            if catver_path and dat_path:
+                                categories = parse_catver_ini(str(catver_path))
+                                games = parse_mame_dat(str(dat_path))
+                                selected_urls, _info = filter_mame_network_roms(
+                                    urls,
+                                    categories=categories,
+                                    games=games,
+                                    include_patterns=config.selection.include_patterns or None,
+                                    exclude_patterns=config.selection.exclude_patterns or None,
+                                    include_adult=not config.advanced.no_adult,
+                                    url_sizes=all_sizes,
+                                    verbose=config.selection.verbose,
+                                    no_filter=config.selection.all_roms,
+                                    english_only=config.selection.english_only,
+                                )
+                                filter_breakdown = _info.get('filter_breakdown', {}) if isinstance(_info, dict) else {}
+                        elif system == 'teknoparrot':
+                            tp_exclude = None
+                            if config.advanced.tp_exclude_platforms:
+                                tp_exclude = {p.strip() for p in config.advanced.tp_exclude_platforms.split(',')}
+                            tp_include = None
+                            if config.advanced.tp_include_platforms:
+                                tp_include = {p.strip() for p in config.advanced.tp_include_platforms.split(',')}
+                            selected_urls, _info = filter_teknoparrot_network_roms(
+                                urls,
+                                include_platforms=tp_include,
+                                exclude_platforms=tp_exclude,
+                                region_priority=config.selection.region_priority,
+                                keep_all_versions=config.advanced.tp_all_versions,
+                                include_patterns=config.selection.include_patterns or None,
+                                exclude_patterns=config.selection.exclude_patterns or None,
+                                url_sizes=all_sizes,
+                                verbose=config.selection.verbose,
+                                no_filter=config.selection.all_roms,
+                                english_only=config.selection.english_only,
+                            )
+                            filter_breakdown = _info.get('filter_breakdown', {}) if isinstance(_info, dict) else {}
+                        else:
+                            # Console system filtering — returns FilterResult
+                            result = filter_network_roms(
+                                system, urls, config,
+                                url_sizes=all_sizes,
+                            )
+                            selected_urls = result.selected if result.selected else urls
+                            filter_breakdown = result.stats.filter_breakdown if result.stats else {}
+                    except Exception as exc:
+                        self._push_event('log', {
+                            'text': f'  Filter error: {exc}\n',
+                            'className': 'log-error',
+                        })
+
+                excluded_count = source_count - len(selected_urls)
+                selected_count = len(selected_urls)
+                selected_size = sum(all_sizes.get(u, 0) for u in selected_urls)
                 total_selected += selected_count
                 total_size += selected_size
 
@@ -327,11 +398,11 @@ class Api:
                     'system': system,
                     'state': 'complete',
                     'selected_count': selected_count,
-                    'excluded_count': 0,
+                    'excluded_count': excluded_count,
                     'selected_size': selected_size,
                     'source_count': source_count,
                     'source_size': sys_size,
-                    'filter_breakdown': {},
+                    'filter_breakdown': filter_breakdown,
                 })
 
             if not self._running:
