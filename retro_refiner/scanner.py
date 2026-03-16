@@ -505,8 +505,38 @@ def scan_network_source(url: str, systems: List[str] = None,
 
 
 # ---------------------------------------------------------------------------
-# Local source scanning (delegates to monolith — not extracted yet)
+# Local source scanning (standalone implementation)
 # ---------------------------------------------------------------------------
+
+def _detect_system_from_folder(folder_name: str) -> str:
+    """Normalize folder name to standard system name."""
+    sysdata = load_system_data()
+    name = folder_name.lower().strip()
+    if name in sysdata.folder_aliases:
+        return sysdata.folder_aliases[name]
+    return name
+
+
+def _detect_system_from_extension(filename: str) -> Optional[str]:
+    """Detect system type from file extension."""
+    sysdata = load_system_data()
+    ext = Path(filename).suffix.lower()
+    if ext in sysdata.extension_to_system:
+        return sysdata.extension_to_system[ext]
+
+    # For archives, check inner extension (e.g., "Game.nes.zip")
+    if ext in ('.zip', '.7z', '.rar'):
+        name_without_archive = filename[:-len(ext)]
+        inner_match = re.search(
+            r'\.([a-z0-9]{2,4})$', name_without_archive, re.IGNORECASE
+        )
+        if inner_match:
+            inner_ext = '.' + inner_match.group(1).lower()
+            if inner_ext in sysdata.extension_to_system:
+                return sysdata.extension_to_system[inner_ext]
+
+    return None
+
 
 def scan_local_sources(source_paths: List[Path],
                        recursive: bool = False, max_depth: int = 3,
@@ -514,7 +544,7 @@ def scan_local_sources(source_paths: List[Path],
                        on_progress: Callable = None) -> Dict[str, list]:
     """Scan local directories for ROM files.
 
-    Returns dict of system code -> list of file path strings.
+    Returns dict of system code -> list of Path objects.
 
     Args:
         source_paths: Directories to scan.
@@ -523,29 +553,86 @@ def scan_local_sources(source_paths: List[Path],
         verbose: Enable verbose detection output.
         on_progress: Optional callback for progress updates.
     """
-    from retro_refiner._monolith import get_module  # pylint: disable=import-outside-toplevel
-    mod = get_module()
+    sysdata = load_system_data()
 
-    all_systems: Dict[str, list] = {}
+    # Build ROM extensions from loaded system data + archive/generic formats
+    archive_formats = {'.zip', '.7z', '.rar'}
+    generic_formats = {
+        '.iso', '.bin', '.cue', '.chd', '.wad', '.dol',
+        '.tgc', '.vpk', '.pkg'
+    }
+    rom_extensions = (
+        set(sysdata.extension_to_system.keys())
+        | archive_formats
+        | generic_formats
+    )
+
+    all_systems: Dict[str, list] = defaultdict(list)
+
+    def _scan_directory(dir_path: Path, current_depth: int,
+                        parent_system: str = None):
+        """Recursively scan a directory for ROMs."""
+        if current_depth > max_depth:
+            return
+
+        try:
+            entries = list(dir_path.iterdir())
+        except PermissionError:
+            if verbose:
+                _log(f"  [SKIP] Permission denied: {dir_path}", on_progress)
+            return
+
+        # Check if this directory name is a known system
+        folder_system = _detect_system_from_folder(dir_path.name)
+        is_system_folder = folder_system in sysdata.known_systems
+        active_system = folder_system if is_system_folder else parent_system
+
+        if verbose and is_system_folder:
+            _log(
+                f"  [DETECT] Folder '{dir_path.name}'"
+                f" -> system '{folder_system}'",
+                on_progress
+            )
+
+        # Collect ROMs in this directory
+        for entry in entries:
+            if entry.is_file() and entry.suffix.lower() in rom_extensions:
+                if active_system:
+                    all_systems[active_system].append(entry)
+                else:
+                    detected = _detect_system_from_extension(entry.name)
+                    if detected:
+                        all_systems[detected].append(entry)
+                        if verbose:
+                            _log(
+                                f"  [DETECT] Extension '{entry.suffix}'"
+                                f" -> system '{detected}': {entry.name}",
+                                on_progress
+                            )
+                    elif verbose:
+                        _log(
+                            f"  [SKIP] Unrecognized extension:"
+                            f" {entry.name}",
+                            on_progress
+                        )
+
+        # Recurse into subdirectories if enabled
+        if recursive:
+            for entry in entries:
+                if (entry.is_dir()
+                        and not entry.name.startswith('_')
+                        and not entry.name.startswith('.')):
+                    _scan_directory(entry, current_depth + 1, active_system)
+
     for source_path in source_paths:
-        local_detected = mod.scan_for_systems(
-            str(source_path),
-            recursive=recursive,
-            max_depth=max_depth,
-            verbose=verbose
-        )
-        for system, files in local_detected.items():
-            if system in all_systems:
-                all_systems[system].extend(files)
-            else:
-                all_systems[system] = list(files)
+        _scan_directory(source_path, 0, None)
         if on_progress:
             on_progress(ProgressEvent(
                 phase="scanning",
                 message=f"Scanned {source_path.name}",
             ))
 
-    return all_systems
+    return dict(all_systems)
 
 
 def get_system_scan_info(systems_dict: Dict[str, list],
