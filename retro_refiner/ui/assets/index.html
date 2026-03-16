@@ -222,6 +222,33 @@
   .bottom-right { margin-left: auto; color: var(--text-secondary); font-size: 10px; display: flex; align-items: center; gap: 4px; }
   .bottom-right input[type="checkbox"] { accent-color: var(--accent); }
 
+  /* Cancelled status */
+  .status-text.cancelled { color: var(--warning); }
+
+  /* Card filtering spinner */
+  .card-spinner {
+    display: inline-block; width: 14px; height: 14px;
+    border: 2px solid var(--border); border-top-color: var(--accent);
+    border-radius: 50%; animation: spin 0.8s linear infinite;
+    vertical-align: middle; margin-right: 6px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .card-filtering-msg {
+    padding: 8px 16px 12px; color: var(--text-secondary); font-size: 11px;
+  }
+
+  /* Progress bar in status bar */
+  .progress-bar {
+    height: 3px; background: var(--bg-primary); margin-top: 4px;
+    border-radius: 2px; overflow: hidden; display: none;
+  }
+  .progress-bar.visible { display: block; }
+  .progress-fill {
+    height: 100%; background: var(--accent); border-radius: 2px;
+    transition: width 0.3s ease;
+  }
+
   /* Hide views */
   .view-hidden { display: none !important; }
 
@@ -369,10 +396,15 @@
 
     <!-- Status bar -->
     <div class="status-bar">
-      <div class="status-text idle" id="status-text">Ready</div>
-      <div class="view-tabs">
-        <button class="view-tab active" id="tab-log" onclick="showView('log')">Log</button>
-        <button class="view-tab" id="tab-results" onclick="showView('results')">Results</button>
+      <div style="display:flex;flex-direction:column;flex:1;min-width:0;">
+        <div style="display:flex;justify-content:space-between;align-items:center;">
+          <div class="status-text idle" id="status-text">Ready</div>
+          <div class="view-tabs">
+            <button class="view-tab active" id="tab-log" onclick="showView('log')">Log</button>
+            <button class="view-tab" id="tab-results" onclick="showView('results')">Results</button>
+          </div>
+        </div>
+        <div class="progress-bar" id="progress-bar"><div class="progress-fill" id="progress-fill"></div></div>
       </div>
     </div>
 
@@ -413,6 +445,17 @@
 var sources = [];
 var currentView = 'welcome';
 var isRunning = false;
+var cardElements = {};  /* system -> DOM element */
+
+/* ===== Helpers ===== */
+function formatSize(bytes) {
+  if (bytes === 0 || bytes == null) return '0 B';
+  var units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  var i = 0;
+  var size = bytes;
+  while (size >= 1024 && i < units.length - 1) { size /= 1024; i++; }
+  return (i === 0 ? size : size.toFixed(1)) + ' ' + units[i];
+}
 
 /* ===== Section collapse ===== */
 function toggleSection(header) {
@@ -511,32 +554,81 @@ function browseConfig() {
   }
 }
 
+/* ===== Gather UI state ===== */
+function gatherUiState() {
+  return {
+    sources: sources,
+    destination: document.getElementById('dest-path').value || '',
+    english_only: document.getElementById('opt-english').checked,
+    exclude_protos: document.getElementById('opt-protos').checked,
+    include_betas: document.getElementById('opt-betas').checked,
+    verbose: document.getElementById('opt-verbose').checked,
+    no_unlicensed: document.getElementById('opt-no-unlicensed').checked,
+    all_regions: document.getElementById('opt-all-regions').checked,
+    region_priority: document.getElementById('opt-region-priority').value || '',
+    top: document.getElementById('opt-top').value || '',
+    limit: document.getElementById('opt-limit').value || '',
+    size: document.getElementById('opt-size').value || '',
+    connections: document.getElementById('opt-connections').value || '',
+    scan_workers: 16,
+    playlists: document.getElementById('opt-playlists').checked,
+    gamelists: document.getElementById('opt-gamelists').checked,
+    flatten: document.getElementById('opt-flatten').checked,
+    log_dir: document.getElementById('opt-log-dir').checked ? './logs' : '',
+    transfer_mode: document.getElementById('opt-transfer').value,
+    no_dat: document.getElementById('opt-no-dat').checked,
+    no_cache: false,
+    systems: document.getElementById('opt-systems').value || '',
+    exclude_systems: document.getElementById('opt-exclude-systems').value || '',
+  };
+}
+
+function pushConfigToBackend() {
+  if (!window.pywebview) return Promise.resolve();
+  return window.pywebview.api.update_config_from_ui(JSON.stringify(gatherUiState()));
+}
+
 /* ===== Actions ===== */
 function setRunning(running) {
   isRunning = running;
   document.getElementById('btn-preview').disabled = running;
   document.getElementById('btn-run').disabled = running;
   document.getElementById('btn-stop').disabled = !running;
+  if (!running) {
+    document.getElementById('progress-bar').classList.remove('visible');
+  }
 }
 
 function doPreview() {
   if (isRunning) return;
+  if (sources.length === 0) {
+    appendLog('No sources configured. Add a folder or URL first.\n', 'log-warning');
+    showView('log');
+    return;
+  }
   setRunning(true);
+  clearResults();
   showView('log');
   appendLog('Starting preview run...\n', 'log-info');
-  if (window.pywebview) {
-    window.pywebview.api.run_preview();
-  }
+  pushConfigToBackend().then(function() {
+    if (window.pywebview) window.pywebview.api.run_preview();
+  });
 }
 
 function doRun() {
   if (isRunning) return;
+  if (sources.length === 0) {
+    appendLog('No sources configured. Add a folder or URL first.\n', 'log-warning');
+    showView('log');
+    return;
+  }
   setRunning(true);
+  clearResults();
   showView('log');
   appendLog('Starting commit run...\n', 'log-info');
-  if (window.pywebview) {
-    window.pywebview.api.run_commit();
-  }
+  pushConfigToBackend().then(function() {
+    if (window.pywebview) window.pywebview.api.run_commit();
+  });
 }
 
 function doStop() {
@@ -566,8 +658,13 @@ function appendLog(text, className) {
 function clearLog() {
   var logEl = document.getElementById('view-log');
   while (logEl.firstChild) { logEl.removeChild(logEl.firstChild); }
+  clearResults();
+}
+
+function clearResults() {
   var resultsEl = document.getElementById('view-results');
   while (resultsEl.firstChild) { resultsEl.removeChild(resultsEl.firstChild); }
+  cardElements = {};
 }
 
 function copyLog() {
@@ -578,6 +675,19 @@ function copyLog() {
   }
 }
 
+/* ===== Progress ===== */
+function updateProgress(current, total) {
+  var bar = document.getElementById('progress-bar');
+  var fill = document.getElementById('progress-fill');
+  if (total > 0) {
+    bar.classList.add('visible');
+    var pct = Math.min(100, Math.round((current / total) * 100));
+    fill.style.width = pct + '%';
+  } else {
+    bar.classList.remove('visible');
+  }
+}
+
 /* ===== Status ===== */
 function setStatus(state, message) {
   var el = document.getElementById('status-text');
@@ -585,17 +695,132 @@ function setStatus(state, message) {
   el.textContent = message;
 }
 
+/* ===== Card rendering ===== */
+function createFilteringCard(system, sourceCount, sourceSize) {
+  var card = document.createElement('div');
+  card.className = 'card';
+  card.id = 'card-' + system;
+  card.innerHTML =
+    '<div class="card-header">' +
+      '<span class="card-system">' + system.toUpperCase() + '</span>' +
+      '<span class="card-size">' + formatSize(sourceSize) + '</span>' +
+    '</div>' +
+    '<div class="card-filtering-msg">' +
+      '<span class="card-spinner"></span>' +
+      'Filtering ' + sourceCount + ' ROMs...' +
+    '</div>';
+  return card;
+}
+
+function updateCardComplete(card, data) {
+  var selected = data.selected_count || 0;
+  var excluded = data.excluded_count || 0;
+  var total = selected + excluded;
+  var keepPct = total > 0 ? Math.round((selected / total) * 100) : 100;
+  var barClass = keepPct >= 60 ? 'high' : (keepPct >= 30 ? 'mid' : 'low');
+
+  /* Remove filtering message */
+  var msg = card.querySelector('.card-filtering-msg');
+  if (msg) msg.remove();
+
+  /* Update size in header */
+  var sizeEl = card.querySelector('.card-size');
+  if (sizeEl) sizeEl.textContent = formatSize(data.selected_size || 0);
+
+  /* Stats row */
+  var stats = document.createElement('div');
+  stats.className = 'card-stats';
+  stats.innerHTML =
+    '<div class="card-stat"><div class="num">' + selected + '</div><div class="lbl">Selected</div></div>' +
+    '<div class="card-stat"><div class="num">' + excluded + '</div><div class="lbl">Excluded</div></div>' +
+    '<div class="card-stat"><div class="num">' + (data.source_count || 0) + '</div><div class="lbl">Total</div></div>';
+  card.appendChild(stats);
+
+  /* Keep-ratio bar */
+  var barWrap = document.createElement('div');
+  barWrap.className = 'card-bar';
+  barWrap.innerHTML =
+    '<div class="bar-track"><div class="bar-fill ' + barClass + '" style="width:' + keepPct + '%;"></div></div>' +
+    '<div class="bar-label">' + keepPct + '% kept</div>';
+  card.appendChild(barWrap);
+
+  /* Filter breakdown tags */
+  var breakdown = data.filter_breakdown || {};
+  var keys = Object.keys(breakdown);
+  if (keys.length > 0) {
+    var filtersDiv = document.createElement('div');
+    filtersDiv.className = 'card-filters';
+    filtersDiv.innerHTML = '<div class="title">Filters applied</div>';
+    var tagsDiv = document.createElement('div');
+    tagsDiv.className = 'filter-tags';
+    keys.forEach(function(key) {
+      var tag = document.createElement('span');
+      tag.className = 'filter-tag';
+      tag.innerHTML = '<span class="count">' + breakdown[key] + '</span>' + key;
+      tagsDiv.appendChild(tag);
+    });
+    filtersDiv.appendChild(tagsDiv);
+    card.appendChild(filtersDiv);
+  }
+}
+
+function renderSummary(data) {
+  var results = document.getElementById('view-results');
+  /* Insert summary at top */
+  var existing = results.querySelector('.summary');
+  if (existing) existing.remove();
+
+  var summary = document.createElement('div');
+  summary.className = 'summary';
+  var modeLabel = data.commit ? 'Commit' : 'Preview';
+  summary.innerHTML =
+    '<div class="summary-title">' + modeLabel + ' Complete</div>' +
+    '<div class="summary-stats">' +
+      '<div class="summary-stat"><div class="value">' + (data.total_selected || 0) + '</div><div class="label">ROMs Selected</div></div>' +
+      '<div class="summary-stat"><div class="value">' + formatSize(data.total_size || 0) + '</div><div class="label">Total Size</div></div>' +
+      '<div class="summary-stat"><div class="value">' + (data.system_count || 0) + '</div><div class="label">Systems</div></div>' +
+    '</div>';
+  results.insertBefore(summary, results.firstChild);
+}
+
 /* ===== Python event handler ===== */
 window.handlePythonEvent = function(event) {
+  var d = event.data;
+
   if (event.type === 'status') {
-    var data = event.data;
-    setStatus(data.state, data.message);
-    appendLog(data.message + '\n', 'log-info');
-    if (data.state === 'completed' || data.state === 'error') {
+    setStatus(d.state, d.message);
+    if (d.state === 'completed' || d.state === 'error' || d.state === 'cancelled') {
       setRunning(false);
+      /* Auto-switch to results if we have cards */
+      if (d.state === 'completed' && Object.keys(cardElements).length > 0) {
+        showView('results');
+      }
     }
+
   } else if (event.type === 'log') {
-    appendLog(event.data.text, event.data.className || null);
+    appendLog(d.text, d.className || null);
+
+  } else if (event.type === 'progress') {
+    updateProgress(d.current || 0, d.total || 0);
+    if (d.message) {
+      setStatus('running', d.message);
+    }
+
+  } else if (event.type === 'card') {
+    var results = document.getElementById('view-results');
+    if (d.state === 'filtering') {
+      var card = createFilteringCard(d.system, d.source_count, d.source_size);
+      results.appendChild(card);
+      cardElements[d.system] = card;
+    } else if (d.state === 'complete') {
+      var existingCard = cardElements[d.system];
+      if (existingCard) {
+        updateCardComplete(existingCard, d);
+      }
+    }
+
+  } else if (event.type === 'summary') {
+    renderSummary(d);
   }
 };
 
