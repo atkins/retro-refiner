@@ -5119,6 +5119,59 @@ def save_crc_cache(cache_path: Path, cache: dict):
         pass
 
 
+SCAN_CACHE_FILE = '_scan_cache.json'
+SCAN_CACHE_MAX_AGE = 86400  # 24 hours
+
+
+def load_scan_cache(cache_dir: Path, url: str) -> Optional[Tuple[Dict[str, List[str]], Dict[str, int]]]:
+    """Load cached network scan results if fresh (< 24h old)."""
+    cache_path = cache_dir / SCAN_CACHE_FILE
+    if not cache_path.exists():
+        return None
+    try:
+        with open(cache_path, 'r', encoding='utf-8') as f:
+            cache = json.load(f)
+        entry = cache.get(url)
+        if not entry:
+            return None
+        age = _time.time() - entry.get('timestamp', 0)
+        if age > SCAN_CACHE_MAX_AGE:
+            return None
+        url_dict = entry.get('urls', {})
+        url_sizes = entry.get('sizes', {})
+        return url_dict, url_sizes
+    except (json.JSONDecodeError, IOError, KeyError):
+        return None
+
+
+def save_scan_cache(cache_dir: Path, url: str,
+                    url_dict: Dict[str, List[str]], url_sizes: Dict[str, int]):
+    """Save network scan results to cache."""
+    cache_path = cache_dir / SCAN_CACHE_FILE
+    cache = {}
+    if cache_path.exists():
+        try:
+            with open(cache_path, 'r', encoding='utf-8') as f:
+                cache = json.load(f)
+        except (json.JSONDecodeError, IOError):
+            cache = {}
+    # Prune stale entries
+    now = _time.time()
+    cache = {k: v for k, v in cache.items()
+             if now - v.get('timestamp', 0) < SCAN_CACHE_MAX_AGE}
+    cache[url] = {
+        'timestamp': now,
+        'urls': url_dict,
+        'sizes': url_sizes,
+    }
+    try:
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        with open(cache_path, 'w', encoding='utf-8') as f:
+            json.dump(cache, f)
+    except IOError:
+        pass
+
+
 def get_cached_crc(filepath: Path, crc_cache: dict,
                    download_crc_index: dict = None) -> str:
     """Get CRC from cache or calculate and cache it. Uses mtime+size to invalidate.
@@ -6547,7 +6600,7 @@ def build_mame_copy_set(selected_roms, games, available_roms, set_format):
 def filter_mame_roms(source_dir: str, dest_dir: str, catver_path: str, dat_path: str,
                      copy_chds: bool = True, dry_run: bool = False, system_name: str = 'mame',
                      include_adult: bool = True, verbose: bool = False,
-                     no_filter: bool = False, log_dir: str = None):
+                     no_filter: bool = False, english_only: bool = False, log_dir: str = None):
     """Filter MAME/FBNeo ROMs based on category and region preferences."""
     label = system_name.upper()
 
@@ -6656,6 +6709,14 @@ def filter_mame_roms(source_dir: str, dest_dir: str, catver_path: str, dat_path:
             # Select best version based on region
             best_rom = select_best_mame_clone(name, parent_clones.get(name, []), games,
                                               verbose=verbose)
+
+            # Filter non-English games
+            if english_only and best_rom and best_rom.region in ('Japan', 'Korea', 'LatinAmerica'):
+                excluded_reasons[f'Non-English ({best_rom.region})'] += 1
+                if verbose:
+                    Console.verbose('skip', f"{best_rom.name}: non-English ({best_rom.region})")
+                continue
+
             if best_rom and best_rom.name in available_versions:
                 selected_roms.append(best_rom)
                 if verbose:
@@ -8232,6 +8293,7 @@ def filter_mame_network_roms(rom_urls: List[str],
                               url_sizes: Dict[str, int] = None,
                               verbose: bool = False,
                               no_filter: bool = False,
+                              english_only: bool = False,
                               log_dir: str = None) -> Tuple[List[str], dict]:
     """
     Filter MAME/FBNeo ROMs from network sources using category filtering.
@@ -8256,6 +8318,7 @@ def filter_mame_network_roms(rom_urls: List[str],
     # Build URL -> filename map
     url_map = {}  # filename -> url
     size_map = {}  # filename -> size
+    url_game_map = {}  # filename -> game_name (from parent folder in URL)
     total_source_size = 0
 
     for url in rom_urls:
@@ -8265,6 +8328,19 @@ def filter_mame_network_roms(rom_urls: List[str],
         size = url_sizes.get(url, 0)
         size_map[filename] = size
         total_source_size += size
+        # Extract parent folder name from URL as the game name
+        # e.g., ".../area51/gdt-0009a.chd" → "area51"
+        url_parts = url_clean.rstrip('/').split('/')
+        if len(url_parts) >= 2:
+            parent_folder = urllib.request.unquote(url_parts[-2])
+            url_game_map[filename] = parent_folder
+
+    # Build CHD name → parent game lookup from DAT
+    chd_to_game = {}  # chd_name -> game_name
+    for name, game in games.items():
+        if game.chd_names:
+            for chd_name in game.chd_names:
+                chd_to_game[chd_name] = name
 
     # Apply categories to games if not already done
     for name, game in games.items():
@@ -8311,8 +8387,19 @@ def filter_mame_network_roms(rom_urls: List[str],
                     excluded_counts['pattern exclude'] += 1
                     continue
 
-            # Get game info
+            # Get game info — try multiple lookup strategies:
+            # 1. Direct ROM name match (e.g., "area51" from "area51.chd")
+            # 2. CHD name → game lookup (e.g., "cap-33s-1" → "sfiii3")
+            # 3. Parent folder in URL (e.g., ".../area51/gdt-0009a.chd" → "area51")
             game = games.get(rom_name)
+            if not game and rom_name in chd_to_game:
+                rom_name = chd_to_game[rom_name]
+                game = games.get(rom_name)
+            if not game and filename in url_game_map:
+                folder_game = url_game_map[filename]
+                if folder_game in games:
+                    rom_name = folder_game
+                    game = games[folder_game]
             if not game:
                 # Unknown game - include it if it matches patterns
                 selected_urls.append(url)
@@ -8352,6 +8439,17 @@ def filter_mame_network_roms(rom_urls: List[str],
                                               verbose=verbose)
             if not best_rom:
                 best_rom = game
+
+            # Filter non-English games (Japan, Korea, LatinAmerica only)
+            # Unknown region is kept (most arcade games are region-agnostic)
+            if english_only and best_rom.region in ('Japan', 'Korea', 'LatinAmerica'):
+                excluded_counts[f'Non-English ({best_rom.region})'] += 1
+                if verbose:
+                    Console.verbose('skip', f"{best_rom.name}: non-English ({best_rom.region})")
+                processed.add(rom_name)
+                for clone in parent_clones.get(rom_name, []):
+                    processed.add(clone)
+                continue
 
             # Check if best ROM is available
             best_filename = f"{best_rom.name}.zip"
@@ -9596,14 +9694,25 @@ Pattern examples (--include / --exclude):
                 ])
                 sys.exit(1)
 
-        # Scan for URLs only (no downloading yet)
-        url_dict, url_sizes = scan_network_source_urls(
-            network_url, args.systems,
-            recursive=args.recursive,
-            max_depth=args.max_depth,
-            auth_header=scan_auth_header,
-            scan_workers=args.scan_workers
-        )
+        # Scan for URLs only (no downloading yet) — check cache first
+        cached_scan = None
+        if not args.no_cache:
+            cached_scan = load_scan_cache(cache_dir, network_url)
+        if cached_scan:
+            url_dict, url_sizes = cached_scan
+            total = sum(len(urls) for urls in url_dict.values())
+            Console.text(f"Scanning network source: {format_url(network_url)}")
+            Console.text(f"  Using cached scan ({total} URLs)")
+        else:
+            url_dict, url_sizes = scan_network_source_urls(
+                network_url, args.systems,
+                recursive=args.recursive,
+                max_depth=args.max_depth,
+                auth_header=scan_auth_header,
+                scan_workers=args.scan_workers
+            )
+            if not args.no_cache:
+                save_scan_cache(cache_dir, network_url, dict(url_dict), url_sizes)
 
         # Check if this source returned any ROMs at all
         total_urls_from_source = sum(len(urls) for urls in url_dict.values())
@@ -9860,6 +9969,7 @@ Pattern examples (--include / --exclude):
                 url_sizes=all_url_sizes,
                 verbose=args.verbose,
                 no_filter=getattr(args, 'all', False),
+                english_only=args.english_only,
                 log_dir=args.log_dir
             )
         else:
@@ -10683,6 +10793,7 @@ Pattern examples (--include / --exclude):
                     include_adult=not args.no_adult,
                     verbose=args.verbose,
                     no_filter=getattr(args, 'all', False),
+                    english_only=args.english_only,
                     log_dir=args.log_dir
                 )
                 selected, size_info = result
