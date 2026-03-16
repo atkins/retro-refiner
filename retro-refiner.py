@@ -62,6 +62,9 @@ else:
     except ImportError:
         HAS_TERMIOS = False
 
+# Subprocess kwargs to hide console windows on Windows (aria2c, curl, etc.)
+_SUBPROCESS_NO_WINDOW = {"creationflags": subprocess.CREATE_NO_WINDOW} if WINDOWS else {}
+
 # Enable ANSI escape codes on Windows 10+
 if WINDOWS:
     try:
@@ -105,15 +108,15 @@ def _create_ssl_context():
     """
     ctx = ssl.create_default_context()
 
-    if sys.platform == 'darwin':
-        _cert_paths = [
+    if MACOS:
+        cert_paths = [
             '/etc/ssl/cert.pem',
             '/opt/homebrew/etc/openssl@3/cert.pem',
             '/opt/homebrew/etc/openssl/cert.pem',
             '/usr/local/etc/openssl@3/cert.pem',
             '/usr/local/etc/openssl/cert.pem',
         ]
-        for cert_path in _cert_paths:
+        for cert_path in cert_paths:
             if Path(cert_path).is_file():
                 try:
                     ctx.load_verify_locations(cert_path)
@@ -1873,7 +1876,7 @@ def get_download_tool() -> Optional[str]:
 
     # Check for aria2c first (best: parallel + multi-connection per file)
     try:
-        result = subprocess.run(['aria2c', '--version'], capture_output=True, timeout=5, check=False)
+        result = subprocess.run(['aria2c', '--version'], capture_output=True, timeout=5, check=False, **_SUBPROCESS_NO_WINDOW)
         if result.returncode == 0:
             _download_tool = 'aria2c'
             return 'aria2c'
@@ -1882,7 +1885,7 @@ def get_download_tool() -> Optional[str]:
 
     # Check for curl (good: parallel downloads)
     try:
-        result = subprocess.run(['curl', '--version'], capture_output=True, timeout=5, check=False)
+        result = subprocess.run(['curl', '--version'], capture_output=True, timeout=5, check=False, **_SUBPROCESS_NO_WINDOW)
         if result.returncode == 0:
             _download_tool = 'curl'
             return 'curl'
@@ -1971,13 +1974,13 @@ def download_with_external_tool(url: str, dest_path: Path, connections: int = 4,
             if auth_header:
                 cmd.extend([f'--header=Authorization: {auth_header}'])
             cmd.append(url)
-            result = subprocess.run(cmd, capture_output=True, timeout=310, check=False)
+            result = subprocess.run(cmd, capture_output=True, timeout=310, check=False, **_SUBPROCESS_NO_WINDOW)
         else:  # curl
             cmd = ['curl', '-sSL', '-o', str(dest_path), '--connect-timeout', '30', '--max-time', '300']
             if auth_header:
                 cmd.extend(['-H', f'Authorization: {auth_header}'])
             cmd.append(url)
-            result = subprocess.run(cmd, capture_output=True, timeout=310, check=False)
+            result = subprocess.run(cmd, capture_output=True, timeout=310, check=False, **_SUBPROCESS_NO_WINDOW)
         return result.returncode == 0 and dest_path.exists() and dest_path.stat().st_size > 0
     except Exception:
         return False
@@ -2003,7 +2006,7 @@ def download_batch_with_curl(downloads: List[Tuple[str, Path]], parallel: int = 
     try:
         # Timeout scales with number of files (adjusted for parallelism)
         total_timeout = max(60, (len(downloads) // parallel + 1) * timeout_per_file)
-        subprocess.run(cmd, capture_output=True, timeout=total_timeout, check=False)
+        subprocess.run(cmd, capture_output=True, timeout=total_timeout, check=False, **_SUBPROCESS_NO_WINDOW)
     except subprocess.TimeoutExpired:
         pass  # Check which files succeeded anyway
     except Exception:
@@ -2057,7 +2060,7 @@ def download_batch_with_aria2c(downloads: List[Tuple[str, Path]], parallel: int 
         total_timeout = max(60, (len(downloads) // parallel + 1) * timeout_per_file)
 
         # Use Popen for proper process control
-        proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)  # pylint: disable=consider-using-with
+        proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, **_SUBPROCESS_NO_WINDOW)  # pylint: disable=consider-using-with
         _register_aria2c_process(proc)
         try:
             proc.wait(timeout=total_timeout)
@@ -2245,15 +2248,14 @@ class DownloadUI:
 
     def _render_simple(self) -> None:
         """Render simple single-line progress bar with connection stats."""
-        if not self._is_tty():
-            return
-
         total = len(self.files)
         done, failed, active, queued = self._get_counts()
         elapsed = _time.time() - self.start_time if self.start_time else 0
+        is_tty = self._is_tty()
 
         # Progress bar
         bar_width = 20
+        pct_int = int(done * 100 / total) if total > 0 else 0
         if total > 0:
             pct = done / total
             filled = int(bar_width * pct)
@@ -2274,8 +2276,8 @@ class DownloadUI:
         speed_str = self._format_size(self.total_speed) + '/s' if self.total_speed else '-- B/s'
 
         # Build line with all stats
-        # Format: SYSTEM |████░░░░| 24/150  aria2c 4p 16x v3 o47  1.2MB/s  [1:15<2:34]  [i]
-        line = f"  {self.system_name.upper()} |{bar}| {done}/{total}"
+        # Format: SYSTEM |████░░░░| 24/150 (48%)  aria2c 4p 16x v3 o47  1.2MB/s  [1:15<2:34]  [i]
+        line = f"  {self.system_name.upper()} |{bar}| {done}/{total} ({pct_int}%)"
         line += f"  {self.download_tool}"
         line += f" {self.parallel}p {self.connections}x"  # parallel, connections
         line += f" {SYM_ARROW}{active} {SYM_CIRCLE}{queued}"  # active, queued
@@ -2286,7 +2288,8 @@ class DownloadUI:
             line += f" {Style.SUCCESS}CRC-OK:{verified}{Style.RESET}"
         line += f"  {speed_str}"
         line += f"  [{elapsed_str}<{eta_str}]"
-        line += f"  {Style.DETAIL}[i]{Style.RESET}"
+        if is_tty:
+            line += f"  {Style.DETAIL}[i]{Style.RESET}"
 
         # Use ANSI escape: \r = carriage return, \033[K = clear to end of line
         sys.stdout.write(f"\r\033[K{line}")
@@ -2604,7 +2607,8 @@ class DownloadUI:
             self.subprocess = subprocess.Popen(
                 cmd,
                 stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL
+                stderr=subprocess.DEVNULL,
+                **_SUBPROCESS_NO_WINDOW
             )
             _register_aria2c_process(self.subprocess)
 
@@ -2938,9 +2942,6 @@ class DownloadUI:
         """Run the download UI. Returns dict of url -> local_path for successful downloads."""
         if not self.files:
             return {}
-
-        if not self._is_tty():
-            return self._run_simple_fallback()
 
         self.start_time = _time.time()
         self.download_tool = get_download_tool()  # Set early for display
@@ -6472,7 +6473,7 @@ def parse_mame_dat(dat_path: str, show_progress: bool = False) -> dict:
                         parent_name=parent_name if not is_parent else '',
                         is_bios=is_bios,
                         is_device=is_device,
-                        has_chd=len(chd_names) > 0,
+                        has_chd=bool(chd_names),
                         chd_names=chd_names,
                         region=region,
                         bios_name=bios_name,
@@ -6634,9 +6635,8 @@ def detect_mame_set_format(source_path, games, available_roms):
             parent_clones[game.parent_name].append(name)
 
     votes = []
-    checked = 0
     for parent_name, clones in parent_clones.items():
-        if checked >= 5:
+        if len(votes) >= 5:
             break
         if parent_name not in available_roms:
             continue
@@ -6645,7 +6645,6 @@ def detect_mame_set_format(source_path, games, available_roms):
 
         if not clone_zips_exist:
             votes.append('merged')
-            checked += 1
             continue
 
         clone_name = clone_zips_exist[0]
@@ -6654,7 +6653,6 @@ def detect_mame_set_format(source_path, games, available_roms):
 
         if not parent_game or not parent_game.rom_files or not clone_zip_path.exists():
             votes.append('non-merged')
-            checked += 1
             continue
 
         try:
@@ -6669,8 +6667,6 @@ def detect_mame_set_format(source_path, games, available_roms):
                 votes.append('split')
         except (zipfile.BadZipFile, OSError):
             votes.append('non-merged')
-
-        checked += 1
 
     if not votes:
         return 'non-merged'
@@ -6693,24 +6689,24 @@ def build_mame_copy_set(selected_roms, games, available_roms, set_format):
         for game in selected_roms:
             if game.name in available_roms:
                 copy_set.add(game.name)
-    elif set_format in ('split', 'merged'):
-        # Split or merged: need dependency resolution
+    elif set_format == 'split':
+        # Split: each game has its own zip but clones need parent zip too
         for game in selected_roms:
-            if set_format == 'merged' and game.name not in available_roms:
-                # Clone has no separate zip — need the parent's merged zip
-                if game.parent_name and game.parent_name in available_roms:
-                    if game.parent_name not in copy_set:
-                        dependencies.append((game.parent_name,
-                                             f"merged parent, contains {game.name}"))
-                    copy_set.add(game.parent_name)
-            else:
-                if game.name in available_roms:
-                    copy_set.add(game.name)
-
-            # Split: include parent zip for clones
-            if set_format == 'split' and not game.is_parent and game.parent_name:
+            if game.name in available_roms:
+                copy_set.add(game.name)
+            if not game.is_parent and game.parent_name:
                 if game.parent_name in available_roms and game.parent_name not in copy_set:
                     dependencies.append((game.parent_name, f"parent of {game.name}"))
+                copy_set.add(game.parent_name)
+    elif set_format == 'merged':
+        # Merged: clones have no separate zip — use the parent's merged zip
+        for game in selected_roms:
+            if game.name in available_roms:
+                copy_set.add(game.name)
+            elif game.parent_name and game.parent_name in available_roms:
+                if game.parent_name not in copy_set:
+                    dependencies.append((game.parent_name,
+                                         f"merged parent, contains {game.name}"))
                 copy_set.add(game.parent_name)
 
     # Collect required BIOS zips for all formats (emulators load BIOS separately)
@@ -6875,7 +6871,7 @@ def filter_mame_roms(source_dir: str, dest_dir: str, catver_path: str, dat_path:
             parts.append(f"{bios_deps} BIOS")
         Console.system_stat(label,
                             f"{len(dep_list)} dependency ROMs included ({', '.join(parts)})")
-        if dep_list and verbose:
+        if verbose:
             for dep_name, reason in dep_list:
                 Console.verbose("DEP", f"{dep_name}.zip ({reason})")
     if total_source_size > 0:
