@@ -293,6 +293,15 @@ class AuthConfig:
 
 
 @dataclass
+class WindowConfig:
+    """Window geometry (saved/restored automatically)."""
+    x: Optional[int] = None
+    y: Optional[int] = None
+    width: int = 1200
+    height: int = 800
+
+
+@dataclass
 class DeduplicationConfig:
     """Deduplication options."""
     priority: Optional[str] = None
@@ -315,6 +324,7 @@ class Config:
     auth: AuthConfig = field(default_factory=AuthConfig)
     deduplication: DeduplicationConfig = field(
         default_factory=DeduplicationConfig)
+    window: WindowConfig = field(default_factory=WindowConfig)
 
     # Map of section name -> dataclass type for from_dict
     SECTION_TYPES = {
@@ -326,6 +336,7 @@ class Config:
         'theme': ThemeConfig,
         'auth': AuthConfig,
         'deduplication': DeduplicationConfig,
+        'window': WindowConfig,
     }
 
     @classmethod
@@ -426,6 +437,7 @@ def save_config(config: Config, path: Path) -> None:
         'theme': 'Theme',
         'auth': 'Authentication',
         'deduplication': 'Deduplication',
+        'window': 'Window geometry',
     }
 
     for section_name in Config.SECTION_TYPES:

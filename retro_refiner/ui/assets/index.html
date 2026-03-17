@@ -334,9 +334,9 @@
   <!-- ===== Sidebar ===== -->
   <div class="sidebar">
     <div class="sidebar-actions">
-      <button class="btn btn-preview" id="btn-preview" onclick="doPreview()">Scan</button>
-      <button class="btn btn-run" id="btn-run" onclick="doRun()">Run</button>
-      <button class="btn btn-stop" id="btn-stop" onclick="doStop()" disabled>Stop</button>
+      <button class="btn btn-preview" id="btn-preview" onclick="doPreview()" title="Scan sources and preview what would be selected">Scan</button>
+      <button class="btn btn-run" id="btn-run" onclick="doRun()" title="Scan, download, and transfer files to destination">Run</button>
+      <button class="btn btn-stop" id="btn-stop" onclick="doStop()" disabled title="Cancel the current operation">Stop</button>
     </div>
 
     <!-- Locations -->
@@ -348,19 +348,19 @@
         <div class="field-label">Sources</div>
         <div class="source-list" id="source-list"></div>
         <div class="source-buttons">
-          <button class="source-btn" onclick="addFolder()">+ Folder</button>
-          <button class="source-btn" onclick="addUrl()">+ URL</button>
+          <button class="source-btn" onclick="addFolder()" title="Add a local folder as a ROM source">+ Folder</button>
+          <button class="source-btn" onclick="addUrl()" title="Add a network URL as a ROM source">+ URL</button>
         </div>
         <div class="field-label">Destination</div>
         <div class="field-row">
-          <input type="text" id="dest-path" placeholder="Select destination folder...">
+          <input type="text" id="dest-path" placeholder="Select destination folder..." title="Where filtered ROMs will be transferred">
           <button class="browse-btn" onclick="browseDest()">Browse</button>
           <button class="browse-btn" onclick="openDest()">Open</button>
         </div>
         <div class="field-label">Include systems</div>
-        <input type="text" id="opt-systems" placeholder="e.g. snes, genesis, psx">
+        <input type="text" id="opt-systems" placeholder="e.g. snes, genesis, psx" title="Only process these systems (comma-separated). Leave empty for all.">
         <div class="field-label">Exclude systems</div>
-        <input type="text" id="opt-exclude-systems" placeholder="e.g. 3do, jaguar">
+        <input type="text" id="opt-exclude-systems" placeholder="e.g. 3do, jaguar" title="Skip these systems during scanning (comma-separated)">
       </div>
     </div>
 
@@ -371,24 +371,24 @@
       </div>
       <div class="section-body">
         <div class="check-grid">
-          <label><input type="checkbox" id="opt-all-roms" checked onchange="toggleSelectionOpts()"> All files</label>
+          <label title="Skip all filtering — download every file from sources"><input type="checkbox" id="opt-all-roms" checked onchange="toggleSelectionOpts()"> All files</label>
         </div>
         <div id="selection-filter-opts" style="opacity:0.35;pointer-events:none">
           <div class="check-grid">
-            <label><input type="checkbox" id="opt-best-version"> Best version per game</label>
-            <label><input type="checkbox" id="opt-english"> English only</label>
-            <label><input type="checkbox" id="opt-protos"> Exclude prototypes</label>
-            <label><input type="checkbox" id="opt-betas"> Include betas</label>
-            <label><input type="checkbox" id="opt-no-unlicensed"> Exclude unlicensed</label>
+            <label title="1G1R: select one best ROM per game based on region and revision"><input type="checkbox" id="opt-best-version"> Best version per game</label>
+            <label title="Only keep ROMs with English language support"><input type="checkbox" id="opt-english"> English only</label>
+            <label title="Remove prototype and pre-release ROMs"><input type="checkbox" id="opt-protos"> Exclude prototypes</label>
+            <label title="Keep beta versions (normally excluded)"><input type="checkbox" id="opt-betas"> Include betas</label>
+            <label title="Remove unlicensed and unofficial ROMs"><input type="checkbox" id="opt-no-unlicensed"> Exclude unlicensed</label>
           </div>
           <div class="field-label">Region priority</div>
-          <input type="text" id="opt-region-priority" placeholder="USA, World, Europe, Australia...">
+          <input type="text" id="opt-region-priority" placeholder="USA, World, Europe, Australia..." title="Order of preference when choosing between regional versions">
           <div class="field-label">Keep regions (multi-region output)</div>
-          <input type="text" id="opt-keep-regions" placeholder="e.g. USA, Japan">
+          <input type="text" id="opt-keep-regions" placeholder="e.g. USA, Japan" title="Keep one ROM per listed region instead of just the best single version">
           <div class="field-label">Include patterns (comma-separated globs)</div>
-          <input type="text" id="opt-include-patterns" placeholder="e.g. *Mario*, *Zelda*">
+          <input type="text" id="opt-include-patterns" placeholder="e.g. *Mario*, *Zelda*" title="Only keep filenames matching these glob patterns">
           <div class="field-label">Exclude patterns</div>
-          <input type="text" id="opt-exclude-patterns" placeholder="e.g. *Demo*, *Sample*">
+          <input type="text" id="opt-exclude-patterns" placeholder="e.g. *Demo*, *Sample*" title="Remove filenames matching these glob patterns">
           <div class="field-label">Year range</div>
           <div class="flex-row">
             <input type="number" id="opt-year-from" placeholder="From" min="1970" max="2030" class="flex-1">
@@ -405,16 +405,16 @@
       </div>
       <div class="section-body hidden">
         <div class="field-label">Top N per system</div>
-        <input type="number" id="opt-top" placeholder="e.g. 50" min="0">
+        <input type="number" id="opt-top" placeholder="e.g. 50" min="0" title="Keep only the top N highest-rated games per system">
         <div class="field-label">Max ROMs per system</div>
-        <input type="number" id="opt-limit" placeholder="e.g. 100" min="0">
+        <input type="number" id="opt-limit" placeholder="e.g. 100" min="0" title="Hard cap on number of ROMs per system">
         <div class="field-label">Size budget</div>
-        <input type="text" id="opt-size" placeholder="e.g. 50GB">
+        <input type="text" id="opt-size" placeholder="e.g. 50GB" title="Maximum total download size (e.g. 10GB, 500MB)">
         <div class="check-grid mt-sm">
-          <label><input type="checkbox" id="opt-include-unrated"> Include unrated</label>
+          <label title="Include games without rating data when using Top N"><input type="checkbox" id="opt-include-unrated"> Include unrated</label>
         </div>
         <div class="field-label">Platform exclusive rating boost</div>
-        <input type="number" id="opt-prefer-exclusives" placeholder="e.g. 1.5" step="0.1" min="0">
+        <input type="number" id="opt-prefer-exclusives" placeholder="e.g. 1.5" step="0.1" min="0" title="Multiply ratings of platform-exclusive games by this factor (e.g. 1.5 = 50% boost)">
       </div>
     </div>
 
@@ -425,11 +425,11 @@
       </div>
       <div class="section-body hidden">
         <div class="field-label">System priority</div>
-        <input type="text" id="opt-dedup-priority" placeholder="e.g. snes, genesis, psx">
+        <input type="text" id="opt-dedup-priority" placeholder="e.g. snes, genesis, psx" title="When a game exists on multiple systems, prefer these systems first">
         <div class="field-label">PC game lists (comma-separated paths)</div>
-        <input type="text" id="opt-dedup-pc-lists" placeholder="Paths to PC game list files...">
+        <input type="text" id="opt-dedup-pc-lists" placeholder="Paths to PC game list files..." title="Text files listing PC games to exclude from console selections">
         <div class="check-grid mt-sm">
-          <label><input type="checkbox" id="opt-dedup-delete"> Delete duplicates</label>
+          <label title="Actually delete duplicate files instead of just reporting them"><input type="checkbox" id="opt-dedup-delete"> Delete duplicates</label>
         </div>
       </div>
     </div>
@@ -441,12 +441,12 @@
       </div>
       <div class="section-body hidden">
         <div class="field-label">Parallel downloads</div>
-        <input type="number" id="opt-parallel" min="1" max="32" value="4">
+        <input type="number" id="opt-parallel" min="1" max="32" value="4" title="Number of simultaneous file downloads">
         <div class="field-label">Scan workers</div>
-        <input type="number" id="opt-scan-workers" min="1" max="64" value="16">
+        <input type="number" id="opt-scan-workers" min="1" max="64" value="16" title="Number of parallel threads for scanning source URLs">
         <div class="check-grid mt-sm">
-          <label><input type="checkbox" id="opt-resume-downloads"> Resume downloads</label>
-          <label><input type="checkbox" id="opt-auto-tune" checked> Auto-tune speed</label>
+          <label title="Resume partially downloaded files instead of restarting"><input type="checkbox" id="opt-resume-downloads"> Resume downloads</label>
+          <label title="Automatically adjust download parallelism based on connection stability"><input type="checkbox" id="opt-auto-tune" checked> Auto-tune speed</label>
         </div>
       </div>
     </div>
@@ -458,12 +458,12 @@
       </div>
       <div class="section-body hidden">
         <div class="check-grid">
-          <label><input type="checkbox" id="opt-playlists"> Playlists</label>
-          <label><input type="checkbox" id="opt-gamelists"> Gamelists</label>
-          <label><input type="checkbox" id="opt-flatten"> Flatten output</label>
+          <label title="Generate M3U playlists for multi-disc games"><input type="checkbox" id="opt-playlists"> Playlists</label>
+          <label title="Generate EmulationStation gamelist.xml files"><input type="checkbox" id="opt-gamelists"> Gamelists</label>
+          <label title="Put all ROMs in one folder instead of per-system subfolders"><input type="checkbox" id="opt-flatten"> Flatten output</label>
         </div>
         <div class="field-label">Transfer mode</div>
-        <select id="opt-transfer">
+        <select id="opt-transfer" title="How to transfer files to the destination">
           <option value="copy">Copy</option>
           <option value="move">Move</option>
           <option value="symlink">Symlink</option>
@@ -489,24 +489,24 @@
       </div>
       <div class="section-body hidden">
         <div class="check-grid">
-          <label><input type="checkbox" id="opt-verify-crc" checked> Verify CRC</label>
-          <label><input type="checkbox" id="opt-no-dat"> Skip DAT files</label>
-          <label><input type="checkbox" id="opt-no-chd"> Skip CHD images</label>
-          <label><input type="checkbox" id="opt-no-cache"> Disable cache</label>
-          <label><input type="checkbox" id="opt-no-adult"> Hide adult content</label>
-          <label><input type="checkbox" id="opt-recursive"> Recursive scan</label>
+          <label title="Verify ROM integrity using CRC checksums from DAT files"><input type="checkbox" id="opt-verify-crc" checked> Verify CRC</label>
+          <label title="Don't download or use DAT files for metadata"><input type="checkbox" id="opt-no-dat"> Skip DAT files</label>
+          <label title="Skip CHD (Compressed Hunks of Data) disc images"><input type="checkbox" id="opt-no-chd"> Skip CHD images</label>
+          <label title="Force fresh scans, ignoring cached results"><input type="checkbox" id="opt-no-cache"> Disable cache</label>
+          <label title="Exclude adult/mature-rated games from MAME results"><input type="checkbox" id="opt-no-adult"> Hide adult content</label>
+          <label title="Scan subfolders within source directories"><input type="checkbox" id="opt-recursive"> Recursive scan</label>
         </div>
         <div class="field-label">Max scan depth</div>
-        <input type="number" id="opt-max-depth" min="1" max="10" value="3">
+        <input type="number" id="opt-max-depth" min="1" max="10" value="3" title="How many levels deep to scan when recursive is enabled">
         <div class="field-label">MAME version</div>
-        <input type="text" id="opt-mame-version" placeholder="e.g. 0.261">
+        <input type="text" id="opt-mame-version" placeholder="e.g. 0.261" title="Specific MAME version for DAT file downloads">
         <div class="field-label">DAT directory</div>
         <div class="flex-row">
           <input type="text" id="opt-dat-dir" placeholder="Default: ./dat_files" class="flex-1">
           <button class="browse-btn" onclick="browsePath('opt-dat-dir')">Browse</button>
         </div>
         <div class="field-label">Ratings source</div>
-        <select id="opt-ratings-source">
+        <select id="opt-ratings-source" title="Which rating database to use for Top N filtering">
           <option value="combined">Combined</option>
           <option value="igdb">IGDB only</option>
           <option value="launchbox">LaunchBox only</option>
@@ -521,20 +521,20 @@
       </div>
       <div class="section-body hidden">
         <div class="field-label">IGDB Client ID</div>
-        <input type="text" id="opt-igdb-client-id" placeholder="Twitch app client ID">
+        <input type="text" id="opt-igdb-client-id" placeholder="Twitch app client ID" title="Required for game ratings — register at dev.twitch.tv">
         <div class="field-label">IGDB Client Secret</div>
-        <input type="password" id="opt-igdb-client-secret" placeholder="Twitch app client secret">
+        <input type="password" id="opt-igdb-client-secret" placeholder="Twitch app client secret" title="Twitch application client secret for IGDB API access">
         <div class="field-label">Internet Archive Access Key</div>
-        <input type="text" id="opt-ia-access-key" placeholder="IA S3 access key">
+        <input type="text" id="opt-ia-access-key" placeholder="IA S3 access key" title="S3-compatible access key from archive.org/account/s3.php">
         <div class="field-label">Internet Archive Secret Key</div>
-        <input type="password" id="opt-ia-secret-key" placeholder="IA S3 secret key">
+        <input type="password" id="opt-ia-secret-key" placeholder="IA S3 secret key" title="S3-compatible secret key from archive.org/account/s3.php">
       </div>
     </div>
 
     <div class="sidebar-footer">
-      <button class="btn-subtle" onclick="saveConfig()">Save</button>
-      <button class="btn-subtle" onclick="loadConfig()">Load</button>
-      <button class="btn-subtle" onclick="loadDefaults()">Defaults</button>
+      <button class="btn-subtle" onclick="saveConfig()" title="Save current settings to a YAML file">Save</button>
+      <button class="btn-subtle" onclick="loadConfig()" title="Load settings from a YAML or JSON file">Load</button>
+      <button class="btn-subtle" onclick="loadDefaults()" title="Reset all settings to factory defaults">Defaults</button>
     </div>
 
   </div>

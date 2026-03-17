@@ -11,7 +11,7 @@ from retro_refiner.config import Config, load_config, save_config
 from retro_refiner.paths import get_runtime_path
 from retro_refiner.systems import load_system_data
 
-_UI_STATE_FILENAME = 'retro-refiner-ui.yaml'
+_UI_STATE_FILENAME = '.retro-refiner-state.yaml'
 
 
 class Api:

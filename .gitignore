@@ -4,6 +4,9 @@
 # Windows NUL device artifact
 nul
 
+# App state
+.retro-refiner-state.yaml
+
 # Python
 __pycache__/
 *.py[cod]

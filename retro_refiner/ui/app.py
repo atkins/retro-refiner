@@ -1,14 +1,11 @@
 """pywebview application launcher."""
 
-import json
 from pathlib import Path
 
 import webview
 
 from retro_refiner.paths import get_runtime_path
-from retro_refiner.ui.api import Api
-
-_GEOMETRY_FILENAME = 'retro-refiner-window.json'
+from retro_refiner.ui.api import Api, _UI_STATE_FILENAME
 
 
 def get_assets_dir() -> Path:
@@ -17,36 +14,23 @@ def get_assets_dir() -> Path:
 
 
 def _load_geometry() -> dict:
-    """Load saved window geometry, returning defaults if unavailable."""
+    """Load saved window geometry from the unified state file."""
+    from retro_refiner.config import load_config  # pylint: disable=import-outside-toplevel
     defaults = {'x': None, 'y': None, 'width': 1200, 'height': 800}
-    path = get_runtime_path() / _GEOMETRY_FILENAME
+    path = get_runtime_path() / _UI_STATE_FILENAME
     if not path.exists():
         return defaults
     try:
-        data = json.loads(path.read_text(encoding='utf-8'))
+        config = load_config(path)
+        win = config.window
         return {
-            'x': data.get('x'),
-            'y': data.get('y'),
-            'width': data.get('width', 1200),
-            'height': data.get('height', 800),
+            'x': win.x,
+            'y': win.y,
+            'width': win.width or 1200,
+            'height': win.height or 800,
         }
-    except (OSError, ValueError, KeyError):
+    except (OSError, ValueError):
         return defaults
-
-
-def _save_geometry(window):
-    """Save current window position and size."""
-    path = get_runtime_path() / _GEOMETRY_FILENAME
-    try:
-        data = {
-            'x': window.x,
-            'y': window.y,
-            'width': window.width,
-            'height': window.height,
-        }
-        path.write_text(json.dumps(data), encoding='utf-8')
-    except (OSError, AttributeError):
-        pass
 
 
 def start_app():
@@ -57,7 +41,13 @@ def start_app():
 
     def on_closing():
         """Save UI state and window geometry when the window is closed."""
-        _save_geometry(window)
+        try:
+            api._config.window.x = window.x  # pylint: disable=protected-access
+            api._config.window.y = window.y  # pylint: disable=protected-access
+            api._config.window.width = window.width  # pylint: disable=protected-access
+            api._config.window.height = window.height  # pylint: disable=protected-access
+        except AttributeError:
+            pass
         api.save_ui_state()
 
     window = webview.create_window(
