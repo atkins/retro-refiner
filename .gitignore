@@ -30,21 +30,30 @@ env/
 .DS_Store
 Thumbs.db
 
-# Local data files
-data/AllPCGames.xml
+# Claude Code / Superpowers
+.claude/
+.superpowers/
 
-# GUI state (auto-saved between sessions)
+# Local data files (LaunchBox playlists)
+data/AllPCGames.xml
+PC-DOS.xml
+PC-Windows.xml
+
+# GUI state (old tkinter + v2)
 .retro-refiner-gui-state.yaml
 
 # Run logs
 logs/
 
-# Retro-Refiner specific
+# Retro-Refiner generated data
 dat_files/
-duplicate_mappings.json
 cache/
+refined/
 *_refined/
+duplicate_mappings.json
 *_verification_report.txt
+*_crc_cache.json
+_scan_cache.json
 *.lpl
 
 # ROM files (don't commit actual ROMs)
