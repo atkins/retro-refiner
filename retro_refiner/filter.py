@@ -244,7 +244,8 @@ def parse_rom_filename(filename: str) -> RomInfo:
         if region_match:
             region_str = region_match.group(1)
             nointro_regions = [
-                'USA', 'World', 'Europe', 'Australia', 'Japan', 'Korea',
+                'USA', 'World', 'Europe', 'Australia', 'England',
+                'Japan', 'Korea',
                 'Brazil', 'France', 'Germany', 'Spain', 'Italy', 'Asia',
                 'Taiwan', 'Hong Kong', 'China']
             for reg in nointro_regions:
@@ -254,7 +255,7 @@ def parse_rom_filename(filename: str) -> RomInfo:
 
         if _RE_ENGLISH_TAG.search(name):
             is_english = True
-        if region in ['USA', 'World', 'Europe', 'Australia']:
+        if region in ['USA', 'World', 'Europe', 'Australia', 'England']:
             is_english = True
         if is_translation:
             is_english = True
@@ -380,11 +381,29 @@ def select_best_rom(roms: List[RomInfo],
     if not base_filtered:
         return None
 
-    # Separate into English and non-English pools
-    english_roms = [r for r in base_filtered if r.is_english]
-    foreign_roms = [r for r in base_filtered if not r.is_english]
+    # Check if a non-English region is explicitly prioritised higher than
+    # all English regions.  When the user deliberately puts e.g. Japan first,
+    # we should honour that instead of unconditionally preferring English.
+    english_regions = {'USA', 'World', 'Europe', 'Australia', 'England'}
+    _uses_custom_foreign = False
+    if region_priority != DEFAULT_REGION_PRIORITY:
+        # Find the highest-priority region that appears in the candidate ROMs
+        first_in_list = next(
+            (r for r in region_priority
+             if any(rom.region == r for rom in base_filtered)), None)
+        if first_in_list and first_in_list not in english_regions:
+            _uses_custom_foreign = True
 
-    candidates = english_roms if english_roms else foreign_roms
+    # Separate into English and non-English pools
+    # Skip this separation when the user's custom priority puts a
+    # non-English region first — let region_priority decide instead.
+    if _uses_custom_foreign:
+        candidates = base_filtered
+    else:
+        english_roms = [r for r in base_filtered if r.is_english]
+        foreign_roms = [r for r in base_filtered if not r.is_english]
+        candidates = english_roms if english_roms else foreign_roms
+
     if not candidates:
         return None
 
@@ -394,21 +413,23 @@ def select_best_rom(roms: List[RomInfo],
     candidates = regular if regular else protos
 
     # Prefer official English over translations over untranslated
-    english_regions = {'USA', 'World', 'Europe', 'Australia', 'England'}
-    non_trans = [r for r in candidates if not r.is_translation]
-    translations = [r for r in candidates if r.is_translation]
+    # (skip when custom foreign priority is active — let sort handle it)
+    if not _uses_custom_foreign:
+        non_trans = [r for r in candidates if not r.is_translation]
+        translations = [r for r in candidates if r.is_translation]
 
-    english_non_trans = [r for r in non_trans if r.region in english_regions]
+        english_non_trans = [
+            r for r in non_trans if r.region in english_regions]
 
-    if english_non_trans:
-        non_hacked = [r for r in english_non_trans if not r.has_hacks]
-        candidates = non_hacked if non_hacked else english_non_trans
-    elif translations:
-        pure_trans = [r for r in translations if not r.has_hacks]
-        candidates = pure_trans if pure_trans else translations
-    elif non_trans:
-        non_hacked = [r for r in non_trans if not r.has_hacks]
-        candidates = non_hacked if non_hacked else non_trans
+        if english_non_trans:
+            non_hacked = [r for r in english_non_trans if not r.has_hacks]
+            candidates = non_hacked if non_hacked else english_non_trans
+        elif translations:
+            pure_trans = [r for r in translations if not r.has_hacks]
+            candidates = pure_trans if pure_trans else translations
+        elif non_trans:
+            non_hacked = [r for r in non_trans if not r.has_hacks]
+            candidates = non_hacked if non_hacked else non_trans
 
     # Sort by region priority, revision, hacks
     def sort_key(rom: RomInfo):

@@ -139,16 +139,16 @@ def parse_teknoparrot_filename(
         date = date_match.group(1)
         year = int(date[:4])
 
-    # Extract region
+    # Extract region — match with or without parentheses so that both
+    # "Game (Export) [HW] [TP].zip" and "Game Export [HW] [TP].zip" work.
     region = 'World'
     region_patterns = [
-        (r'\(Export\)', 'Export'),
-        (r'\(USA\)', 'USA'),
-        (r'\(Japan\)', 'Japan'),
-        (r'\(Asia\)', 'Asia'),
-        (r'\(Europe\)', 'Europe'),
-        (r'\(Korea\)', 'Korea'),
-        (r'\(World\)', 'World'),
+        (r'\bExport\b', 'Export'),
+        (r'\bUSA\b', 'USA'),
+        (r'\bJapan\b', 'Japan'),
+        (r'\bAsia\b', 'Asia'),
+        (r'\bEurope\b', 'Europe'),
+        (r'\bKorea\b', 'Korea'),
         (r'[\[\(]En[\]\)]', 'Export'),
     ]
     for pattern, reg in region_patterns:
@@ -458,7 +458,13 @@ def filter_teknoparrot_network_roms(
 
         rom_info = parse_teknoparrot_filename(filename)
         if not rom_info:
-            continue
+            if no_filter:
+                # In no-filter mode, keep non-TP files as raw URLs
+                url_map[filename] = url
+                size_map[filename] = file_size
+                continue
+            else:
+                continue
 
         if not no_filter:
             should_include, _reason = should_include_teknoparrot_game(
@@ -471,11 +477,8 @@ def filter_teknoparrot_network_roms(
         size_map[filename] = file_size
 
     if no_filter:
-        selected_urls = [url_map[rom.filename]
-                         for rom in all_roms if rom.filename in url_map]
-        selected_size = sum(
-            size_map.get(rom.filename, 0)
-            for rom in all_roms if rom.filename in url_map)
+        selected_urls = list(url_map.values())
+        selected_size = sum(size_map.values())
     else:
         grouped: Dict[str, List[TeknoParrotGameInfo]] = defaultdict(list)
         for rom in all_roms:
