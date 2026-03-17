@@ -293,7 +293,7 @@ class AuthConfig:
 
 
 @dataclass
-class DeduperConfig:
+class DeduplicationConfig:
     """Deduplication options."""
     priority: Optional[str] = None
     pc_lists: List[str] = field(default_factory=list)
@@ -313,7 +313,8 @@ class Config:
     advanced: AdvancedConfig = field(default_factory=AdvancedConfig)
     theme: ThemeConfig = field(default_factory=ThemeConfig)
     auth: AuthConfig = field(default_factory=AuthConfig)
-    dedup: DeduperConfig = field(default_factory=DeduperConfig)
+    deduplication: DeduplicationConfig = field(
+        default_factory=DeduplicationConfig)
 
     # Map of section name -> dataclass type for from_dict
     SECTION_TYPES = {
@@ -324,7 +325,7 @@ class Config:
         'advanced': AdvancedConfig,
         'theme': ThemeConfig,
         'auth': AuthConfig,
-        'dedup': DeduperConfig,
+        'deduplication': DeduplicationConfig,
     }
 
     @classmethod
@@ -332,6 +333,9 @@ class Config:
         """Create a Config from a nested dict, applying values to matching
         fields. Unknown keys are ignored. Missing keys keep defaults."""
         kwargs = {}
+        # Accept legacy 'dedup' key as alias for 'deduplication'
+        if 'dedup' in data and 'deduplication' not in data:
+            data['deduplication'] = data.pop('dedup')
         for key, value in data.items():
             if key in cls.SECTION_TYPES and isinstance(value, dict):
                 section_cls = cls.SECTION_TYPES[key]
@@ -421,7 +425,7 @@ def save_config(config: Config, path: Path) -> None:
         'advanced': 'Advanced options',
         'theme': 'Theme',
         'auth': 'Authentication',
-        'dedup': 'Deduplication',
+        'deduplication': 'Deduplication',
     }
 
     for section_name in Config.SECTION_TYPES:

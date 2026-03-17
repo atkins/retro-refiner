@@ -107,7 +107,6 @@ class Api:
         sel.exclude_protos = ui.get('exclude_protos', False)
         sel.include_betas = ui.get('include_betas', False)
         sel.include_unlicensed = not ui.get('no_unlicensed', False)
-        sel.verbose = ui.get('verbose', False)
         rp = ui.get('region_priority', '').strip()
         if rp:
             sel.region_priority = [r.strip() for r in rp.split(',')
@@ -168,7 +167,7 @@ class Api:
         auth.ia_secret_key = ui.get('ia_secret_key') or None
 
         # Dedup
-        ded = self._config.dedup
+        ded = self._config.deduplication
         ded.priority = ui.get('dedup_priority') or None
         pc = ui.get('dedup_pc_lists', '').strip()
         ded.pc_lists = ([p.strip() for p in pc.split(',')

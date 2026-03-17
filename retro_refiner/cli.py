@@ -222,7 +222,7 @@ def run_headless(args: list):
     )
 
     # ----- Dedup analysis -----
-    if config.dedup.priority:
+    if config.deduplication.priority:
         _run_cli_dedup(config, system_selected_urls)
 
     if not commit:
@@ -479,8 +479,8 @@ def _run_cli_dedup(config, system_selected_urls):
         return
 
     args = SimpleNamespace(
-        dedupe_priority=config.dedup.priority,
-        dedupe_pc_lists=config.dedup.pc_lists or [],
+        dedupe_priority=config.deduplication.priority,
+        dedupe_pc_lists=config.deduplication.pc_lists or [],
         verbose=config.selection.verbose,
     )
 

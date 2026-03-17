@@ -10,7 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from retro_refiner.config import (
     parse_yaml, _parse_yaml_value, _dump_yaml_value,
     Config, SelectionConfig, BudgetConfig, NetworkConfig, OutputConfig,
-    AdvancedConfig, ThemeConfig, AuthConfig, DeduperConfig,
+    AdvancedConfig, ThemeConfig, AuthConfig, DeduplicationConfig,
     DEFAULT_REGION_PRIORITY,
     load_config, save_config,
 )
@@ -367,11 +367,11 @@ def test_config_defaults():
         results.fail("default auth", "all None", repr(cfg.auth))
 
     # Dedup
-    if cfg.dedup.priority is None and cfg.dedup.pc_lists == []:
+    if cfg.deduplication.priority is None and cfg.deduplication.pc_lists == []:
         results.ok("default dedup priority=None pc_lists=[]")
     else:
         results.fail("default dedup", "None/[]",
-                     f"{cfg.dedup.priority}/{cfg.dedup.pc_lists}")
+                     f"{cfg.deduplication.priority}/{cfg.deduplication.pc_lists}")
 
 
 # =============================================================================
@@ -545,7 +545,7 @@ def test_round_trip():
     cfg1.network.parallel = 8
     cfg1.theme.mode = 'light'
     cfg1.auth.igdb_client_id = 'myid'
-    cfg1.dedup.pc_lists = ['list1.xml', 'list2.xml']
+    cfg1.deduplication.pc_lists = ['list1.xml', 'list2.xml']
 
     data = cfg1.to_dict()
     cfg2 = Config.from_dict(data)

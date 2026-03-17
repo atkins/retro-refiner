@@ -104,6 +104,23 @@
   .check-grid label:hover { color: var(--text-primary); }
   .check-grid input[type="checkbox"] { accent-color: var(--accent); }
 
+  /* Utility layout */
+  .flex-row { display: flex; gap: 4px; }
+  .flex-1 { flex: 1; }
+  .mt-sm { margin-top: 6px; }
+
+  /* Sidebar footer buttons */
+  .sidebar-footer {
+    display: flex; gap: 4px; margin-top: auto; padding: 8px 12px;
+    border-top: 1px solid var(--border);
+  }
+  .btn-subtle {
+    flex: 1; border: none; border-radius: 4px; font-size: 10px; cursor: pointer;
+    font-family: var(--font-ui); padding: 6px 8px; font-weight: bold;
+    background: var(--accent-bg); color: var(--text-secondary);
+  }
+  .btn-subtle:hover { background: var(--accent-hover); color: var(--text-primary); }
+
   /* ===== Main panel ===== */
   .main { flex: 1; display: flex; flex-direction: column; background: var(--bg-primary); min-width: 0; }
 
@@ -322,12 +339,13 @@
       <button class="btn btn-stop" id="btn-stop" onclick="doStop()" disabled>Stop</button>
     </div>
 
-    <!-- Sources -->
+    <!-- Locations -->
     <div class="section" data-section="sources">
       <div class="section-header" onclick="toggleSection(this)">
-        <span class="arrow">&#9662;</span> LOCATIONS
+        <span class="arrow">&#9662;</span> FILE LOCATIONS
       </div>
       <div class="section-body">
+        <div class="field-label">Sources</div>
         <div class="source-list" id="source-list"></div>
         <div class="source-buttons">
           <button class="source-btn" onclick="addFolder()">+ Folder</button>
@@ -339,6 +357,10 @@
           <button class="browse-btn" onclick="browseDest()">Browse</button>
           <button class="browse-btn" onclick="openDest()">Open</button>
         </div>
+        <div class="field-label">Include systems</div>
+        <input type="text" id="opt-systems" placeholder="e.g. snes, genesis, psx">
+        <div class="field-label">Exclude systems</div>
+        <input type="text" id="opt-exclude-systems" placeholder="e.g. 3do, jaguar">
       </div>
     </div>
 
@@ -353,12 +375,11 @@
         </div>
         <div id="selection-filter-opts" style="opacity:0.35;pointer-events:none">
           <div class="check-grid">
-            <label><input type="checkbox" id="opt-best-version"> 1G1R (best version per game)</label>
+            <label><input type="checkbox" id="opt-best-version"> Best version per game</label>
             <label><input type="checkbox" id="opt-english"> English only</label>
-            <label><input type="checkbox" id="opt-protos"> Excl. protos</label>
-            <label><input type="checkbox" id="opt-betas"> Incl. betas</label>
-            <label><input type="checkbox" id="opt-verbose"> Verbose</label>
-            <label><input type="checkbox" id="opt-no-unlicensed"> No unlicensed</label>
+            <label><input type="checkbox" id="opt-protos"> Exclude prototypes</label>
+            <label><input type="checkbox" id="opt-betas"> Include betas</label>
+            <label><input type="checkbox" id="opt-no-unlicensed"> Exclude unlicensed</label>
           </div>
           <div class="field-label">Region priority</div>
           <input type="text" id="opt-region-priority" placeholder="USA, World, Europe, Australia...">
@@ -369,9 +390,9 @@
           <div class="field-label">Exclude patterns</div>
           <input type="text" id="opt-exclude-patterns" placeholder="e.g. *Demo*, *Sample*">
           <div class="field-label">Year range</div>
-          <div style="display:flex;gap:4px">
-            <input type="number" id="opt-year-from" placeholder="From" min="1970" max="2030" style="flex:1">
-            <input type="number" id="opt-year-to" placeholder="To" min="1970" max="2030" style="flex:1">
+          <div class="flex-row">
+            <input type="number" id="opt-year-from" placeholder="From" min="1970" max="2030" class="flex-1">
+            <input type="number" id="opt-year-to" placeholder="To" min="1970" max="2030" class="flex-1">
           </div>
         </div>
       </div>
@@ -389,11 +410,27 @@
         <input type="number" id="opt-limit" placeholder="e.g. 100" min="0">
         <div class="field-label">Size budget</div>
         <input type="text" id="opt-size" placeholder="e.g. 50GB">
-        <div class="check-grid" style="margin-top:6px">
+        <div class="check-grid mt-sm">
           <label><input type="checkbox" id="opt-include-unrated"> Include unrated</label>
         </div>
-        <div class="field-label">Exclusive boost</div>
+        <div class="field-label">Platform exclusive rating boost</div>
         <input type="number" id="opt-prefer-exclusives" placeholder="e.g. 1.5" step="0.1" min="0">
+      </div>
+    </div>
+
+    <!-- Deduplication -->
+    <div class="section" data-section="deduplication">
+      <div class="section-header collapsed" onclick="toggleSection(this)">
+        <span class="arrow">&#9656;</span> DEDUPLICATION
+      </div>
+      <div class="section-body hidden">
+        <div class="field-label">System priority</div>
+        <input type="text" id="opt-dedup-priority" placeholder="e.g. snes, genesis, psx">
+        <div class="field-label">PC game lists (comma-separated paths)</div>
+        <input type="text" id="opt-dedup-pc-lists" placeholder="Paths to PC game list files...">
+        <div class="check-grid mt-sm">
+          <label><input type="checkbox" id="opt-dedup-delete"> Delete duplicates</label>
+        </div>
       </div>
     </div>
 
@@ -404,42 +441,42 @@
       </div>
       <div class="section-body hidden">
         <div class="field-label">Parallel downloads</div>
-        <input type="number" id="opt-parallel" placeholder="4" min="1" max="32" value="4">
+        <input type="number" id="opt-parallel" min="1" max="32" value="4">
         <div class="field-label">Scan workers</div>
-        <input type="number" id="opt-scan-workers" placeholder="16" min="1" max="64" value="16">
-        <div class="check-grid" style="margin-top:6px">
+        <input type="number" id="opt-scan-workers" min="1" max="64" value="16">
+        <div class="check-grid mt-sm">
           <label><input type="checkbox" id="opt-resume-downloads"> Resume downloads</label>
-          <label><input type="checkbox" id="opt-auto-tune" checked> Auto-tune</label>
+          <label><input type="checkbox" id="opt-auto-tune" checked> Auto-tune speed</label>
         </div>
       </div>
     </div>
 
-    <!-- Output Options -->
+    <!-- Output -->
     <div class="section" data-section="output">
       <div class="section-header collapsed" onclick="toggleSection(this)">
-        <span class="arrow">&#9656;</span> OUTPUT OPTIONS
+        <span class="arrow">&#9656;</span> OUTPUT
       </div>
       <div class="section-body hidden">
         <div class="check-grid">
           <label><input type="checkbox" id="opt-playlists"> Playlists</label>
           <label><input type="checkbox" id="opt-gamelists"> Gamelists</label>
-          <label><input type="checkbox" id="opt-flatten"> Flatten</label>
+          <label><input type="checkbox" id="opt-flatten"> Flatten output</label>
         </div>
         <div class="field-label">Transfer mode</div>
         <select id="opt-transfer">
           <option value="copy">Copy</option>
-          <option value="move" selected>Move</option>
+          <option value="move">Move</option>
           <option value="symlink">Symlink</option>
           <option value="hardlink">Hardlink</option>
         </select>
         <div class="field-label">RetroArch playlists dir</div>
-        <div style="display:flex;gap:4px">
-          <input type="text" id="opt-retroarch-playlists" placeholder="Path to RetroArch playlists..." style="flex:1">
+        <div class="flex-row">
+          <input type="text" id="opt-retroarch-playlists" placeholder="Path to RetroArch playlists..." class="flex-1">
           <button class="browse-btn" onclick="browsePath('opt-retroarch-playlists')">Browse</button>
         </div>
         <div class="field-label">Log directory</div>
-        <div style="display:flex;gap:4px">
-          <input type="text" id="opt-log-dir" placeholder="e.g. ./logs" style="flex:1">
+        <div class="flex-row">
+          <input type="text" id="opt-log-dir" placeholder="e.g. ./logs" class="flex-1">
           <button class="browse-btn" onclick="browsePath('opt-log-dir')">Browse</button>
         </div>
       </div>
@@ -453,19 +490,19 @@
       <div class="section-body hidden">
         <div class="check-grid">
           <label><input type="checkbox" id="opt-verify-crc" checked> Verify CRC</label>
-          <label><input type="checkbox" id="opt-no-dat"> No DAT</label>
-          <label><input type="checkbox" id="opt-no-chd"> No CHD</label>
-          <label><input type="checkbox" id="opt-no-cache"> No cache</label>
-          <label><input type="checkbox" id="opt-no-adult"> No adult</label>
+          <label><input type="checkbox" id="opt-no-dat"> Skip DAT files</label>
+          <label><input type="checkbox" id="opt-no-chd"> Skip CHD images</label>
+          <label><input type="checkbox" id="opt-no-cache"> Disable cache</label>
+          <label><input type="checkbox" id="opt-no-adult"> Hide adult content</label>
           <label><input type="checkbox" id="opt-recursive"> Recursive scan</label>
         </div>
-        <div class="field-label">Max depth (recursive)</div>
-        <input type="number" id="opt-max-depth" placeholder="3" min="1" max="10" value="3">
+        <div class="field-label">Max scan depth</div>
+        <input type="number" id="opt-max-depth" min="1" max="10" value="3">
         <div class="field-label">MAME version</div>
         <input type="text" id="opt-mame-version" placeholder="e.g. 0.261">
         <div class="field-label">DAT directory</div>
-        <div style="display:flex;gap:4px">
-          <input type="text" id="opt-dat-dir" placeholder="Default: ./dat_files" style="flex:1">
+        <div class="flex-row">
+          <input type="text" id="opt-dat-dir" placeholder="Default: ./dat_files" class="flex-1">
           <button class="browse-btn" onclick="browsePath('opt-dat-dir')">Browse</button>
         </div>
         <div class="field-label">Ratings source</div>
@@ -474,10 +511,6 @@
           <option value="igdb">IGDB only</option>
           <option value="launchbox">LaunchBox only</option>
         </select>
-        <div class="field-label">Include systems</div>
-        <input type="text" id="opt-systems" placeholder="e.g. snes, genesis, psx">
-        <div class="field-label">Exclude systems</div>
-        <input type="text" id="opt-exclude-systems" placeholder="e.g. 3do, jaguar">
       </div>
     </div>
 
@@ -498,26 +531,10 @@
       </div>
     </div>
 
-    <!-- Dedup -->
-    <div class="section" data-section="dedup">
-      <div class="section-header collapsed" onclick="toggleSection(this)">
-        <span class="arrow">&#9656;</span> DEDUP
-      </div>
-      <div class="section-body hidden">
-        <div class="field-label">System priority</div>
-        <input type="text" id="opt-dedup-priority" placeholder="e.g. snes, genesis, psx">
-        <div class="field-label">PC game lists (comma-separated paths)</div>
-        <input type="text" id="opt-dedup-pc-lists" placeholder="Paths to PC game list files...">
-        <div class="check-grid" style="margin-top:6px">
-          <label><input type="checkbox" id="opt-dedup-delete"> Delete duplicates</label>
-        </div>
-      </div>
-    </div>
-
-    <div class="sidebar-actions" style="gap:4px;margin-top:auto;padding-top:8px">
-      <button class="btn btn-stop" style="flex:1;width:auto" onclick="saveConfig()">Save</button>
-      <button class="btn btn-stop" style="flex:1;width:auto" onclick="loadConfig()">Load</button>
-      <button class="btn btn-stop" style="flex:1;width:auto" onclick="loadDefaults()">Defaults</button>
+    <div class="sidebar-footer">
+      <button class="btn-subtle" onclick="saveConfig()">Save</button>
+      <button class="btn-subtle" onclick="loadConfig()">Load</button>
+      <button class="btn-subtle" onclick="loadDefaults()">Defaults</button>
     </div>
 
   </div>
@@ -759,7 +776,7 @@ function restoreUiState(cfg) {
   var out = cfg.output || {};
   var adv = cfg.advanced || {};
   var auth = cfg.auth || {};
-  var dedup = cfg.dedup || {};
+  var dedup = cfg.deduplication || {};
 
   /* Sources & destination */
   if (cfg.sources && cfg.sources.length) { sources = cfg.sources; renderSources(); }
@@ -773,7 +790,6 @@ function restoreUiState(cfg) {
   document.getElementById('opt-english').checked = !!sel.english_only;
   document.getElementById('opt-protos').checked = !!sel.exclude_protos;
   document.getElementById('opt-betas').checked = !!sel.include_betas;
-  document.getElementById('opt-verbose').checked = !!sel.verbose;
   document.getElementById('opt-no-unlicensed').checked = !sel.include_unlicensed;
   toggleSelectionOpts();
   if (sel.region_priority && sel.region_priority.length)
@@ -803,7 +819,7 @@ function restoreUiState(cfg) {
   document.getElementById('opt-playlists').checked = !!out.playlists;
   document.getElementById('opt-gamelists').checked = !!out.gamelist;
   document.getElementById('opt-flatten').checked = !!out.flat;
-  if (out.transfer_mode) document.getElementById('opt-transfer').value = out.transfer_mode;
+  document.getElementById('opt-transfer').value = out.transfer_mode || 'move';
   document.getElementById('opt-retroarch-playlists').value = out.retroarch_playlists || '';
   document.getElementById('opt-log-dir').value = adv.log_dir || '';
 
@@ -818,7 +834,6 @@ function restoreUiState(cfg) {
   document.getElementById('opt-mame-version').value = adv.mame_version || '';
   document.getElementById('opt-dat-dir').value = adv.dat_dir || '';
   if (adv.ratings_source) document.getElementById('opt-ratings-source').value = adv.ratings_source;
-  document.getElementById('opt-exclude-systems').value = '';
 
   /* Auth */
   document.getElementById('opt-igdb-client-id').value = auth.igdb_client_id || '';
@@ -846,7 +861,6 @@ function gatherUiState() {
     english_only: document.getElementById('opt-english').checked,
     exclude_protos: document.getElementById('opt-protos').checked,
     include_betas: document.getElementById('opt-betas').checked,
-    verbose: document.getElementById('opt-verbose').checked,
     no_unlicensed: document.getElementById('opt-no-unlicensed').checked,
     region_priority: document.getElementById('opt-region-priority').value || '',
     keep_regions: document.getElementById('opt-keep-regions').value || '',
@@ -1185,7 +1199,8 @@ function closePicker() {
 
 function renderPicker(title) {
   pickerFilter = '';
-  pickerSort = { col: 'filename', asc: true };
+  var topN = document.getElementById('opt-top').value;
+  pickerSort = topN ? { col: 'status', asc: false } : { col: 'filename', asc: true };
   pickerShowExcluded = true;
 
   var container = document.getElementById('view-picker');
