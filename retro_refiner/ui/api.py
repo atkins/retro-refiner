@@ -53,6 +53,11 @@ class Api:
         self._config = load_config(Path(path))
         return json.dumps(self._config.to_dict())
 
+    def get_default_config(self) -> str:
+        """Reset config to defaults and return as JSON."""
+        self._config = Config()
+        return json.dumps(self._config.to_dict())
+
     def save_ui_state(self):
         """Auto-save current config to the default UI state file."""
         path = get_runtime_path() / _UI_STATE_FILENAME
@@ -94,42 +99,86 @@ class Api:
         self._config.destination = ui.get('destination') or None
         self._config.systems = _parse_csv(ui.get('systems'))
 
+        # Selection
         sel = self._config.selection
+        sel.all_roms = ui.get('all_roms', False)
+        sel.best_version = ui.get('best_version', False)
         sel.english_only = ui.get('english_only', False)
         sel.exclude_protos = ui.get('exclude_protos', False)
         sel.include_betas = ui.get('include_betas', False)
         sel.include_unlicensed = not ui.get('no_unlicensed', False)
         sel.verbose = ui.get('verbose', False)
-        sel.all_roms = ui.get('all_roms', False)
-        sel.best_version = ui.get('best_version', False)
         rp = ui.get('region_priority', '').strip()
         if rp:
-            sel.region_priority = [r.strip() for r in rp.split(',') if r.strip()]
+            sel.region_priority = [r.strip() for r in rp.split(',')
+                                   if r.strip()]
+        sel.keep_regions = ui.get('keep_regions') or None
+        inc = ui.get('include_patterns', '').strip()
+        sel.include_patterns = ([p.strip() for p in inc.split(',')
+                                 if p.strip()] if inc else [])
+        exc = ui.get('exclude_patterns', '').strip()
+        sel.exclude_patterns = ([p.strip() for p in exc.split(',')
+                                 if p.strip()] if exc else [])
+        sel.year_from = _int_or_none(ui.get('year_from'))
+        sel.year_to = _int_or_none(ui.get('year_to'))
 
+        # Budget
         bud = self._config.budget
         bud.top = ui.get('top') or None
         bud.limit = _int_or_none(ui.get('limit'))
         bud.size = ui.get('size') or None
+        bud.include_unrated = ui.get('include_unrated', False)
+        bud.prefer_exclusives = _float_or_none(
+            ui.get('prefer_exclusives'))
 
+        # Network
         net = self._config.network
-        net.connections = _int_or_none(ui.get('connections'))
+        net.parallel = int(ui.get('parallel', 4) or 4)
         net.scan_workers = int(ui.get('scan_workers', 16) or 16)
+        net.resume_downloads = ui.get('resume_downloads', False)
+        net.auto_tune = ui.get('auto_tune', True)
 
+        # Output
         out = self._config.output
         out.playlists = ui.get('playlists', False)
         out.gamelist = ui.get('gamelists', False)
         out.flat = ui.get('flatten', False)
         out.transfer_mode = ui.get('transfer_mode', 'move')
+        out.retroarch_playlists = ui.get('retroarch_playlists') or None
 
+        # Advanced
         adv = self._config.advanced
+        adv.no_verify = ui.get('no_verify', False)
         adv.no_dat = ui.get('no_dat', False)
+        adv.no_chd = ui.get('no_chd', False)
         adv.no_cache = ui.get('no_cache', False)
+        adv.no_adult = ui.get('no_adult', False)
+        adv.recursive = ui.get('recursive', False)
+        adv.max_depth = int(ui.get('max_depth', 3) or 3)
+        adv.mame_version = ui.get('mame_version') or None
+        adv.dat_dir = ui.get('dat_dir') or None
         adv.log_dir = ui.get('log_dir') or None
+        adv.ratings_source = ui.get('ratings_source', 'combined')
 
+        # Auth
+        auth = self._config.auth
+        auth.igdb_client_id = ui.get('igdb_client_id') or None
+        auth.igdb_client_secret = ui.get('igdb_client_secret') or None
+        auth.ia_access_key = ui.get('ia_access_key') or None
+        auth.ia_secret_key = ui.get('ia_secret_key') or None
+
+        # Dedup
+        ded = self._config.dedup
+        ded.priority = ui.get('dedup_priority') or None
+        pc = ui.get('dedup_pc_lists', '').strip()
+        ded.pc_lists = ([p.strip() for p in pc.split(',')
+                         if p.strip()] if pc else [])
+        ded.delete = ui.get('dedup_delete', False)
+
+        # Exclude systems (internal, not on Config)
         excl = ui.get('exclude_systems', '').strip()
-        # Store exclude_systems on config for later use
-        self._exclude_systems = [s.strip() for s in excl.split(',')
-                                 if s.strip()] if excl else []
+        self._exclude_systems = ([s.strip() for s in excl.split(',')
+                                  if s.strip()] if excl else [])
 
     def run_preview(self):
         """Start a preview run (no file transfer)."""
@@ -985,6 +1034,16 @@ def _int_or_none(value):
         return None
     try:
         return int(value)
+    except (ValueError, TypeError):
+        return None
+
+
+def _float_or_none(value):
+    """Convert value to float or None."""
+    if value is None or value == '':
+        return None
+    try:
+        return float(value)
     except (ValueError, TypeError):
         return None
 

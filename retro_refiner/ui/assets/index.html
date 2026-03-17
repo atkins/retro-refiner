@@ -362,6 +362,17 @@
           </div>
           <div class="field-label">Region priority</div>
           <input type="text" id="opt-region-priority" placeholder="USA, World, Europe, Australia...">
+          <div class="field-label">Keep regions (multi-region output)</div>
+          <input type="text" id="opt-keep-regions" placeholder="e.g. USA, Japan">
+          <div class="field-label">Include patterns (comma-separated globs)</div>
+          <input type="text" id="opt-include-patterns" placeholder="e.g. *Mario*, *Zelda*">
+          <div class="field-label">Exclude patterns</div>
+          <input type="text" id="opt-exclude-patterns" placeholder="e.g. *Demo*, *Sample*">
+          <div class="field-label">Year range</div>
+          <div style="display:flex;gap:4px">
+            <input type="number" id="opt-year-from" placeholder="From" min="1970" max="2030" style="flex:1">
+            <input type="number" id="opt-year-to" placeholder="To" min="1970" max="2030" style="flex:1">
+          </div>
         </div>
       </div>
     </div>
@@ -378,6 +389,11 @@
         <input type="number" id="opt-limit" placeholder="e.g. 100" min="0">
         <div class="field-label">Size budget</div>
         <input type="text" id="opt-size" placeholder="e.g. 50GB">
+        <div class="check-grid" style="margin-top:6px">
+          <label><input type="checkbox" id="opt-include-unrated"> Include unrated</label>
+        </div>
+        <div class="field-label">Exclusive boost</div>
+        <input type="number" id="opt-prefer-exclusives" placeholder="e.g. 1.5" step="0.1" min="0">
       </div>
     </div>
 
@@ -387,17 +403,14 @@
         <span class="arrow">&#9656;</span> NETWORK
       </div>
       <div class="section-body hidden">
-        <div class="field-label">Max connections</div>
-        <input type="number" id="opt-connections" placeholder="8" min="1" max="32">
-        <div class="field-label">Bandwidth limit</div>
-        <input type="text" id="opt-bandwidth" placeholder="e.g. 50M">
-        <div class="field-label">Download tool</div>
-        <select id="opt-dl-tool">
-          <option value="">Auto-detect</option>
-          <option value="aria2c">aria2c</option>
-          <option value="curl">curl</option>
-          <option value="urllib">urllib</option>
-        </select>
+        <div class="field-label">Parallel downloads</div>
+        <input type="number" id="opt-parallel" placeholder="4" min="1" max="32" value="4">
+        <div class="field-label">Scan workers</div>
+        <input type="number" id="opt-scan-workers" placeholder="16" min="1" max="64" value="16">
+        <div class="check-grid" style="margin-top:6px">
+          <label><input type="checkbox" id="opt-resume-downloads"> Resume downloads</label>
+          <label><input type="checkbox" id="opt-auto-tune" checked> Auto-tune</label>
+        </div>
       </div>
     </div>
 
@@ -411,15 +424,24 @@
           <label><input type="checkbox" id="opt-playlists"> Playlists</label>
           <label><input type="checkbox" id="opt-gamelists"> Gamelists</label>
           <label><input type="checkbox" id="opt-flatten"> Flatten</label>
-          <label><input type="checkbox" id="opt-log-dir"> Log output</label>
         </div>
         <div class="field-label">Transfer mode</div>
         <select id="opt-transfer">
           <option value="copy">Copy</option>
-          <option value="move">Move</option>
+          <option value="move" selected>Move</option>
           <option value="symlink">Symlink</option>
           <option value="hardlink">Hardlink</option>
         </select>
+        <div class="field-label">RetroArch playlists dir</div>
+        <div style="display:flex;gap:4px">
+          <input type="text" id="opt-retroarch-playlists" placeholder="Path to RetroArch playlists..." style="flex:1">
+          <button class="browse-btn" onclick="browsePath('opt-retroarch-playlists')">Browse</button>
+        </div>
+        <div class="field-label">Log directory</div>
+        <div style="display:flex;gap:4px">
+          <input type="text" id="opt-log-dir" placeholder="e.g. ./logs" style="flex:1">
+          <button class="browse-btn" onclick="browsePath('opt-log-dir')">Browse</button>
+        </div>
       </div>
     </div>
 
@@ -430,21 +452,72 @@
       </div>
       <div class="section-body hidden">
         <div class="check-grid">
-          <label><input type="checkbox" id="opt-verify-crc"> Verify CRC</label>
-          <label><input type="checkbox" id="opt-update-dats"> Update DATs</label>
+          <label><input type="checkbox" id="opt-verify-crc" checked> Verify CRC</label>
           <label><input type="checkbox" id="opt-no-dat"> No DAT</label>
-          <label><input type="checkbox" id="opt-yes"> Skip prompts</label>
+          <label><input type="checkbox" id="opt-no-chd"> No CHD</label>
+          <label><input type="checkbox" id="opt-no-cache"> No cache</label>
+          <label><input type="checkbox" id="opt-no-adult"> No adult</label>
+          <label><input type="checkbox" id="opt-recursive"> Recursive scan</label>
         </div>
-        <div class="field-label">Config file</div>
-        <div class="field-row">
-          <input type="text" id="opt-config" placeholder="Optional config file...">
-          <button class="browse-btn" onclick="browseConfig()">Browse</button>
+        <div class="field-label">Max depth (recursive)</div>
+        <input type="number" id="opt-max-depth" placeholder="3" min="1" max="10" value="3">
+        <div class="field-label">MAME version</div>
+        <input type="text" id="opt-mame-version" placeholder="e.g. 0.261">
+        <div class="field-label">DAT directory</div>
+        <div style="display:flex;gap:4px">
+          <input type="text" id="opt-dat-dir" placeholder="Default: ./dat_files" style="flex:1">
+          <button class="browse-btn" onclick="browsePath('opt-dat-dir')">Browse</button>
         </div>
+        <div class="field-label">Ratings source</div>
+        <select id="opt-ratings-source">
+          <option value="combined">Combined</option>
+          <option value="igdb">IGDB only</option>
+          <option value="launchbox">LaunchBox only</option>
+        </select>
         <div class="field-label">Include systems</div>
         <input type="text" id="opt-systems" placeholder="e.g. snes, genesis, psx">
         <div class="field-label">Exclude systems</div>
         <input type="text" id="opt-exclude-systems" placeholder="e.g. 3do, jaguar">
       </div>
+    </div>
+
+    <!-- Auth -->
+    <div class="section" data-section="auth">
+      <div class="section-header collapsed" onclick="toggleSection(this)">
+        <span class="arrow">&#9656;</span> AUTH
+      </div>
+      <div class="section-body hidden">
+        <div class="field-label">IGDB Client ID</div>
+        <input type="text" id="opt-igdb-client-id" placeholder="Twitch app client ID">
+        <div class="field-label">IGDB Client Secret</div>
+        <input type="password" id="opt-igdb-client-secret" placeholder="Twitch app client secret">
+        <div class="field-label">Internet Archive Access Key</div>
+        <input type="text" id="opt-ia-access-key" placeholder="IA S3 access key">
+        <div class="field-label">Internet Archive Secret Key</div>
+        <input type="password" id="opt-ia-secret-key" placeholder="IA S3 secret key">
+      </div>
+    </div>
+
+    <!-- Dedup -->
+    <div class="section" data-section="dedup">
+      <div class="section-header collapsed" onclick="toggleSection(this)">
+        <span class="arrow">&#9656;</span> DEDUP
+      </div>
+      <div class="section-body hidden">
+        <div class="field-label">System priority</div>
+        <input type="text" id="opt-dedup-priority" placeholder="e.g. snes, genesis, psx">
+        <div class="field-label">PC game lists (comma-separated paths)</div>
+        <input type="text" id="opt-dedup-pc-lists" placeholder="Paths to PC game list files...">
+        <div class="check-grid" style="margin-top:6px">
+          <label><input type="checkbox" id="opt-dedup-delete"> Delete duplicates</label>
+        </div>
+      </div>
+    </div>
+
+    <div class="sidebar-actions" style="gap:4px;margin-top:auto;padding-top:8px">
+      <button class="btn btn-stop" style="flex:1;width:auto" onclick="saveConfig()">Save</button>
+      <button class="btn btn-stop" style="flex:1;width:auto" onclick="loadConfig()">Load</button>
+      <button class="btn btn-stop" style="flex:1;width:auto" onclick="loadDefaults()">Defaults</button>
     </div>
 
   </div>
@@ -630,12 +703,43 @@ function browseDest() {
   }
 }
 
-function browseConfig() {
+function browsePath(elementId) {
   if (window.pywebview) {
-    window.pywebview.api.browse_file(['YAML files (*.yaml;*.yml)', 'JSON files (*.json)', 'All files (*.*)']).then(function(path) {
-      if (path) { document.getElementById('opt-config').value = path; }
+    window.pywebview.api.browse_folder().then(function(path) {
+      if (path) { document.getElementById(elementId).value = path; }
     });
   }
+}
+
+function saveConfig() {
+  if (!window.pywebview) return;
+  window.pywebview.api.save_file_dialog(['YAML files (*.yaml;*.yml)']).then(function(path) {
+    if (path) {
+      pushConfigToBackend().then(function() {
+        window.pywebview.api.save_settings(path);
+      });
+    }
+  });
+}
+
+function loadDefaults() {
+  if (!window.pywebview) return;
+  window.pywebview.api.get_default_config().then(function(json) {
+    var cfg = JSON.parse(json);
+    if (cfg) restoreUiState(cfg);
+  });
+}
+
+function loadConfig() {
+  if (!window.pywebview) return;
+  window.pywebview.api.browse_file(['YAML files (*.yaml;*.yml)', 'JSON files (*.json)', 'All files (*.*)']).then(function(path) {
+    if (path) {
+      window.pywebview.api.load_settings(path).then(function(json) {
+        var cfg = JSON.parse(json);
+        if (cfg && cfg.selection) restoreUiState(cfg);
+      });
+    }
+  });
 }
 
 /* ===== Selection filter toggle ===== */
@@ -654,55 +758,79 @@ function restoreUiState(cfg) {
   var net = cfg.network || {};
   var out = cfg.output || {};
   var adv = cfg.advanced || {};
+  var auth = cfg.auth || {};
+  var dedup = cfg.dedup || {};
 
   /* Sources & destination */
-  if (cfg.sources && cfg.sources.length) {
-    sources = cfg.sources;
-    renderSources();
-  }
-  if (cfg.destination) {
-    document.getElementById('dest-path').value = cfg.destination;
-  }
+  if (cfg.sources && cfg.sources.length) { sources = cfg.sources; renderSources(); }
+  if (cfg.destination) document.getElementById('dest-path').value = cfg.destination;
+  if (cfg.systems && cfg.systems.length)
+    document.getElementById('opt-systems').value = cfg.systems.join(', ');
 
-  /* Selection checkboxes */
+  /* Selection */
+  document.getElementById('opt-all-roms').checked = !!sel.all_roms;
+  document.getElementById('opt-best-version').checked = !!sel.best_version;
   document.getElementById('opt-english').checked = !!sel.english_only;
   document.getElementById('opt-protos').checked = !!sel.exclude_protos;
   document.getElementById('opt-betas').checked = !!sel.include_betas;
   document.getElementById('opt-verbose').checked = !!sel.verbose;
   document.getElementById('opt-no-unlicensed').checked = !sel.include_unlicensed;
-  document.getElementById('opt-all-roms').checked = !!sel.all_roms;
-  document.getElementById('opt-best-version').checked = !!sel.best_version;
   toggleSelectionOpts();
-
-  /* Selection fields */
-  if (sel.region_priority && sel.region_priority.length) {
+  if (sel.region_priority && sel.region_priority.length)
     document.getElementById('opt-region-priority').value = sel.region_priority.join(', ');
-  }
+  document.getElementById('opt-keep-regions').value = sel.keep_regions || '';
+  document.getElementById('opt-include-patterns').value =
+    (sel.include_patterns && sel.include_patterns.length) ? sel.include_patterns.join(', ') : '';
+  document.getElementById('opt-exclude-patterns').value =
+    (sel.exclude_patterns && sel.exclude_patterns.length) ? sel.exclude_patterns.join(', ') : '';
+  document.getElementById('opt-year-from').value = sel.year_from || '';
+  document.getElementById('opt-year-to').value = sel.year_to || '';
 
   /* Budget */
-  if (bud.top) document.getElementById('opt-top').value = bud.top;
-  if (bud.limit) document.getElementById('opt-limit').value = bud.limit;
-  if (bud.size) document.getElementById('opt-size').value = bud.size;
+  document.getElementById('opt-top').value = bud.top || '';
+  document.getElementById('opt-limit').value = bud.limit || '';
+  document.getElementById('opt-size').value = bud.size || '';
+  document.getElementById('opt-include-unrated').checked = !!bud.include_unrated;
+  document.getElementById('opt-prefer-exclusives').value = bud.prefer_exclusives || '';
 
   /* Network */
-  if (net.connections) document.getElementById('opt-connections').value = net.connections;
+  document.getElementById('opt-parallel').value = net.parallel || 4;
+  document.getElementById('opt-scan-workers').value = net.scan_workers || 16;
+  document.getElementById('opt-resume-downloads').checked = !!net.resume_downloads;
+  document.getElementById('opt-auto-tune').checked = net.auto_tune !== false;
 
   /* Output */
   document.getElementById('opt-playlists').checked = !!out.playlists;
   document.getElementById('opt-gamelists').checked = !!out.gamelist;
   document.getElementById('opt-flatten').checked = !!out.flat;
-  document.getElementById('opt-log-dir').checked = !!adv.log_dir;
-  if (out.transfer_mode) {
-    document.getElementById('opt-transfer').value = out.transfer_mode;
-  }
+  if (out.transfer_mode) document.getElementById('opt-transfer').value = out.transfer_mode;
+  document.getElementById('opt-retroarch-playlists').value = out.retroarch_playlists || '';
+  document.getElementById('opt-log-dir').value = adv.log_dir || '';
 
   /* Advanced */
+  document.getElementById('opt-verify-crc').checked = !adv.no_verify;
   document.getElementById('opt-no-dat').checked = !!adv.no_dat;
+  document.getElementById('opt-no-chd').checked = !!adv.no_chd;
+  document.getElementById('opt-no-cache').checked = !!adv.no_cache;
+  document.getElementById('opt-no-adult').checked = !!adv.no_adult;
+  document.getElementById('opt-recursive').checked = !!adv.recursive;
+  document.getElementById('opt-max-depth').value = adv.max_depth || 3;
+  document.getElementById('opt-mame-version').value = adv.mame_version || '';
+  document.getElementById('opt-dat-dir').value = adv.dat_dir || '';
+  if (adv.ratings_source) document.getElementById('opt-ratings-source').value = adv.ratings_source;
+  document.getElementById('opt-exclude-systems').value = '';
 
-  /* Systems */
-  if (cfg.systems && cfg.systems.length) {
-    document.getElementById('opt-systems').value = cfg.systems.join(', ');
-  }
+  /* Auth */
+  document.getElementById('opt-igdb-client-id').value = auth.igdb_client_id || '';
+  document.getElementById('opt-igdb-client-secret').value = auth.igdb_client_secret || '';
+  document.getElementById('opt-ia-access-key').value = auth.ia_access_key || '';
+  document.getElementById('opt-ia-secret-key').value = auth.ia_secret_key || '';
+
+  /* Dedup */
+  document.getElementById('opt-dedup-priority').value = dedup.priority || '';
+  document.getElementById('opt-dedup-pc-lists').value =
+    (dedup.pc_lists && dedup.pc_lists.length) ? dedup.pc_lists.join(', ') : '';
+  document.getElementById('opt-dedup-delete').checked = !!dedup['delete'];
 }
 
 /* ===== Gather UI state ===== */
@@ -710,28 +838,60 @@ function gatherUiState() {
   return {
     sources: sources,
     destination: document.getElementById('dest-path').value || '',
+    systems: document.getElementById('opt-systems').value || '',
+    exclude_systems: document.getElementById('opt-exclude-systems').value || '',
+    /* Selection */
+    all_roms: document.getElementById('opt-all-roms').checked,
+    best_version: document.getElementById('opt-best-version').checked,
     english_only: document.getElementById('opt-english').checked,
     exclude_protos: document.getElementById('opt-protos').checked,
     include_betas: document.getElementById('opt-betas').checked,
     verbose: document.getElementById('opt-verbose').checked,
     no_unlicensed: document.getElementById('opt-no-unlicensed').checked,
-    all_roms: document.getElementById('opt-all-roms').checked,
-    best_version: document.getElementById('opt-best-version').checked,
     region_priority: document.getElementById('opt-region-priority').value || '',
+    keep_regions: document.getElementById('opt-keep-regions').value || '',
+    include_patterns: document.getElementById('opt-include-patterns').value || '',
+    exclude_patterns: document.getElementById('opt-exclude-patterns').value || '',
+    year_from: document.getElementById('opt-year-from').value || '',
+    year_to: document.getElementById('opt-year-to').value || '',
+    /* Budget */
     top: document.getElementById('opt-top').value || '',
     limit: document.getElementById('opt-limit').value || '',
     size: document.getElementById('opt-size').value || '',
-    connections: document.getElementById('opt-connections').value || '',
-    scan_workers: 16,
+    include_unrated: document.getElementById('opt-include-unrated').checked,
+    prefer_exclusives: document.getElementById('opt-prefer-exclusives').value || '',
+    /* Network */
+    parallel: document.getElementById('opt-parallel').value || '',
+    scan_workers: document.getElementById('opt-scan-workers').value || '',
+    resume_downloads: document.getElementById('opt-resume-downloads').checked,
+    auto_tune: document.getElementById('opt-auto-tune').checked,
+    /* Output */
     playlists: document.getElementById('opt-playlists').checked,
     gamelists: document.getElementById('opt-gamelists').checked,
     flatten: document.getElementById('opt-flatten').checked,
-    log_dir: document.getElementById('opt-log-dir').checked ? './logs' : '',
     transfer_mode: document.getElementById('opt-transfer').value,
+    retroarch_playlists: document.getElementById('opt-retroarch-playlists').value || '',
+    log_dir: document.getElementById('opt-log-dir').value || '',
+    /* Advanced */
+    no_verify: !document.getElementById('opt-verify-crc').checked,
     no_dat: document.getElementById('opt-no-dat').checked,
-    no_cache: false,
-    systems: document.getElementById('opt-systems').value || '',
-    exclude_systems: document.getElementById('opt-exclude-systems').value || '',
+    no_chd: document.getElementById('opt-no-chd').checked,
+    no_cache: document.getElementById('opt-no-cache').checked,
+    no_adult: document.getElementById('opt-no-adult').checked,
+    recursive: document.getElementById('opt-recursive').checked,
+    max_depth: document.getElementById('opt-max-depth').value || '',
+    mame_version: document.getElementById('opt-mame-version').value || '',
+    dat_dir: document.getElementById('opt-dat-dir').value || '',
+    ratings_source: document.getElementById('opt-ratings-source').value || 'combined',
+    /* Auth */
+    igdb_client_id: document.getElementById('opt-igdb-client-id').value || '',
+    igdb_client_secret: document.getElementById('opt-igdb-client-secret').value || '',
+    ia_access_key: document.getElementById('opt-ia-access-key').value || '',
+    ia_secret_key: document.getElementById('opt-ia-secret-key').value || '',
+    /* Dedup */
+    dedup_priority: document.getElementById('opt-dedup-priority').value || '',
+    dedup_pc_lists: document.getElementById('opt-dedup-pc-lists').value || '',
+    dedup_delete: document.getElementById('opt-dedup-delete').checked,
   };
 }
 
