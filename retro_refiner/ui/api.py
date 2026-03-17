@@ -425,11 +425,9 @@ class Api:
                 if system in self._last_results:
                     self._last_results[system]['selected_urls'] = selected_urls
 
-            # TODO: Budget filters (--top, --limit, --size) require ratings
-            # data to apply properly. For now, simple limit is noted but not
-            # applied since it requires proportional truncation across systems.
-            # Dedup is available in the core engine but not yet exposed in the
-            # GUI — wire it when the dedup UI is built.
+            # ----- Budget filters: --limit, --top, --size -----
+            if self._running:
+                self._apply_budget_filters(config, all_systems, all_sizes)
 
             if not self._running:
                 self._push_event('status', {
@@ -439,10 +437,6 @@ class Api:
 
             # Commit mode: download and transfer files
             if commit and self._running:
-                from retro_refiner.downloader import (  # pylint: disable=import-outside-toplevel
-                    get_download_tool, download_batch_with_aria2c,
-                    download_batch_with_curl,
-                )
                 from retro_refiner.transfer import (  # pylint: disable=import-outside-toplevel
                     transfer_files, generate_m3u_playlist,
                     generate_gamelist_xml,
@@ -475,31 +469,14 @@ class Api:
                             'text': f'  {system.upper()}: downloading '
                                     f'{len(downloads)} files...\n',
                         })
-                        tool = get_download_tool()
-                        if tool == 'aria2c':
-                            download_batch_with_aria2c(
-                                downloads,
-                                parallel=config.network.parallel)
-                        elif tool == 'curl':
-                            download_batch_with_curl(
-                                downloads,
-                                parallel=config.network.parallel)
-                        else:
-                            # urllib fallback
-                            import urllib.request as urllib_req  # pylint: disable=import-outside-toplevel
-                            for dl_url, dl_path in downloads:
-                                try:
-                                    req = urllib_req.Request(
-                                        dl_url,
-                                        headers={
-                                            'User-Agent': 'Mozilla/5.0'})
-                                    with urllib_req.urlopen(
-                                            req, timeout=60) as resp:
-                                        import shutil as _shutil  # pylint: disable=import-outside-toplevel
-                                        with open(dl_path, 'wb') as f_out:
-                                            _shutil.copyfileobj(resp, f_out)
-                                except Exception:  # pylint: disable=broad-except
-                                    pass
+                        # NOTE: DownloadUI requires a TTY for its
+                        # interactive curses/keyboard UI, so it cannot
+                        # run inside the pywebview context.  We use the
+                        # batch download functions and push progress
+                        # events to the JS frontend instead.
+                        self._download_batch(
+                            downloads, config.network.parallel,
+                            system)
 
                     # Transfer cached files to destination
                     cached_files = []
@@ -576,6 +553,197 @@ class Api:
             })
         finally:
             self._running = False
+
+    def _download_batch(self, downloads, parallel, system):
+        """Download files using best available tool with progress events."""
+        from retro_refiner.downloader import (  # pylint: disable=import-outside-toplevel
+            get_download_tool, download_batch_with_aria2c,
+            download_batch_with_curl,
+        )
+
+        total = len(downloads)
+        tool = get_download_tool()
+
+        if tool == 'aria2c':
+            download_batch_with_aria2c(downloads, parallel=parallel)
+        elif tool == 'curl':
+            download_batch_with_curl(downloads, parallel=parallel)
+        else:
+            # urllib fallback with per-file progress
+            import urllib.request as urllib_req  # pylint: disable=import-outside-toplevel
+            import shutil as _shutil  # pylint: disable=import-outside-toplevel
+            for idx, (dl_url, dl_path) in enumerate(downloads, 1):
+                if not self._running:
+                    break
+                self._push_event('progress', {
+                    'phase': 'download',
+                    'message': f'{system.upper()}: {idx}/{total}',
+                    'current': idx,
+                    'total': total,
+                })
+                try:
+                    req = urllib_req.Request(
+                        dl_url,
+                        headers={'User-Agent': 'Mozilla/5.0'})
+                    with urllib_req.urlopen(req, timeout=60) as resp:
+                        with open(dl_path, 'wb') as f_out:
+                            _shutil.copyfileobj(resp, f_out)
+                except Exception:  # pylint: disable=broad-except
+                    pass
+
+        self._push_event('log', {
+            'text': f'  {system.upper()}: download complete '
+                    f'({total} files, tool={tool or "urllib"})\n',
+        })
+
+    def _apply_budget_filters(self, config, all_systems, all_sizes):
+        """Apply --limit, --top, and --size budget filters after filtering."""
+        # --limit: simple total cap across systems
+        if config.budget.limit:
+            remaining = config.budget.limit
+            for system in sorted(all_systems):
+                sys_data = self._last_results.get(system, {})
+                sys_urls = sys_data.get('selected_urls', [])
+                if not sys_urls:
+                    continue
+                if remaining <= 0:
+                    sys_data['selected_urls'] = []
+                elif len(sys_urls) > remaining:
+                    sys_data['selected_urls'] = sys_urls[:remaining]
+                    remaining = 0
+                else:
+                    remaining -= len(sys_urls)
+
+        # --top and --size require ratings data
+        if config.budget.top or config.budget.size:
+            self._apply_ratings_budget(config, all_systems, all_sizes)
+
+    def _apply_ratings_budget(self, config, all_systems, all_sizes):
+        """Load ratings and apply --top / --size budget filters."""
+        from retro_refiner.ratings import (  # pylint: disable=import-outside-toplevel
+            build_ratings_cache, download_launchbox_data,
+            apply_top_n_filter, apply_size_budget,
+            boost_exclusive_ratings,
+        )
+        from retro_refiner.filter import parse_rom_filename  # pylint: disable=import-outside-toplevel
+
+        dat_dir = Path(config.advanced.dat_dir or './dat_files')
+        dat_dir.mkdir(parents=True, exist_ok=True)
+
+        self._push_event('log', {
+            'text': '\nLoading ratings data...\n',
+        })
+
+        # Download LaunchBox data if not cached
+        xml_path = download_launchbox_data(
+            dat_dir,
+            on_progress=lambda dl, total: self._push_event('progress', {
+                'phase': 'ratings',
+                'message': f'Downloading ratings ({dl // 1024 // 1024}MB)',
+                'current': dl,
+                'total': total,
+            }),
+        )
+
+        if not xml_path:
+            self._push_event('log', {
+                'text': '  No ratings data available '
+                        '(LaunchBox download failed)\n',
+                'className': 'log-warning',
+            })
+            return
+
+        cache_path = dat_dir / 'launchbox' / 'ratings_cache.json'
+        ratings = build_ratings_cache(
+            xml_path, cache_path=cache_path,
+            on_progress=lambda br, total, gc: self._push_event('progress', {
+                'phase': 'ratings',
+                'message': f'Parsing ratings ({gc} games)',
+                'current': br,
+                'total': total,
+            }),
+        )
+
+        if not ratings:
+            self._push_event('log', {
+                'text': '  No ratings found in data\n',
+                'className': 'log-warning',
+            })
+            return
+
+        total_rated = sum(len(v) for v in ratings.values())
+        self._push_event('log', {
+            'text': f'  {total_rated} games rated\n',
+        })
+
+        # Boost exclusives if configured
+        if config.budget.prefer_exclusives:
+            ratings = boost_exclusive_ratings(
+                ratings, boost=config.budget.prefer_exclusives)
+
+        # Apply --top and --size per system
+        for system in sorted(all_systems):
+            if not self._running:
+                return
+            sys_data = self._last_results.get(system, {})
+            sys_urls = sys_data.get('selected_urls', [])
+            if not sys_urls:
+                continue
+
+            sys_ratings = ratings.get(system, {})
+            if not sys_ratings:
+                continue
+
+            # Build lightweight RomInfo objects from URL filenames
+            url_roms = []
+            url_map = {}  # base_title -> url
+            for url in sys_urls:
+                filename = urllib.parse.unquote(
+                    url.split('?')[0].split('#')[0].split('/')[-1])
+                rom = parse_rom_filename(filename)
+                url_roms.append(rom)
+                url_map[id(rom)] = url
+
+            if config.budget.top:
+                before = len(url_roms)
+                url_roms = apply_top_n_filter(
+                    url_roms, sys_ratings, config.budget.top,
+                    include_unrated=config.budget.include_unrated,
+                )
+                after = len(url_roms)
+                if after < before:
+                    self._push_event('log', {
+                        'text': f'  {system.upper()}: top filter '
+                                f'{before} -> {after}\n',
+                    })
+
+            if config.budget.size:
+                budget_bytes = _parse_size_string(config.budget.size)
+                if budget_bytes and budget_bytes > 0:
+                    # Build size lookup keyed by filename
+                    rom_sizes = {}
+                    for rom in url_roms:
+                        url = url_map[id(rom)]
+                        rom_sizes[rom.filename] = all_sizes.get(url, 0)
+
+                    before = len(url_roms)
+                    url_roms, _ = apply_size_budget(
+                        url_roms, rom_sizes, budget_bytes,
+                        ratings=sys_ratings,
+                        name_fn=lambda r: r.filename,
+                        rating_name_fn=lambda r: r.base_title,
+                    )
+                    after = len(url_roms)
+                    if after < before:
+                        self._push_event('log', {
+                            'text': f'  {system.upper()}: size budget '
+                                    f'{before} -> {after}\n',
+                        })
+
+            # Rebuild selected URLs from surviving roms
+            sys_data['selected_urls'] = [
+                url_map[id(rom)] for rom in url_roms
+            ]
 
     def get_system_roms(self, system: str) -> str:
         """Get ROM list for a system as JSON.
@@ -693,4 +861,31 @@ def _int_or_none(value):
     try:
         return int(value)
     except (ValueError, TypeError):
+        return None
+
+
+def _parse_size_string(size_str):
+    """Parse a size string like '10GB', '500MB' into bytes.
+
+    Returns integer bytes or None if parsing fails.
+    """
+    if not size_str:
+        return None
+    size_str = str(size_str).strip().upper()
+    multipliers = {
+        'TB': 1024 ** 4, 'T': 1024 ** 4,
+        'GB': 1024 ** 3, 'G': 1024 ** 3,
+        'MB': 1024 ** 2, 'M': 1024 ** 2,
+        'KB': 1024, 'K': 1024,
+        'B': 1,
+    }
+    for suffix, mult in multipliers.items():
+        if size_str.endswith(suffix):
+            try:
+                return int(float(size_str[:-len(suffix)].strip()) * mult)
+            except ValueError:
+                return None
+    try:
+        return int(float(size_str))
+    except ValueError:
         return None

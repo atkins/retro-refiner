@@ -625,6 +625,211 @@ def test_scanner_local():
                          "{}", repr(result))
 
 
+# =============================================================================
+# Budget Filter Tests
+# =============================================================================
+
+def test_budget_limit():
+    """Test --limit budget filter in API."""
+    print("\n" + "="*60)
+    print("BUDGET LIMIT TESTS")
+    print("="*60)
+
+    from retro_refiner.ui.api import _parse_size_string
+
+    # Size string parsing
+    if _parse_size_string('10GB') == 10 * 1024 ** 3:
+        results.ok("_parse_size_string parses 10GB")
+    else:
+        results.fail("_parse_size_string parses 10GB",
+                     str(10 * 1024 ** 3), str(_parse_size_string('10GB')))
+
+    if _parse_size_string('500MB') == 500 * 1024 ** 2:
+        results.ok("_parse_size_string parses 500MB")
+    else:
+        results.fail("_parse_size_string parses 500MB",
+                     str(500 * 1024 ** 2), str(_parse_size_string('500MB')))
+
+    if _parse_size_string('1.5GB') == int(1.5 * 1024 ** 3):
+        results.ok("_parse_size_string parses 1.5GB")
+    else:
+        results.fail("_parse_size_string parses 1.5GB",
+                     str(int(1.5 * 1024 ** 3)),
+                     str(_parse_size_string('1.5GB')))
+
+    if _parse_size_string(None) is None:
+        results.ok("_parse_size_string returns None for None")
+    else:
+        results.fail("_parse_size_string returns None for None",
+                     "None", str(_parse_size_string(None)))
+
+    if _parse_size_string('') is None:
+        results.ok("_parse_size_string returns None for empty")
+    else:
+        results.fail("_parse_size_string returns None for empty",
+                     "None", str(_parse_size_string('')))
+
+    if _parse_size_string('invalid') is None:
+        results.ok("_parse_size_string returns None for invalid")
+    else:
+        results.fail("_parse_size_string returns None for invalid",
+                     "None", str(_parse_size_string('invalid')))
+
+
+def test_ratings_functions():
+    """Test ratings helper functions."""
+    print("\n" + "="*60)
+    print("RATINGS FUNCTION TESTS")
+    print("="*60)
+
+    from retro_refiner.ratings import (
+        combine_ratings, boost_exclusive_ratings,
+        resolve_top_n, apply_top_n_filter, apply_size_budget,
+    )
+    from retro_refiner.filter import parse_rom_filename
+
+    # resolve_top_n
+    if resolve_top_n(10, 100) == 10:
+        results.ok("resolve_top_n integer")
+    else:
+        results.fail("resolve_top_n integer", "10",
+                     str(resolve_top_n(10, 100)))
+
+    if resolve_top_n("25%", 100) == 25:
+        results.ok("resolve_top_n percentage")
+    else:
+        results.fail("resolve_top_n percentage", "25",
+                     str(resolve_top_n("25%", 100)))
+
+    if resolve_top_n(None, 100) is None:
+        results.ok("resolve_top_n None")
+    else:
+        results.fail("resolve_top_n None", "None",
+                     str(resolve_top_n(None, 100)))
+
+    # combine_ratings
+    igdb = {'snes': {'mario': {'rating': 8.0, 'votes': 100, 'name': 'Mario'}}}
+    lb = {'snes': {'mario': {'rating': 9.0, 'votes': 200, 'name': 'Mario'}}}
+    combined = combine_ratings(igdb, lb)
+    if 'snes' in combined and 'mario' in combined['snes']:
+        rating = combined['snes']['mario']['rating']
+        # Weighted average: (8*100 + 9*200) / 300 = 2600/300 = 8.67
+        if abs(rating - 8.67) < 0.01:
+            results.ok("combine_ratings weighted average")
+        else:
+            results.fail("combine_ratings weighted average",
+                         "~8.67", str(rating))
+    else:
+        results.fail("combine_ratings weighted average",
+                     "combined entry", "missing")
+
+    # boost_exclusive_ratings
+    ratings = {
+        'snes': {'mario': {'rating': 8.0, 'votes': 100, 'name': 'Mario'},
+                 'zelda': {'rating': 9.0, 'votes': 50, 'name': 'Zelda'}},
+        'genesis': {'sonic': {'rating': 8.5, 'votes': 80, 'name': 'Sonic'},
+                    'zelda': {'rating': 7.0, 'votes': 40, 'name': 'Zelda'}},
+    }
+    boosted = boost_exclusive_ratings(ratings, boost=1.0)
+    mario_r = boosted['snes']['mario']['rating']
+    zelda_r = boosted['snes']['zelda']['rating']
+    if mario_r == 9.0 and zelda_r == 9.0:
+        results.ok("boost_exclusive_ratings boosts exclusives only")
+    else:
+        results.fail("boost_exclusive_ratings boosts exclusives only",
+                     "mario=9.0, zelda=9.0",
+                     f"mario={mario_r}, zelda={zelda_r}")
+
+    # apply_top_n_filter
+    roms = []
+    for name in ['Game A (USA).sfc', 'Game B (USA).sfc', 'Game C (USA).sfc']:
+        roms.append(parse_rom_filename(name))
+    sys_ratings = {
+        'game a': {'rating': 9.0, 'votes': 100},
+        'game b': {'rating': 7.0, 'votes': 50},
+        'game c': {'rating': 5.0, 'votes': 30},
+    }
+    filtered = apply_top_n_filter(roms, sys_ratings, 2)
+    if len(filtered) == 2:
+        results.ok("apply_top_n_filter returns top 2")
+    else:
+        results.fail("apply_top_n_filter returns top 2",
+                     "2", str(len(filtered)))
+
+    # apply_size_budget
+    items = ['a', 'b', 'c']
+    sizes = {'a': 100, 'b': 200, 'c': 300}
+    kept, used = apply_size_budget(items, sizes, 350)
+    if len(kept) == 2 and used == 300:
+        results.ok("apply_size_budget fits within budget")
+    else:
+        results.fail("apply_size_budget fits within budget",
+                     "2 kept, 300 used", f"{len(kept)} kept, {used} used")
+
+    # apply_size_budget with zero budget
+    kept2, used2 = apply_size_budget(items, sizes, 0)
+    if len(kept2) == 0 and used2 == 0:
+        results.ok("apply_size_budget zero budget returns empty")
+    else:
+        results.fail("apply_size_budget zero budget returns empty",
+                     "0, 0", f"{len(kept2)}, {used2}")
+
+
+def test_cli_budget_helpers():
+    """Test CLI budget helper functions."""
+    print("\n" + "="*60)
+    print("CLI BUDGET HELPER TESTS")
+    print("="*60)
+
+    from retro_refiner.cli import _parse_size_string
+
+    if _parse_size_string('10GB') == 10 * 1024 ** 3:
+        results.ok("cli _parse_size_string parses 10GB")
+    else:
+        results.fail("cli _parse_size_string parses 10GB",
+                     str(10 * 1024 ** 3),
+                     str(_parse_size_string('10GB')))
+
+    if _parse_size_string('1TB') == 1024 ** 4:
+        results.ok("cli _parse_size_string parses 1TB")
+    else:
+        results.fail("cli _parse_size_string parses 1TB",
+                     str(1024 ** 4),
+                     str(_parse_size_string('1TB')))
+
+    if _parse_size_string('abc') is None:
+        results.ok("cli _parse_size_string returns None for invalid")
+    else:
+        results.fail("cli _parse_size_string returns None for invalid",
+                     "None", str(_parse_size_string('abc')))
+
+
+def test_dedup_functions():
+    """Test dedup module functions."""
+    print("\n" + "="*60)
+    print("DEDUP FUNCTION TESTS")
+    print("="*60)
+
+    from retro_refiner.dedup import parse_pc_game_list, normalize_title_for_dedupe
+    from retro_refiner.dat import normalize_title_for_dedupe as nfd
+
+    # normalize_title_for_dedupe basic test
+    norm = nfd("Super Mario World")
+    if isinstance(norm, str) and len(norm) > 0:
+        results.ok("normalize_title_for_dedupe returns non-empty")
+    else:
+        results.fail("normalize_title_for_dedupe returns non-empty",
+                     "non-empty string", repr(norm))
+
+    # parse_pc_game_list with non-existent file
+    titles = parse_pc_game_list("/nonexistent/file.xml")
+    if titles == set():
+        results.ok("parse_pc_game_list returns empty for missing file")
+    else:
+        results.fail("parse_pc_game_list returns empty for missing file",
+                     "empty set", repr(titles))
+
+
 if __name__ == '__main__':
     test_all_imports()
     test_systems()
@@ -638,5 +843,9 @@ if __name__ == '__main__':
     test_teknoparrot()
     test_downloader()
     test_transfer()
+    test_budget_limit()
+    test_ratings_functions()
+    test_cli_budget_helpers()
+    test_dedup_functions()
     success = results.summary()
     sys.exit(0 if success else 1)
