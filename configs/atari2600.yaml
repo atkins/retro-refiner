@@ -1,0 +1,15 @@
+# Atari 2600 — small set for quick testing
+# Note: destination is intentionally omitted (defaults to ./refined)
+
+sources:
+  - "https://myrient.erista.me/files/No-Intro/Atari%20-%20Atari%202600/"
+
+selection:
+  english_only: true
+
+output:
+  transfer_mode: copy
+
+advanced:
+  cache_dir: "./cache"
+  dat_dir: "./dat_files"

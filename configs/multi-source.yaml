@@ -1,0 +1,16 @@
+# Multi-source test — combines multiple archives
+# Note: destination is intentionally omitted (defaults to ./refined)
+
+sources:
+  - "https://myrient.erista.me/files/No-Intro/Atari%20-%20Atari%202600/"
+  - "https://myrient.erista.me/files/No-Intro/Nintendo%20-%20Game%20Boy/"
+
+selection:
+  english_only: true
+
+output:
+  transfer_mode: copy
+
+advanced:
+  cache_dir: "./cache"
+  dat_dir: "./dat_files"

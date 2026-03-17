@@ -1,0 +1,15 @@
+# TeknoParrot — arcade collection test
+# Note: destination is intentionally omitted (defaults to ./refined)
+
+sources:
+  - "https://myrient.erista.me/files/TeknoParrot/"
+
+selection:
+  english_only: true
+
+output:
+  transfer_mode: move
+
+advanced:
+  cache_dir: "./cache"
+  dat_dir: "./dat_files"

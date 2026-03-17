@@ -1,0 +1,20 @@
+# MAME CHDs — test config for quick verification
+# Note: destination is intentionally omitted (defaults to ./refined)
+
+sources:
+  - "https://myrient.erista.me/files/MAME/CHDs%20%28merged%29/"
+
+selection:
+  english_only: true
+  verbose: false
+
+network:
+  auto_tune: true
+  scan_workers: 16
+
+output:
+  transfer_mode: move
+
+advanced:
+  cache_dir: "./cache"
+  dat_dir: "./dat_files"
