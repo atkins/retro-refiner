@@ -8,7 +8,10 @@ from pathlib import Path
 import webview
 
 from retro_refiner.config import Config, load_config, save_config
+from retro_refiner.paths import get_runtime_path
 from retro_refiner.systems import load_system_data
+
+_UI_STATE_FILENAME = 'retro-refiner-ui.yaml'
 
 
 class Api:
@@ -22,6 +25,7 @@ class Api:
         self._systems_data = load_system_data()
         self._last_results = {}  # system -> {urls, sizes, local_files}
         self._manual_selections = {}  # system -> {filename: bool}
+        self._picker_state = {}  # system -> list of rom dicts
 
     def set_window(self, window):
         """Store a reference to the pywebview window."""
@@ -48,6 +52,25 @@ class Api:
         """Load config from file and return as JSON."""
         self._config = load_config(Path(path))
         return json.dumps(self._config.to_dict())
+
+    def save_ui_state(self):
+        """Auto-save current config to the default UI state file."""
+        path = get_runtime_path() / _UI_STATE_FILENAME
+        try:
+            save_config(self._config, path)
+        except OSError:
+            pass
+
+    def load_ui_state(self) -> str:
+        """Load saved UI state, returning JSON (empty object if none)."""
+        path = get_runtime_path() / _UI_STATE_FILENAME
+        if not path.exists():
+            return '{}'
+        try:
+            self._config = load_config(path)
+            return json.dumps(self._config.to_dict())
+        except (OSError, ValueError):
+            return '{}'
 
     def update_sources(self, sources_json: str):
         """Update sources list from JS."""
@@ -77,7 +100,8 @@ class Api:
         sel.include_betas = ui.get('include_betas', False)
         sel.include_unlicensed = not ui.get('no_unlicensed', False)
         sel.verbose = ui.get('verbose', False)
-        sel.all_roms = ui.get('all_regions', False)
+        sel.all_roms = ui.get('all_roms', False)
+        sel.best_version = ui.get('best_version', False)
         rp = ui.get('region_priority', '').strip()
         if rp:
             sel.region_priority = [r.strip() for r in rp.split(',') if r.strip()]
@@ -95,7 +119,7 @@ class Api:
         out.playlists = ui.get('playlists', False)
         out.gamelist = ui.get('gamelists', False)
         out.flat = ui.get('flatten', False)
-        out.transfer_mode = ui.get('transfer_mode', 'copy')
+        out.transfer_mode = ui.get('transfer_mode', 'move')
 
         adv = self._config.advanced
         adv.no_dat = ui.get('no_dat', False)
@@ -149,7 +173,6 @@ class Api:
             from retro_refiner.scanner import (  # pylint: disable=import-outside-toplevel
                 scan_local_sources, scan_network_source,
             )
-            from retro_refiner.paths import get_runtime_path  # pylint: disable=import-outside-toplevel
 
             # Separate sources into local and network
             local_sources = []
@@ -257,8 +280,10 @@ class Api:
                 })
                 return
 
-            # Store scan results for the ROM picker
+            # Store scan results for the ROM picker (clear prior state)
             self._last_results = {}
+            self._picker_state = {}
+            self._manual_selections = {}
             for sys_code in set(all_urls.keys()) | set(local_systems.keys()):
                 self._last_results[sys_code] = {
                     'urls': all_urls.get(sys_code, []),
@@ -453,6 +478,20 @@ class Api:
                         system, {}).get('selected_urls', [])
                     if not sys_urls:
                         continue
+
+                    # Apply manual picker overrides
+                    manual = self._manual_selections.get(system, {})
+                    if manual:
+                        sys_urls = [
+                            u for u in sys_urls
+                            if manual.get(
+                                urllib.parse.unquote(
+                                    u.split('?')[0].split('#')[0]
+                                    .split('/')[-1]),
+                                True)
+                        ]
+                        if not sys_urls:
+                            continue
 
                     # Build download list for uncached files
                     downloads = []
@@ -749,19 +788,33 @@ class Api:
         """Get ROM list for a system as JSON.
 
         Returns list of {filename, url, size, region, status, reason} dicts.
+        Uses cached picker state if available (preserves manual edits).
         """
+        # Return cached picker state if it exists (preserves manual edits)
+        if system in self._picker_state:
+            return json.dumps(self._picker_state[system])
+
+        from retro_refiner.filter import parse_rom_filename  # pylint: disable=import-outside-toplevel
+
         roms = []
         result = self._last_results.get(system, {})
+        selected_urls = set(result.get('selected_urls', []))
+
         for url in result.get('urls', []):
             filename = urllib.parse.unquote(url.split('/')[-1])
             size = result.get('sizes', {}).get(url, 0)
+            rom_info = parse_rom_filename(filename)
+            is_selected = url in selected_urls
+            reason = ''
+            if not is_selected:
+                reason = _get_exclusion_reason(rom_info)
             roms.append({
                 'filename': filename,
                 'url': url,
                 'size': size,
-                'region': '',
-                'status': 'selected',
-                'reason': '',
+                'region': rom_info.region,
+                'status': 'selected' if is_selected else 'excluded',
+                'reason': reason,
             })
         for filepath in result.get('local_files', []):
             filename = Path(filepath).name
@@ -769,14 +822,18 @@ class Api:
                 size = Path(filepath).stat().st_size
             except OSError:
                 size = 0
+            rom_info = parse_rom_filename(filename)
             roms.append({
                 'filename': filename,
                 'url': '',
                 'size': size,
-                'region': '',
+                'region': rom_info.region,
                 'status': 'selected',
                 'reason': '',
             })
+
+        # Cache for persistence across picker reopens
+        self._picker_state[system] = roms
         return json.dumps(roms)
 
     def get_all_roms(self) -> str:
@@ -802,6 +859,25 @@ class Api:
             self._manual_selections[system] = {}
         for sel in selections:
             self._manual_selections[system][sel['filename']] = sel['selected']
+        # Update cached picker state to match
+        if system in self._picker_state:
+            sel_map = {s['filename']: s['selected'] for s in selections}
+            for rom in self._picker_state[system]:
+                if rom['filename'] in sel_map:
+                    rom['status'] = ('selected' if sel_map[rom['filename']]
+                                     else 'excluded')
+
+    def reset_picker(self, system: str):
+        """Reset picker state to original filter results for a system.
+
+        Pass empty string to reset all systems.
+        """
+        if system:
+            self._picker_state.pop(system, None)
+            self._manual_selections.pop(system, None)
+        else:
+            self._picker_state.clear()
+            self._manual_selections.clear()
 
     def _push_event(self, event_type: str, data: dict):
         """Push an event to the JavaScript frontend."""
@@ -810,6 +886,21 @@ class Api:
             self._window.evaluate_js(
                 f'window.handlePythonEvent({payload})'
             )
+
+    @staticmethod
+    def open_folder(path: str):
+        """Open a folder in the system file explorer."""
+        import subprocess  # pylint: disable=import-outside-toplevel
+        import sys as _sys  # pylint: disable=import-outside-toplevel
+        folder = Path(path)
+        if not folder.exists():
+            folder.mkdir(parents=True, exist_ok=True)
+        if _sys.platform == 'win32':
+            subprocess.Popen(['explorer', str(folder)])  # pylint: disable=consider-using-with
+        elif _sys.platform == 'darwin':
+            subprocess.Popen(['open', str(folder)])  # pylint: disable=consider-using-with
+        else:
+            subprocess.Popen(['xdg-open', str(folder)])  # pylint: disable=consider-using-with
 
     def browse_folder(self) -> str:
         """Open a folder browser dialog. Returns selected path or empty."""
@@ -844,6 +935,40 @@ class Api:
                     return result
                 return result[0] if result else ''
         return ''
+
+
+def _get_exclusion_reason(rom_info):
+    """Return a human-readable reason why a ROM was excluded."""
+    reasons = []
+    if rom_info.is_bios:
+        reasons.append('BIOS')
+    if rom_info.is_pirate:
+        reasons.append('Pirate')
+    if rom_info.is_homebrew:
+        reasons.append('Homebrew')
+    if rom_info.is_unlicensed:
+        reasons.append('Unlicensed')
+    if rom_info.is_beta:
+        reasons.append('Beta')
+    if rom_info.is_demo:
+        reasons.append('Demo')
+    if rom_info.is_promo:
+        reasons.append('Promo')
+    if rom_info.is_sample:
+        reasons.append('Sample')
+    if rom_info.is_proto:
+        reasons.append('Prototype')
+    if rom_info.is_rerelease:
+        reasons.append('Re-release')
+    if rom_info.is_compilation:
+        reasons.append('Compilation')
+    if rom_info.is_lock_on:
+        reasons.append('Lock-on')
+    if rom_info.has_hacks:
+        reasons.append('Hack')
+    if reasons:
+        return ', '.join(reasons)
+    return 'Not best version'
 
 
 def _parse_csv(value):

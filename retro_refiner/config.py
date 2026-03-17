@@ -217,6 +217,7 @@ class SelectionConfig:
     include_patterns: List[str] = field(default_factory=list)
     exclude_patterns: List[str] = field(default_factory=list)
     all_roms: bool = False
+    best_version: bool = False
     verbose: bool = False
     genres: Optional[str] = None
     year_from: Optional[int] = None

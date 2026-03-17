@@ -317,7 +317,7 @@
   <!-- ===== Sidebar ===== -->
   <div class="sidebar">
     <div class="sidebar-actions">
-      <button class="btn btn-preview" id="btn-preview" onclick="doPreview()">Preview</button>
+      <button class="btn btn-preview" id="btn-preview" onclick="doPreview()">Scan</button>
       <button class="btn btn-run" id="btn-run" onclick="doRun()">Run</button>
       <button class="btn btn-stop" id="btn-stop" onclick="doStop()" disabled>Stop</button>
     </div>
@@ -325,7 +325,7 @@
     <!-- Sources -->
     <div class="section" data-section="sources">
       <div class="section-header" onclick="toggleSection(this)">
-        <span class="arrow">&#9662;</span> SOURCES
+        <span class="arrow">&#9662;</span> LOCATIONS
       </div>
       <div class="section-body">
         <div class="source-list" id="source-list"></div>
@@ -337,6 +337,7 @@
         <div class="field-row">
           <input type="text" id="dest-path" placeholder="Select destination folder...">
           <button class="browse-btn" onclick="browseDest()">Browse</button>
+          <button class="browse-btn" onclick="openDest()">Open</button>
         </div>
       </div>
     </div>
@@ -348,15 +349,20 @@
       </div>
       <div class="section-body">
         <div class="check-grid">
-          <label><input type="checkbox" id="opt-english" checked> English only</label>
-          <label><input type="checkbox" id="opt-protos"> Excl. protos</label>
-          <label><input type="checkbox" id="opt-betas"> Incl. betas</label>
-          <label><input type="checkbox" id="opt-verbose" checked> Verbose</label>
-          <label><input type="checkbox" id="opt-no-unlicensed"> No unlicensed</label>
-          <label><input type="checkbox" id="opt-all-regions"> All regions</label>
+          <label><input type="checkbox" id="opt-all-roms" checked onchange="toggleSelectionOpts()"> All files</label>
         </div>
-        <div class="field-label">Region priority</div>
-        <input type="text" id="opt-region-priority" placeholder="USA, World, Europe, Australia...">
+        <div id="selection-filter-opts" style="opacity:0.35;pointer-events:none">
+          <div class="check-grid">
+            <label><input type="checkbox" id="opt-best-version"> 1G1R (best version per game)</label>
+            <label><input type="checkbox" id="opt-english"> English only</label>
+            <label><input type="checkbox" id="opt-protos"> Excl. protos</label>
+            <label><input type="checkbox" id="opt-betas"> Incl. betas</label>
+            <label><input type="checkbox" id="opt-verbose"> Verbose</label>
+            <label><input type="checkbox" id="opt-no-unlicensed"> No unlicensed</label>
+          </div>
+          <div class="field-label">Region priority</div>
+          <input type="text" id="opt-region-priority" placeholder="USA, World, Europe, Australia...">
+        </div>
       </div>
     </div>
 
@@ -468,7 +474,7 @@
         <h2>Retro-Refiner</h2>
         <p>
           Add source folders or URLs in the sidebar, choose a destination,
-          then click <span class="shortcut">Preview</span> to see what would
+          then click <span class="shortcut">Scan</span> to see what would
           be selected or <span class="shortcut">Run</span> to transfer files.
         </p>
       </div>
@@ -609,6 +615,13 @@ async function addUrl() {
   }
 }
 
+function openDest() {
+  var path = document.getElementById('dest-path').value;
+  if (path && window.pywebview) {
+    window.pywebview.api.open_folder(path);
+  }
+}
+
 function browseDest() {
   if (window.pywebview) {
     window.pywebview.api.browse_folder().then(function(path) {
@@ -625,6 +638,73 @@ function browseConfig() {
   }
 }
 
+/* ===== Selection filter toggle ===== */
+function toggleSelectionOpts() {
+  var allFiles = document.getElementById('opt-all-roms').checked;
+  var opts = document.getElementById('selection-filter-opts');
+  opts.style.opacity = allFiles ? '0.35' : '1';
+  opts.style.pointerEvents = allFiles ? 'none' : '';
+}
+
+/* ===== Restore UI state from config ===== */
+function restoreUiState(cfg) {
+  if (!cfg || !cfg.selection) return;
+  var sel = cfg.selection || {};
+  var bud = cfg.budget || {};
+  var net = cfg.network || {};
+  var out = cfg.output || {};
+  var adv = cfg.advanced || {};
+
+  /* Sources & destination */
+  if (cfg.sources && cfg.sources.length) {
+    sources = cfg.sources;
+    renderSources();
+  }
+  if (cfg.destination) {
+    document.getElementById('dest-path').value = cfg.destination;
+  }
+
+  /* Selection checkboxes */
+  document.getElementById('opt-english').checked = !!sel.english_only;
+  document.getElementById('opt-protos').checked = !!sel.exclude_protos;
+  document.getElementById('opt-betas').checked = !!sel.include_betas;
+  document.getElementById('opt-verbose').checked = !!sel.verbose;
+  document.getElementById('opt-no-unlicensed').checked = !sel.include_unlicensed;
+  document.getElementById('opt-all-roms').checked = !!sel.all_roms;
+  document.getElementById('opt-best-version').checked = !!sel.best_version;
+  toggleSelectionOpts();
+
+  /* Selection fields */
+  if (sel.region_priority && sel.region_priority.length) {
+    document.getElementById('opt-region-priority').value = sel.region_priority.join(', ');
+  }
+
+  /* Budget */
+  if (bud.top) document.getElementById('opt-top').value = bud.top;
+  if (bud.limit) document.getElementById('opt-limit').value = bud.limit;
+  if (bud.size) document.getElementById('opt-size').value = bud.size;
+
+  /* Network */
+  if (net.connections) document.getElementById('opt-connections').value = net.connections;
+
+  /* Output */
+  document.getElementById('opt-playlists').checked = !!out.playlists;
+  document.getElementById('opt-gamelists').checked = !!out.gamelist;
+  document.getElementById('opt-flatten').checked = !!out.flat;
+  document.getElementById('opt-log-dir').checked = !!adv.log_dir;
+  if (out.transfer_mode) {
+    document.getElementById('opt-transfer').value = out.transfer_mode;
+  }
+
+  /* Advanced */
+  document.getElementById('opt-no-dat').checked = !!adv.no_dat;
+
+  /* Systems */
+  if (cfg.systems && cfg.systems.length) {
+    document.getElementById('opt-systems').value = cfg.systems.join(', ');
+  }
+}
+
 /* ===== Gather UI state ===== */
 function gatherUiState() {
   return {
@@ -635,7 +715,8 @@ function gatherUiState() {
     include_betas: document.getElementById('opt-betas').checked,
     verbose: document.getElementById('opt-verbose').checked,
     no_unlicensed: document.getElementById('opt-no-unlicensed').checked,
-    all_regions: document.getElementById('opt-all-regions').checked,
+    all_roms: document.getElementById('opt-all-roms').checked,
+    best_version: document.getElementById('opt-best-version').checked,
     region_priority: document.getElementById('opt-region-priority').value || '',
     top: document.getElementById('opt-top').value || '',
     limit: document.getElementById('opt-limit').value || '',
@@ -856,7 +937,7 @@ function renderSummary(data) {
 
   var summary = document.createElement('div');
   summary.className = 'summary';
-  var modeLabel = data.commit ? 'Commit' : 'Preview';
+  var modeLabel = data.commit ? 'Commit' : 'Scan';
   summary.innerHTML =
     '<div style="display:flex;justify-content:space-between;align-items:center;">' +
       '<div class="summary-title">' + modeLabel + ' Complete</div>' +
@@ -945,7 +1026,7 @@ function closePicker() {
 function renderPicker(title) {
   pickerFilter = '';
   pickerSort = { col: 'filename', asc: true };
-  pickerShowExcluded = false;
+  pickerShowExcluded = true;
 
   var container = document.getElementById('view-picker');
   var hasSystem = (pickerSystem === null);
@@ -955,7 +1036,9 @@ function renderPicker(title) {
       '<span class="picker-title">' + title + '</span>' +
       '<span class="picker-stats" id="picker-stats"></span>' +
       '<input type="text" class="picker-search" id="picker-search" placeholder="Filter by filename..." oninput="onPickerSearch(this.value)">' +
-      '<button class="picker-toggle" id="picker-excl-toggle" onclick="toggleExcluded()">Show excluded</button>' +
+      '<button class="picker-toggle" onclick="pickerInvert()">Invert</button>' +
+      '<button class="picker-toggle" onclick="pickerReset()">Reset</button>' +
+      '<button class="picker-toggle active" id="picker-excl-toggle" onclick="toggleExcluded()">Hide excluded</button>' +
     '</div>' +
     '<div class="picker-table-wrap">' +
       '<table class="picker-table">' +
@@ -1004,10 +1087,16 @@ function updatePickerTable() {
 
   /* Stats */
   var selectedCount = 0;
-  filtered.forEach(function(r) { if (r.status === 'selected') selectedCount++; });
+  var selectedSize = 0;
+  var totalSize = 0;
+  filtered.forEach(function(r) {
+    if (r.status === 'selected') { selectedCount++; selectedSize += r.size || 0; }
+    totalSize += r.size || 0;
+  });
   var statsEl = document.getElementById('picker-stats');
   if (statsEl) {
-    statsEl.textContent = selectedCount + ' selected / ' + filtered.length + ' shown / ' + pickerRoms.length + ' total';
+    statsEl.textContent = selectedCount + ' selected (' + formatSize(selectedSize) + ') / ' +
+      filtered.length + ' shown (' + formatSize(totalSize) + ') / ' + pickerRoms.length + ' total';
   }
 
   /* Update sort arrows */
@@ -1104,6 +1193,27 @@ function pickerToggleRow(filteredIdx, checked) {
   savePickerSelections();
 }
 
+function pickerInvert() {
+  var filtered = getFilteredRoms();
+  filtered.forEach(function(rom) {
+    rom.status = rom.status === 'selected' ? 'excluded' : 'selected';
+  });
+  updatePickerTable();
+  savePickerSelections();
+}
+
+function pickerReset() {
+  if (!window.pywebview) return;
+  var sys = pickerSystem || '';
+  window.pywebview.api.reset_picker(sys).then(function() {
+    if (pickerSystem) {
+      openPicker(pickerSystem);
+    } else {
+      openPickerAll();
+    }
+  });
+}
+
 function savePickerSelections() {
   if (!window.pywebview) return;
   if (pickerSystem) {
@@ -1129,6 +1239,26 @@ function savePickerSelections() {
 /* ===== Init ===== */
 (function init() {
   renderSources();
+
+  /* Restore saved UI state when pywebview bridge is ready */
+  function loadSavedState() {
+    window.pywebview.api.load_ui_state().then(function(json) {
+      var cfg = JSON.parse(json);
+      if (cfg && cfg.selection) restoreUiState(cfg);
+    });
+  }
+  if (window.pywebview) {
+    loadSavedState();
+  } else {
+    window.addEventListener('pywebviewready', loadSavedState);
+  }
+
+  /* Push UI state to backend before window closes so it can be saved */
+  window.addEventListener('beforeunload', function() {
+    if (window.pywebview) {
+      pushConfigToBackend();
+    }
+  });
 })();
 </script>
 </body>

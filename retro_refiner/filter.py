@@ -554,6 +554,14 @@ def filter_network_roms(system, urls, config, url_sizes=None,
     if no_filter:
         selected_urls = [url_map[rom.filename]
                          for rom in all_roms if rom.filename in url_map]
+    elif not sel.best_version:
+        # Individual filters applied above, but no 1G1R grouping
+        selected_urls = [url_map[rom.filename]
+                         for rom in all_roms if rom.filename in url_map]
+        if sel.english_only:
+            english_set = {rom.filename for rom in all_roms if rom.is_english}
+            selected_urls = [u for u in selected_urls
+                             if get_filename_from_url(u) in english_set]
     else:
         # Group by normalized title
         grouped: Dict[str, List[RomInfo]] = defaultdict(list)
@@ -656,7 +664,7 @@ def filter_roms_from_files(rom_files: list, dest_dir: str, system: str,
                            region_priority: List[str] = None,
                            keep_regions: List[str] = None,
                            flat_output: bool = False,
-                           transfer_mode: str = 'copy',
+                           transfer_mode: str = 'move',
                            year_from: int = None,
                            year_to: int = None,
                            verbose: bool = False,
@@ -664,6 +672,7 @@ def filter_roms_from_files(rom_files: list, dest_dir: str, system: str,
                            include_unrated: bool = False,
                            ratings: dict = None,
                            no_filter: bool = False,
+                           best_version: bool = False,
                            english_only: bool = False,
                            download_crc_index: dict = None,
                            exclude_titles: set = None,
@@ -740,6 +749,12 @@ def filter_roms_from_files(rom_files: list, dest_dir: str, system: str,
     if no_filter:
         selected_roms = all_roms
         grouped = {rom.base_title: [rom] for rom in all_roms}
+    elif not best_version:
+        # Individual filters applied above, but no 1G1R grouping
+        selected_roms = list(all_roms)
+        grouped = {rom.base_title: [rom] for rom in all_roms}
+        if english_only:
+            selected_roms = [r for r in selected_roms if r.is_english]
     else:
         grouped = defaultdict(list)
         for rom in all_roms:

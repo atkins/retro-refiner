@@ -109,6 +109,7 @@ def _filter_network_roms_compat(urls, system, include_patterns=None,
                                  exclude_patterns=None, include_betas=False,
                                  exclude_protos=False, include_unlicensed=False,
                                  region_priority=None, no_filter=False,
+                                 best_version=True,
                                  english_only=False, keep_regions=None,
                                  url_sizes=None, **_kwargs):
     """Wrap v2 filter_network_roms with the old keyword API for tests."""
@@ -121,6 +122,7 @@ def _filter_network_roms_compat(urls, system, include_patterns=None,
         include_unlicensed=include_unlicensed,
         region_priority=region_priority or DEFAULT_REGION_PRIORITY,
         all_roms=no_filter,
+        best_version=best_version,
         english_only=english_only,
         keep_regions=keep_regions,
     )
@@ -1834,7 +1836,8 @@ def test_all_flag():
         # Without no_filter: betas excluded, 1G1R dedup applied
         selected_normal, _ = filter_roms_from_files(
             rom_paths, str(dest_dir), "nes", dry_run=True,
-            region_priority=DEFAULT_REGION_PRIORITY
+            region_priority=DEFAULT_REGION_PRIORITY,
+            best_version=True
         )
         # With no_filter: all ROMs kept
         selected_all, _ = filter_roms_from_files(
@@ -1954,7 +1957,7 @@ def test_english_only_flag():
         selected, _ = filter_roms_from_files(
             rom_paths, str(dest_dir), "snes", dry_run=True,
             region_priority=DEFAULT_REGION_PRIORITY,
-            english_only=True
+            best_version=True, english_only=True
         )
         selected_names = {r.filename for r in selected}
 
@@ -2109,7 +2112,8 @@ def test_multi_disc_games():
 
         selected, _ = filter_roms_from_files(
             rom_paths, str(dest_dir), "psx", dry_run=True,
-            region_priority=DEFAULT_REGION_PRIORITY
+            region_priority=DEFAULT_REGION_PRIORITY,
+            best_version=True
         )
         selected_names = {r.filename for r in selected}
 
@@ -2777,7 +2781,7 @@ def test_cross_platform_dedupe():
         selected, _ = filter_roms_from_files(
             rom_paths, str(dest_dir), "ps1", dry_run=True,
             region_priority=DEFAULT_REGION_PRIORITY,
-            exclude_titles=exclude
+            best_version=True, exclude_titles=exclude
         )
         selected_titles = {normalize_title(r.base_title) for r in selected}
         if normalize_title("Resident Evil") not in selected_titles:
@@ -2811,7 +2815,7 @@ def test_cross_platform_dedupe():
         selected, _ = filter_roms_from_files(
             rom_paths, str(dest_dir), "ps1", dry_run=True,
             region_priority=DEFAULT_REGION_PRIORITY,
-            exclude_titles=exclude
+            best_version=True, exclude_titles=exclude
         )
         if len(selected) == 2:
             results.ok("exclude_titles with no matches keeps all ROMs")
@@ -2835,12 +2839,12 @@ def test_cross_platform_dedupe():
         selected_none, _ = filter_roms_from_files(
             rom_paths, str(dest_dir), "ps1", dry_run=True,
             region_priority=DEFAULT_REGION_PRIORITY,
-            exclude_titles=None
+            best_version=True, exclude_titles=None
         )
         selected_empty, _ = filter_roms_from_files(
             rom_paths, str(dest_dir), "ps1", dry_run=True,
             region_priority=DEFAULT_REGION_PRIORITY,
-            exclude_titles=set()
+            best_version=True, exclude_titles=set()
         )
         if len(selected_none) == 2 and len(selected_empty) == 2:
             results.ok("exclude_titles=None and empty set don't affect results")
@@ -2870,7 +2874,7 @@ def test_cross_platform_dedupe():
         selected_a, _ = filter_roms_from_files(
             list(rom_dir_a.iterdir()), str(dest_dir), "ps2", dry_run=True,
             region_priority=DEFAULT_REGION_PRIORITY,
-            exclude_titles=claimed
+            best_version=True, exclude_titles=claimed
         )
         # Accumulate titles from system A
         for rom in selected_a:
@@ -2880,7 +2884,7 @@ def test_cross_platform_dedupe():
         selected_b, _ = filter_roms_from_files(
             list(rom_dir_b.iterdir()), str(dest_dir), "ps1", dry_run=True,
             region_priority=DEFAULT_REGION_PRIORITY,
-            exclude_titles=claimed
+            best_version=True, exclude_titles=claimed
         )
 
         if len(selected_a) == 2:
