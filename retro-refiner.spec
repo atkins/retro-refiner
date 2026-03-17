@@ -47,6 +47,7 @@ exe = EXE(
     a.datas,
     [],
     name='retro-refiner',
+    icon='retro_refiner/ui/assets/icon.ico',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
