@@ -36,20 +36,22 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install tkinter (Linux)
+      - name: Install system dependencies (Linux)
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y python3-tk
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgirepository1.0-dev libcairo2-dev libwebkit2gtk-4.1-dev gir1.2-webkit2-4.1
 
-      - name: Install PyInstaller
-        run: pip install pyinstaller
+      - name: Install Python dependencies
+        run: pip install pyinstaller pywebview
 
       - name: Inject version from tag
         shell: bash
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
           echo "VERSION=$VERSION" >> "$GITHUB_ENV"
-          sed -i.bak 's/__version__ = "dev"/__version__ = "'"$VERSION"'"/' retro-refiner.py
-          rm -f retro-refiner.py.bak
+          sed -i.bak 's/__version__ = "dev"/__version__ = "'"$VERSION"'"/' retro_refiner/__init__.py
+          rm -f retro_refiner/__init__.py.bak
 
       - name: Build executable
         run: python -m PyInstaller --noconfirm retro-refiner.spec
@@ -57,7 +59,7 @@ jobs:
       - name: Smoke test
         shell: bash
         run: |
-          ./dist/${{ matrix.exe_name }} --version
+          ./dist/${{ matrix.exe_name }} --export-config > /dev/null
 
       - name: Rename artifact
         shell: bash

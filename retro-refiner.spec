@@ -1,29 +1,36 @@
 # -*- mode: python ; coding: utf-8 -*-
-"""PyInstaller spec for Retro-Refiner — single executable, CLI + GUI."""
+"""PyInstaller spec for Retro-Refiner v2 — single executable with pywebview GUI."""
+
+import os
 
 a = Analysis(
-    ['retro-refiner-app.py'],
+    ['retro_refiner/__main__.py'],
     pathex=[],
     binaries=[],
     datas=[
-        ('retro-refiner.py', '.'),
-        ('retro-refiner-gui.py', '.'),
         ('data/systems.json', 'data'),
         ('data/title_mappings.json', 'data'),
+        ('retro_refiner/ui/assets', 'retro_refiner/ui/assets'),
     ],
     hiddenimports=[
-        # retro-refiner.py and retro-refiner-gui.py are loaded dynamically via
-        # importlib, so PyInstaller cannot detect their dependencies automatically.
-        # All stdlib modules used by both scripts must be listed here.
+        # Core stdlib
         'os', 're', 'sys', 'signal', 'shutil', 'zipfile', 'binascii', 'fnmatch',
         'json', 'unicodedata', 'urllib.request', 'urllib.error', 'urllib.parse',
         'socket', 'ssl', 'atexit', 'subprocess', 'threading', 'pathlib',
         'collections', 'dataclasses', 'typing', 'concurrent.futures',
         'time', 'argparse', 'tempfile', 'io', 'select', 'datetime',
         'xml.etree.ElementTree', 'curses', 'termios', 'tty', 'ctypes', 'msvcrt',
-        # GUI
-        'tkinter', '_tkinter', 'tkinter.ttk', 'tkinter.filedialog',
-        'tkinter.messagebox', 'tkinter.simpledialog', 'queue',
+        'queue', 'html.parser',
+        # pywebview and its backends
+        'webview',
+        # retro_refiner package
+        'retro_refiner', 'retro_refiner.config', 'retro_refiner.systems',
+        'retro_refiner.paths', 'retro_refiner.network', 'retro_refiner.scanner',
+        'retro_refiner.dat', 'retro_refiner.filter', 'retro_refiner.mame',
+        'retro_refiner.teknoparrot', 'retro_refiner.downloader',
+        'retro_refiner.transfer', 'retro_refiner.ratings', 'retro_refiner.dedup',
+        'retro_refiner.models', 'retro_refiner.cli',
+        'retro_refiner.ui', 'retro_refiner.ui.app', 'retro_refiner.ui.api',
     ],
     hookspath=[],
     hooksconfig={},
