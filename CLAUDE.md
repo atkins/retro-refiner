@@ -79,10 +79,10 @@ retro_refiner/
 - **Communication:** JS calls Python via `window.pywebview.api.method_name()` (returns Promise)
 - **Events:** Python pushes events to JS via `window.evaluate_js()` calling `handlePythonEvent()`
 - **Threading:** Core operations run in daemon threads; events pushed to JS on completion
-- **Theme:** Dark/light with CSS custom properties, accent color picker
+- **Theme:** 10 themes (6 dark, 4 light) via `data-theme` attribute on `<html>`. CSS variables in `:root` / `[data-theme="name"]` blocks. Theme selector in bottom bar, persisted via `ThemeConfig.mode`.
 
 ### Config System
-Single `Config` dataclass with nested sections (`SelectionConfig`, `NetworkConfig`, `OutputConfig`, etc.). Same YAML format for GUI save/load and CLI `--run`:
+Single `Config` dataclass with nested sections (`SelectionConfig`, `NetworkConfig`, `OutputConfig`, `DeduplicationConfig`, `WindowConfig`, etc.). Same YAML format for GUI save/load and CLI `--run`. Note: `DeduperConfig` was renamed to `DeduplicationConfig` — field is `.deduplication` (not `.dedup`). `from_dict()` accepts legacy `dedup` key for backward compat.
 ```python
 from retro_refiner.config import Config, load_config, save_config
 config = Config()
@@ -126,6 +126,21 @@ def scan_network_source(url, ..., on_progress=None) -> ScanResult:
     # on_progress receives ProgressEvent objects
 ```
 
+### State Persistence
+All UI state (config + window geometry) saved to `.retro-refiner-state.yaml` in `get_runtime_path()`. Auto-saved on window close via `window.events.closing`. Auto-restored on launch via `load_ui_state()` → `restoreUiState()`. `WindowConfig` dataclass holds x/y/width/height.
+
+### Selection Modes
+Three filtering modes controlled by `all_roms` and `best_version` config flags:
+- `all_roms=True` → no filtering, all files passed through
+- `all_roms=False` + `best_version=False` → individual filters only (patterns, year, english, protos) but no grouping
+- `all_roms=False` + `best_version=True` → full 1G1R: group by title, select best per game
+
+### ROM Picker
+`get_system_roms()` returns all ROMs with region/status/reason populated from `parse_rom_filename()`. Manual selections stored in `_manual_selections` and `_picker_state` dicts on `Api`. Applied during commit via URL filtering. `reset_picker()` clears cached state. Picker state persists across reopens but clears on new scan.
+
+### Filter Return Types
+`filter_network_roms()` returns `FilterResult` dataclass. `filter_mame_network_roms()` and `filter_teknoparrot_network_roms()` return `(selected_urls, size_info_dict)` tuples — not `FilterResult`.
+
 ### Shutdown Mechanism
 `retro_refiner.network` provides thread-safe shutdown:
 ```python
@@ -147,7 +162,7 @@ from retro_refiner.network import request_shutdown, check_shutdown, reset_shutdo
 - **New title mapping**: Add to `data/title_mappings.json` (lowercase, no punctuation, Arabic numerals)
 - **New filter pattern**: Add `re.compile()` to `RERELEASE_PATTERNS` or `COMPILATION_PATTERNS` in `filter.py`
 - **New MAME category**: Edit `MAME_INCLUDE_CATEGORIES` / `MAME_EXCLUDE_CATEGORIES` in `mame.py`
-- **New config option**: Add field to appropriate `*Config` dataclass in `config.py`, add UI widget in `index.html`, wire in `api.py`
+- **New config option**: (1) Add field to `*Config` dataclass in `config.py`, (2) add HTML element in `index.html`, (3) add to `gatherUiState()` JS function, (4) add to `update_config_from_ui()` in `api.py`, (5) add to `restoreUiState()` JS function
 - **New GUI section**: Edit `retro_refiner/ui/assets/index.html` (single-file HTML/CSS/JS)
 - **New API method**: Add to `retro_refiner/ui/api.py` (auto-exposed to JS)
 - **Version string**: `__version__` in `retro_refiner/__init__.py`
@@ -176,6 +191,8 @@ Test files:
 
 All tests import from `retro_refiner.*` package — no monolith imports.
 
+`tests/test_selection.py` uses `_filter_network_roms_compat()` wrapper that defaults `best_version=True` for backward compat. New `filter_roms_from_files` calls in tests that expect 1G1R must pass `best_version=True` explicitly.
+
 ## Platform Notes
 
 - Cross-platform: Windows, macOS, Linux
@@ -183,6 +200,8 @@ All tests import from `retro_refiner.*` package — no monolith imports.
 - `DownloadUI` in `downloader.py` uses curses on Unix, falls back on Windows
 - Colors: `FORCE_COLOR=1` env var forces ANSI output; `NO_COLOR` disables
 - Path helpers handle PyInstaller `sys._MEIPASS` for bundled builds
+- **Window icon**: `icon.ico` / `icon.png` in `ui/assets/`. Set at runtime via Windows ctypes (`LoadImageW` + `SendMessageW`) in `app.py:_set_window_icon()`. Referenced in `retro-refiner.spec` for PyInstaller builds.
+- **CSS theming**: Never use hardcoded colors (#fff, #000, #1a1a2e) in CSS — use variables (`--text-heading`, `--text-on-accent`, `--bg-stripe`, `--border-subtle`). Light themes break otherwise.
 
 ## Packaging & Versioning
 
