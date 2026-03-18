@@ -354,10 +354,10 @@ def test_config_defaults():
                      repr(cfg.advanced.ratings_source))
 
     # Theme
-    if cfg.theme.mode == 'dark' and cfg.theme.accent == '#e94560':
-        results.ok("default theme mode=dark accent=#e94560")
+    if cfg.theme.mode == 'midnight-terminal' and cfg.theme.accent == '#e94560':
+        results.ok("default theme mode=midnight-terminal accent=#e94560")
     else:
-        results.fail("default theme", "dark/#e94560",
+        results.fail("default theme", "midnight-terminal/#e94560",
                      f"{cfg.theme.mode}/{cfg.theme.accent}")
 
     # Auth

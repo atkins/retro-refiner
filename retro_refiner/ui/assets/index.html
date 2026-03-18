@@ -979,6 +979,7 @@ function loadConfig() {
 /* ===== Theme switcher ===== */
 function setTheme(name) {
   document.documentElement.setAttribute('data-theme', name);
+  if (window.pywebview) window.pywebview.api.update_theme(name);
 }
 
 function toggleSelectionOpts() {

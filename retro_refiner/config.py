@@ -279,7 +279,7 @@ class AdvancedConfig:
 @dataclass
 class ThemeConfig:
     """Theme options."""
-    mode: str = 'dark'
+    mode: str = 'midnight-terminal'
     accent: str = '#e94560'
 
 

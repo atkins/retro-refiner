@@ -85,6 +85,10 @@ class Api:
         """Update destination from JS."""
         self._config.destination = dest
 
+    def update_theme(self, theme_name: str):
+        """Update theme immediately so it persists on close."""
+        self._config.theme.mode = theme_name
+
     def update_selection(self, selection_json: str):
         """Update selection config from JS."""
         data = json.loads(selection_json)
