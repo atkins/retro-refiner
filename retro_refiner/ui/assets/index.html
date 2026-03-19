@@ -601,8 +601,8 @@
         <select id="opt-transfer" onchange="toggleDestForTransferMode(); updateCollectionModeTooltip();">
           <option value="copy" title="Duplicate your selected ROMs into the destination folder. Originals stay untouched. Best for building a curated collection while keeping your full library intact.">Copy</option>
           <option value="move" title="Relocate selected ROMs to the destination folder, removing them from the source. Use when you want to reorganize your library and reclaim source disk space.">Move</option>
-          <option value="symlink" title="Create symbolic links in the destination that point back to the originals. Saves disk space while making ROMs accessible from a new location. Requires admin privileges on Windows.">Symlink</option>
-          <option value="hardlink" title="Create hard links in the destination sharing the same data on disk. Zero extra space used, but both paths must be on the same drive. Files appear independent but share storage.">Hardlink</option>
+          <option value="symlink" title="Create symbolic links (shortcuts) that point back to the originals. Works across drives, but if the original is deleted the link breaks. On Windows requires admin privileges or Developer Mode enabled (Win 10 1703+).">Symlink</option>
+          <option value="hardlink" title="Create hard links sharing the same data on disk. Zero extra space used. Deleting one copy doesn't affect the other. Works on NTFS with no special permissions. Both paths must be on the same drive. Best option for most Windows users who want a zero-cost organized collection.">Hardlink</option>
           <option value="delete-dupes" title="Remove duplicate ROMs directly from your source folders based on dedup settings. No destination needed. Use to clean up an existing collection in-place.">Delete Duplicates In-Place</option>
         </select>
         <div class="field-label">Include systems</div>
