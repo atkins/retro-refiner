@@ -1526,9 +1526,16 @@ var LogRenderer = {
     line.className = 'log-finish-line';
     logView.appendChild(line);
 
+    function switchToResults() {
+      if (Object.keys(cardElements).length > 0) {
+        setTimeout(function() { showView('results'); }, 1000);
+      }
+    }
+
     if (this._reducedMotion) {
       line.textContent = '> ' + quip;
       self._scrollLog();
+      switchToResults();
       return;
     }
 
@@ -1540,6 +1547,8 @@ var LogRenderer = {
         line.textContent = text.substring(0, charIdx + 1);
         charIdx++;
         setTimeout(typeChar, delay);
+      } else {
+        switchToResults();
       }
       self._scrollLog();
     }
@@ -1809,9 +1818,7 @@ function _handleEventOriginal(event) {
     }
     if (d.state === 'completed' || d.state === 'error' || d.state === 'cancelled') {
       setRunning(false);
-      if (d.state === 'completed' && Object.keys(cardElements).length > 0) {
-        setTimeout(function() { showView('results'); }, 2000);
-      }
+      /* Results view switch is handled by renderFinish after fanfare */
     }
 
   } else if (event.type === 'log') {
