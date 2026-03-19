@@ -1276,9 +1276,7 @@ function appendLog(text, className, url) {
       log.appendChild(document.createTextNode(text));
     }
   }
-  if (document.getElementById('opt-autoscroll').checked) {
-    log.scrollTop = log.scrollHeight;
-  }
+  LogRenderer._scrollLog();
 }
 
 function clearLog() {
@@ -1500,9 +1498,13 @@ var LogRenderer = {
   },
 
   _scrollLog: function() {
-    var log = document.getElementById('view-log');
-    if (document.getElementById('opt-autoscroll').checked) {
-      log.scrollTop = log.scrollHeight;
+    if (!this._scrollPending && document.getElementById('opt-autoscroll').checked) {
+      this._scrollPending = true;
+      requestAnimationFrame(function() {
+        var log = document.getElementById('view-log');
+        log.scrollTop = log.scrollHeight;
+        LogRenderer._scrollPending = false;
+      });
     }
   },
 
