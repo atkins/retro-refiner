@@ -372,13 +372,13 @@
   .log-view .log-error { color: var(--accent); }
 
   /* === Neo-Terminal Log Renderer === */
-  .log-view .log-boot-line {
+  .log-view .log-finish-line {
     white-space: pre; font-weight: bold;
     background: linear-gradient(90deg, var(--accent), var(--success), var(--info), var(--accent));
     background-size: 200% 100%;
     -webkit-background-clip: text; background-clip: text;
     -webkit-text-fill-color: transparent;
-    animation: gradient-shift 1s ease forwards;
+    animation: gradient-shift 2s ease forwards;
   }
   @keyframes gradient-shift { 0% { background-position: 0% 50%; } 100% { background-position: 100% 50%; } }
   .log-view .log-system-header { color: var(--text-heading); white-space: pre; margin: 0.6em 0 0.2em 0; overflow: hidden; }
@@ -398,7 +398,7 @@
   @keyframes fade-in { from { opacity: 0; } to { opacity: 0.6; } }
   @keyframes glow-border { 0% { text-shadow: 0 0 12px var(--accent); } 100% { text-shadow: none; } }
   @media (prefers-reduced-motion: reduce) {
-    .log-view .log-boot-line { animation: none; }
+    .log-view .log-finish-line { animation: none; }
     .log-view .log-system-header .header-bar { animation: none; }
     .log-view .log-fanfare .fanfare-border { animation: none; }
     .log-view .log-quip { animation: none; opacity: 0.6; }
@@ -1423,8 +1423,6 @@ function renderSummary(data) {
 
 /* ===== Neo-Terminal Log Renderer ===== */
 var LogRenderer = {
-  _eventQueue: [],
-  _booting: false,
   _usedQuips: [],
   _systemLines: {},
   _fanfareShown: false,
@@ -1480,12 +1478,7 @@ var LogRenderer = {
   },
 
   handle: function(event) {
-    if (this._booting && event.type !== 'boot') {
-      this._eventQueue.push(event);
-      return true;
-    }
     switch (event.type) {
-      case 'boot':            this.renderBoot(event.data); return true;
       case 'system-start':    this.renderSystemStart(event.data); return true;
       case 'filter-tick':     this.renderFilterTick(event.data); return true;
       case 'system-complete': this.renderSystemComplete(event.data); return true;
@@ -1494,20 +1487,7 @@ var LogRenderer = {
     }
   },
 
-  _flushQueue: function() {
-    var queue = this._eventQueue.slice();
-    this._eventQueue = [];
-    var self = this;
-    queue.forEach(function(evt) {
-      if (!self.handle(evt)) {
-        _handleEventOriginal(evt);
-      }
-    });
-  },
-
   reset: function() {
-    this._eventQueue = [];
-    this._booting = false;
     this._usedQuips = [];
     this._systemLines = {};
     this._fanfareShown = false;
@@ -1533,39 +1513,33 @@ var LogRenderer = {
     return pick;
   },
 
-  renderBoot: function() {
+  renderFinish: function() {
     var self = this;
-    this._booting = true;
     var logView = document.getElementById('view-log');
 
-    // Pick a random quip for the boot line
     var allQuips = this._quips.filtering.concat(this._quips.nerdy);
-    var quip = allQuips[Math.floor(Math.random() * allQuips.length)];
-    this._usedQuips.push(quip);
+    var pool = allQuips.filter(function(q) { return self._usedQuips.indexOf(q) === -1; });
+    if (pool.length === 0) pool = allQuips;
+    var quip = pool[Math.floor(Math.random() * pool.length)];
 
     var line = document.createElement('div');
-    line.className = 'log-boot-line';
+    line.className = 'log-finish-line';
     logView.appendChild(line);
 
     if (this._reducedMotion) {
       line.textContent = '> ' + quip;
-      self._booting = false;
-      self._flushQueue();
+      self._scrollLog();
       return;
     }
 
-    // Typewriter: ~1s total for the line
     var text = '> ' + quip;
     var charIdx = 0;
-    var delay = Math.max(10, Math.floor(900 / text.length));
+    var delay = Math.max(10, Math.floor(1800 / text.length));
     function typeChar() {
       if (charIdx < text.length) {
         line.textContent = text.substring(0, charIdx + 1);
         charIdx++;
         setTimeout(typeChar, delay);
-      } else {
-        self._booting = false;
-        self._flushQueue();
       }
       self._scrollLog();
     }
@@ -1766,6 +1740,7 @@ var LogRenderer = {
       sep2.className = 'fanfare-border';
       sep2.textContent = sepText + '\n';
       container.appendChild(sep2);
+      this.renderFinish();
       self._scrollLog();
       return;
     }
@@ -1812,6 +1787,7 @@ var LogRenderer = {
           endEl.className = 'fanfare-border';
           endEl.textContent = '\n' + sepText + '\n';
           container.appendChild(endEl);
+          self.renderFinish();
         }
         self._scrollLog();
       }

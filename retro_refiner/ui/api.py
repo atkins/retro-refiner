@@ -226,7 +226,6 @@ class Api:
             })
             run_start = time.monotonic()
 
-            self._push_event('boot', {})
 
             config = self._config
 
