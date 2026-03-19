@@ -1378,7 +1378,7 @@ function updateCardComplete(card, data) {
   actionsDiv.className = 'card-actions';
   var reviewBtn = document.createElement('button');
   reviewBtn.className = 'card-btn';
-  reviewBtn.textContent = 'Review & Edit';
+  reviewBtn.textContent = 'Manage';
   reviewBtn.setAttribute('data-system', data.system);
   reviewBtn.addEventListener('click', function() {
     openPicker(this.getAttribute('data-system'));
