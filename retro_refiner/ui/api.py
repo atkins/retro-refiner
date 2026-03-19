@@ -552,18 +552,12 @@ class Api:
                 # --- Filter local files ---
                 if local_files:
                     try:
-                        rp = sel.region_priority
-                        region_list = ([r.strip() for r in rp.split(',')
-                                        if r.strip()] if rp else None)
+                        region_list = sel.region_priority or None
                         kr = sel.keep_regions
                         keep_list = ([r.strip() for r in kr.split(',')
                                       if r.strip()] if kr else None)
-                        ip = sel.include_patterns
-                        inc_pats = ([p.strip() for p in ip.split(',')
-                                     if p.strip()] if ip else None)
-                        ep = sel.exclude_patterns
-                        exc_pats = ([p.strip() for p in ep.split(',')
-                                     if p.strip()] if ep else None)
+                        inc_pats = sel.include_patterns or None
+                        exc_pats = sel.exclude_patterns or None
                         yf = sel.year_from
                         yt = sel.year_to
                         local_roms, local_info = filter_roms_from_files(
