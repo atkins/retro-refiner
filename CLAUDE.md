@@ -23,14 +23,14 @@ python -m retro_refiner --export-config
 ### Run tests
 ```bash
 python tests/test_selection.py       # 300 core tests
-python tests/test_v2_modules.py      # 60 module tests
+python tests/test_v2_modules.py      # 80 module tests
 python tests/test_v2_config.py       # 65 config tests
 python tests/test_v2_systems.py      # 19 systems tests
 python tests/test_v2_paths.py        # 3 path tests
 python tests/test_v2_cli.py          # 36 CLI tests
 python tests/test_v2_integration.py  # 5 integration tests
 ```
-Note: `pytest` is not installed. Tests use a custom `TestResult` framework and are run directly.
+Note: `pytest` is not installed. Tests use a custom `TestResult` framework and are run directly. **508 tests total, all passing.**
 
 ### Lint
 ```bash
@@ -54,16 +54,16 @@ retro_refiner/
     paths.py          # get_base_path() / get_runtime_path() for PyInstaller compat
     systems.py        # SystemData dataclass, load_system_data() from data/systems.json
     config.py         # Config dataclass (nested), YAML parser, load/save, defaults
-    network.py        # URL utils, HTML scraping, fetch, validation, scan cache, shutdown
+    network.py        # URL utils, HTML scraping, fetch, validation, scan cache, shutdown, SSRF checks
     scanner.py        # ScanProgressBar, detect_system_from_path, scan_network_source_urls
     dat.py            # RomInfo, DatRomEntry, DAT parsing, CRC verification, title normalization
-    filter.py         # parse_rom_filename, select_best_rom, filter_network_roms, 20+ regex patterns
+    filter.py         # parse_rom_filename, select_best_rom, filter_network_roms, filter_roms_from_files
     mame.py           # MameGameInfo, catver.ini parsing, category filtering, clone selection
     teknoparrot.py    # TeknoParrotGameInfo, version dedup, platform filtering
     downloader.py     # DownloadUI, Aria2cRPC, aria2c/curl/urllib, adaptive auto-tune
     transfer.py       # Copy/move/symlink/hardlink, playlist gen, gamelist gen
     ratings.py        # IGDB + LaunchBox rating data, combine/boost ratings
-    dedup.py          # Cross-system dedup analysis, PC game list parsing
+    dedup.py          # Cross-system dedup analysis, exclusion playlist parsing
     models.py         # Shared result types: FilterResult, ProgressEvent, ScanResult, etc.
     ui/
         app.py        # pywebview window launcher
@@ -75,14 +75,22 @@ retro_refiner/
 
 ### GUI (pywebview)
 - **Framework:** pywebview — HTML/CSS/JS rendered in system WebView (Edge on Windows, WebKit on macOS)
-- **Layout:** Sidebar (280px, collapsible settings sections) + main output panel (live cards + log)
+- **Layout:** Sidebar (280px) + main panel (Log, Results, Picker views)
+- **Sidebar structure:** File Locations + Selection always visible; Dedup, Budget, Network, Output, Advanced, Auth behind "More Options" expander
 - **Communication:** JS calls Python via `window.pywebview.api.method_name()` (returns Promise)
 - **Events:** Python pushes events to JS via `window.evaluate_js()` calling `handlePythonEvent()`
+- **Event routing:** `handlePythonEvent` → `LogRenderer.handle()` for structured log events, falls through to `_handleEventOriginal()` for status/card/log/progress/summary
 - **Threading:** Core operations run in daemon threads; events pushed to JS on completion
 - **Theme:** 10 themes (6 dark, 4 light) via `data-theme` attribute on `<html>`. CSS variables in `:root` / `[data-theme="name"]` blocks. Theme selector in bottom bar, persisted via `ThemeConfig.mode`.
+- **Hotkeys:** F5 / Ctrl+R reloads the webview (saves config first)
 
 ### Config System
 Single `Config` dataclass with nested sections (`SelectionConfig`, `NetworkConfig`, `OutputConfig`, `DeduplicationConfig`, `WindowConfig`, etc.). Same YAML format for GUI save/load and CLI `--run`. Note: `DeduperConfig` was renamed to `DeduplicationConfig` — field is `.deduplication` (not `.dedup`). `from_dict()` accepts legacy `dedup` key for backward compat.
+
+New fields:
+- `source_settings: Dict[str, dict]` — per-source recursive scan settings keyed by path
+- Auth credentials are **excluded** from state file persistence for security
+
 ```python
 from retro_refiner.config import Config, load_config, save_config
 config = Config()
@@ -102,12 +110,35 @@ data.folder_aliases       # Dict[str, str], megadrive → genesis
 
 ### Key Data Flow
 1. Config loaded (from GUI state or YAML file)
-2. Sources validated (`network.validate_source`)
-3. Network sources scanned (`scanner.scan_network_source_urls`) with scan caching (24h TTL)
-4. Per-system filtering: `filter.filter_network_roms` (console), `mame.filter_mame_network_roms` (MAME), `teknoparrot.filter_teknoparrot_network_roms` (TeknoParrot)
-5. Results returned as `FilterResult` dataclass → GUI renders as cards
-6. Optional: ROM picker for manual review/edit
-7. Transfer: copy/move/symlink/hardlink via `transfer.transfer_files`
+2. Sources validated (`network.validate_source`) — includes SSRF checks for private IPs
+3. Network sources scanned (`scanner.scan_network_source`) with scan caching (24h TTL)
+4. Local sources scanned (`scanner.scan_local_sources`) with per-source recursive settings
+5. System include/exclude filter applied (pill-based UI)
+6. Per-system filtering: `filter.filter_network_roms` (console URLs), `filter.filter_roms_from_files` (local files), `mame.filter_mame_network_roms` (MAME), `teknoparrot.filter_teknoparrot_network_roms` (TeknoParrot)
+7. Budget filters applied (--top, --limit, --size)
+8. Cross-system dedup applied (if priority configured)
+9. Results returned as structured events → GUI renders cards with preview titles
+10. Optional: ROM picker for manual review/edit (changes auto-save with indicator)
+11. Transfer: copy/move/symlink/hardlink/remove via `transfer.transfer_files`
+
+### `_do_run` Phases (api.py)
+The main run method is split into extracted helper methods:
+- `_validate_sources()` — source validation loop
+- `_scan_sources()` — network + local scanning, returns (all_urls, all_sizes, local_systems, all_systems) or None
+- `_filter_system()` — per-system filtering (network + local), returns (selected, excluded, size, source) tuple
+- `_compute_fanfare()` — ROM content analysis and tidbit generation
+- `_run_dedup()` — cross-system dedup pass
+- `_apply_budget_filters()` — budget/limit/size constraints
+
+### Structured Log Events
+Python emits structured events consumed by JS `LogRenderer`:
+
+| Event Type | When | Rendered As |
+|---|---|---|
+| `system-start` | System begins filtering | Box-drawing header with system name + ROM count |
+| `filter-tick` | Before filtering | Progress placeholder line |
+| `system-complete` | System done | Breakdown with tree chars, expandable audit trail |
+| `fanfare` | Run complete | Box-drawing summary with ROM content tidbits |
 
 ### Structured Results
 Filter functions return `FilterResult` (from `models.py`) instead of printing text:
@@ -127,25 +158,43 @@ def scan_network_source(url, ..., on_progress=None) -> ScanResult:
 ```
 
 ### State Persistence
-All UI state (config + window geometry) saved to `.retro-refiner-state.yaml` in `get_runtime_path()`. Auto-saved on window close via `window.events.closing`. Auto-restored on launch via `load_ui_state()` → `restoreUiState()`. `WindowConfig` dataclass holds x/y/width/height.
+All UI state (config + window geometry) saved to `.retro-refiner-state.yaml` in `get_runtime_path()`. Auto-saved on window close via `window.events.closing` and periodically every 30s. Auto-restored on launch via `load_ui_state()` → `restoreUiState()`. Auth credentials are stripped before saving. `WindowConfig` dataclass holds x/y/width/height.
 
 ### Selection Modes
 Three filtering modes controlled by `all_roms` and `best_version` config flags:
-- `all_roms=True` → no filtering, all files passed through
+- `all_roms=True` → no filtering, all files passed through (UI: "Apply filters" unchecked)
 - `all_roms=False` + `best_version=False` → individual filters only (patterns, year, english, protos) but no grouping
 - `all_roms=False` + `best_version=True` → full 1G1R: group by title, select best per game
 
 ### ROM Picker
-`get_system_roms()` returns all ROMs with region/status/reason populated from `parse_rom_filename()`. Manual selections stored in `_manual_selections` and `_picker_state` dicts on `Api`. Applied during commit via URL filtering. `reset_picker()` clears cached state. Picker state persists across reopens but clears on new scan.
+`get_system_roms()` returns all ROMs with region/status/reason populated from `parse_rom_filename()`. Manual selections stored in `_manual_selections` and `_picker_state` dicts on `Api`. Applied during commit via URL filtering. `reset_picker()` clears cached state. Picker state persists across reopens but clears on new scan. Picker refreshes in-place if a preview completes while the user is in the editor. Search covers filename, region, status, and reason fields.
+
+### Cross-System Dedup
+`_run_dedup()` in api.py walks systems in priority order (configured via ordered pills). Each system claims normalized titles; later systems have duplicates removed. Deduped ROMs show as "excluded" with reason "cross-platform duplicate" in the picker. Exclusion playlists (LaunchBox/RetroArch/XML) can seed the claimed-titles set.
 
 ### Filter Return Types
-`filter_network_roms()` returns `FilterResult` dataclass. `filter_mame_network_roms()` and `filter_teknoparrot_network_roms()` return `(selected_urls, size_info_dict)` tuples — not `FilterResult`.
+`filter_network_roms()` returns `FilterResult` dataclass. `filter_mame_network_roms()` and `filter_teknoparrot_network_roms()` return `(selected_urls, size_info_dict)` tuples — not `FilterResult`. A future refactor should unify these.
+
+### Local File Filtering
+Local files go through `filter_roms_from_files(dry_run=True)` with the same selection config as network sources. Results are combined with network filtering for accurate counts.
+
+### Cancellation
+`cancel_run()` sets `self._running = False` AND calls `network.request_shutdown()` to stop in-flight network operations. `_do_run()` calls `reset_shutdown()` at start.
 
 ### Shutdown Mechanism
 `retro_refiner.network` provides thread-safe shutdown:
 ```python
 from retro_refiner.network import request_shutdown, check_shutdown, reset_shutdown
 ```
+
+### Clipboard
+Platform-native clipboard APIs (no tkinter):
+- Windows: PowerShell `Get-Clipboard` / `Set-Clipboard`
+- macOS: `pbpaste` / `pbcopy`
+- Linux: `xclip`
+
+### Display Names
+Module-level `_SYSTEM_ABBREVS` frozenset and `_display_name(system)` helper in api.py convert system codes to human-readable names (e.g., `snes` → `SNES`, `game-boy-advance` → `Game Boy Advance`).
 
 ## Key Dataclasses
 - `RomInfo` (`dat.py`): Parsed ROM metadata (title, region, language, revision, flags)
@@ -156,6 +205,26 @@ from retro_refiner.network import request_shutdown, check_shutdown, reset_shutdo
 - `Config` (`config.py`): Full app configuration with nested sections
 - `FilterResult`, `ProgressEvent`, `ScanResult` (`models.py`): Structured API results
 
+## GUI Components
+
+### Sidebar (index.html)
+- **File Locations** (always visible): sources with drag-and-drop + per-source recursive toggle, destination path picker, file action dropdown (copy/move/remove/hardlink/symlink), system pills with All/None toggle
+- **Selection** (always visible): "Apply filters" toggle with sub-options (1G1R, English, protos, betas, unlicensed, adult, region priority, patterns, year range)
+- **More Options** (collapsed): Deduplication (ordered priority pills, exclusion playlists), Budget & Limits, Network, Output, Advanced, Auth
+- **Footer**: Save/Load/Defaults buttons
+
+### Path Pickers
+Clickable path-picker UI component (folder icon, truncated path, tooltip, × clear). Used for destination, RetroArch playlists, log dir, DAT dir. `setPathPicker()` / `clearPathPicker()` / `browsePathPicker()` helpers.
+
+### System Pills
+Toggleable pill UI for system include/exclude and dedup priority ordering. `systemPillState` tracks enabled/disabled. `dedupPriorityOrder` tracks click-order for dedup priority with numbered prefixes.
+
+### Result Cards
+Per-system cards with stats, ratio bar, filter breakdown tags, preview titles (top 5 selected ROM names), and "Manage" button. `updateCardComplete()` clears prior content before repopulating (supports dedup updates in-place).
+
+### Log Renderer (LogRenderer object)
+Handles structured events (system-start, filter-tick, system-complete, fanfare). Plain structured output with colored text, box-drawing headers, tree-char breakdowns, expandable audit trails, and fanfare summary with ROM content tidbits. No animations.
+
 ## Common Modification Points
 
 - **New system**: Add entry to `data/systems.json`
@@ -164,7 +233,7 @@ from retro_refiner.network import request_shutdown, check_shutdown, reset_shutdo
 - **New MAME category**: Edit `MAME_INCLUDE_CATEGORIES` / `MAME_EXCLUDE_CATEGORIES` in `mame.py`
 - **New config option**: (1) Add field to `*Config` dataclass in `config.py`, (2) add HTML element in `index.html`, (3) add to `gatherUiState()` JS function, (4) add to `update_config_from_ui()` in `api.py`, (5) add to `restoreUiState()` JS function
 - **New GUI section**: Edit `retro_refiner/ui/assets/index.html` (single-file HTML/CSS/JS)
-- **New API method**: Add to `retro_refiner/ui/api.py` (auto-exposed to JS)
+- **New API method**: Add to `retro_refiner/ui/api.py` (instance methods auto-exposed to JS; static methods are NOT exposed)
 - **Version string**: `__version__` in `retro_refiner/__init__.py`
 
 ## Performance Patterns
@@ -176,7 +245,7 @@ All regex in hot paths (`parse_rom_filename`, `normalize_title`) are `_RE_*` mod
 `get_cached_crc()` in `dat.py` uses persistent JSON cache (`_crc_cache.json`). Entries keyed by filepath, invalidated by mtime+size.
 
 ### Scan caching
-Network scan results cached for 24h in `cache/_scan_cache.json`. Keyed by source URL. Cleaned by `--clean`. Respects `--no-cache`.
+Network scan results cached for 24h in `cache/_scan_cache.json`. Keyed by source URL. Cleaned by `--clean`. Respects `--no-cache`. Atomic writes via temp file + `os.replace()`.
 
 ### Adaptive auto-tune
 Download parallelism starts conservative for large files (parallel=4, conn=1) and ramps up by 1 every 60s of stability, backs off on errors.
@@ -187,11 +256,19 @@ Tests use a custom `TestResult` framework (not pytest). Run directly: `python te
 
 Test files:
 - `tests/test_selection.py` — 300 tests: ROM parsing, selection, filtering, config, playlists, transfers, MAME, TeknoParrot, dedup, ratings
-- `tests/test_v2_*.py` — 188 tests across 6 files covering all v2 modules
+- `tests/test_v2_*.py` — 208 tests across 6 files covering all v2 modules
 
 All tests import from `retro_refiner.*` package — no monolith imports.
 
 `tests/test_selection.py` uses `_filter_network_roms_compat()` wrapper that defaults `best_version=True` for backward compat. New `filter_roms_from_files` calls in tests that expect 1G1R must pass `best_version=True` explicitly.
+
+## Security
+
+- Auth credentials stripped from state file before saving to disk
+- SSRF validation rejects private/localhost URLs in `validate_source()`
+- No `innerHTML` with dynamic content — all DOM construction uses `textContent` or `createElement`
+- Clipboard uses platform-native subprocesses, not tkinter
+- `cancel_run()` propagates shutdown to network operations
 
 ## Platform Notes
 
@@ -202,6 +279,8 @@ All tests import from `retro_refiner.*` package — no monolith imports.
 - Path helpers handle PyInstaller `sys._MEIPASS` for bundled builds
 - **Window icon**: `icon.ico` / `icon.png` in `ui/assets/`. Set at runtime via Windows ctypes (`LoadImageW` + `SendMessageW`) in `app.py:_set_window_icon()`. Referenced in `retro-refiner.spec` for PyInstaller builds.
 - **CSS theming**: Never use hardcoded colors (#fff, #000, #1a1a2e) in CSS — use variables (`--text-heading`, `--text-on-accent`, `--bg-stripe`, `--border-subtle`). Light themes break otherwise.
+- **Scrollbar**: Uses `var(--text-muted)` for hover color — no hardcoded values.
+- **pywebview API**: Only instance methods are exposed to JS. `@staticmethod` methods are NOT visible on the bridge.
 
 ## Packaging & Versioning
 
@@ -210,7 +289,7 @@ Date-based: `YYYY.MM.DD.HHMM`. `__version__ = "dev"` in `retro_refiner/__init__.
 
 ### Release workflow
 ```bash
-git tag v2026.03.16.0945 && git push origin v2026.03.16.0945
+git tag v2026.03.19.0100 && git push origin v2026.03.19.0100
 ```
 
 ### Dependencies
