@@ -306,6 +306,8 @@
   .check-grid label { color: var(--text-secondary); display: flex; align-items: center; gap: 4px; cursor: pointer; }
   .check-grid label:hover { color: var(--text-primary); }
   .check-grid input[type="checkbox"] { accent-color: var(--accent); }
+  .sub-options { margin-left: 8px; padding-left: 10px; border-left: 2px solid var(--accent); margin-top: 6px; transition: opacity 0.2s ease, border-color 0.2s ease; }
+  .sub-options.disabled { opacity: 0.35; pointer-events: none; border-color: var(--border-subtle); }
 
   /* Utility layout */
   .flex-row { display: flex; gap: 4px; }
@@ -609,7 +611,7 @@
         <div class="check-grid">
           <label title="Skip all filtering — download every file from sources"><input type="checkbox" id="opt-all-roms" checked onchange="toggleSelectionOpts()"> All files</label>
         </div>
-        <div id="selection-filter-opts" style="opacity:0.35;pointer-events:none">
+        <div id="selection-filter-opts" class="sub-options disabled">
           <div class="check-grid">
             <label title="1G1R: select one best ROM per game based on region and revision"><input type="checkbox" id="opt-best-version"> Best version per game</label>
             <label title="Only keep ROMs with English language support"><input type="checkbox" id="opt-english"> English only</label>
@@ -1018,8 +1020,8 @@ function setTheme(name) {
 function toggleSelectionOpts() {
   var allFiles = document.getElementById('opt-all-roms').checked;
   var opts = document.getElementById('selection-filter-opts');
-  opts.style.opacity = allFiles ? '0.35' : '1';
-  opts.style.pointerEvents = allFiles ? 'none' : '';
+  if (allFiles) opts.classList.add('disabled');
+  else opts.classList.remove('disabled');
 }
 
 /* ===== Restore UI state from config ===== */
