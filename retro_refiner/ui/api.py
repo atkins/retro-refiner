@@ -360,7 +360,7 @@ class Api:
                     src_key = str(src_path)
                     src_opts = ss.get(src_key, {})
                     recursive = src_opts.get('recursive', False)
-                    depth = src_opts.get('depth', 3)
+                    depth = config.advanced.max_depth or 3
                     result = scan_local_sources(
                         [src_path],
                         recursive=recursive,

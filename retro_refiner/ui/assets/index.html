@@ -736,6 +736,8 @@
           <label title="Skip CHD (Compressed Hunks of Data) disc images"><input type="checkbox" id="opt-no-chd"> Skip CHD images</label>
           <label title="Force fresh scans, ignoring cached results"><input type="checkbox" id="opt-no-cache"> Disable cache</label>
         </div>
+        <div class="field-label">Recursive scan depth</div>
+        <input type="number" id="opt-max-depth" min="1" max="10" value="3" title="How many levels deep to scan for sources with recursive enabled">
         <div class="field-label">MAME version</div>
         <input type="text" id="opt-mame-version" placeholder="e.g. 0.261" title="Specific MAME version for DAT file downloads">
         <div class="field-label">DAT directory</div>
@@ -920,21 +922,12 @@ function renderSources() {
     if (!isUrl) {
       var recBtn = document.createElement('span');
       recBtn.className = 'source-recursive' + (src.recursive ? ' active' : '');
-      recBtn.textContent = src.recursive ? 'R' + src.depth : 'R';
-      recBtn.title = src.recursive ? 'Recursive scan (depth ' + src.depth + ') \u2014 click to disable' : 'Click to enable recursive scan';
+      recBtn.textContent = 'R';
+      recBtn.title = src.recursive ? 'Recursive scan enabled \u2014 click to disable' : 'Click to enable recursive scan';
       recBtn.setAttribute('data-index', i);
       recBtn.addEventListener('click', function() {
         var idx = parseInt(this.getAttribute('data-index'), 10);
-        var s = sources[idx];
-        if (!s.recursive) {
-          s.recursive = true;
-          s.depth = 3;
-        } else if (s.depth < 10) {
-          s.depth++;
-        } else {
-          s.recursive = false;
-          s.depth = 3;
-        }
+        sources[idx].recursive = !sources[idx].recursive;
         renderSources();
       });
       item.appendChild(recBtn);
@@ -1141,6 +1134,7 @@ function restoreUiState(cfg) {
   document.getElementById('opt-no-dat').checked = !!adv.no_dat;
   document.getElementById('opt-no-chd').checked = !!adv.no_chd;
   document.getElementById('opt-no-cache').checked = !!adv.no_cache;
+  document.getElementById('opt-max-depth').value = adv.max_depth || 3;
   document.getElementById('opt-mame-version').value = adv.mame_version || '';
   if (adv.dat_dir) setPathPicker('opt-dat-dir', 'opt-dat-dir-display', adv.dat_dir);
   if (adv.ratings_source) document.getElementById('opt-ratings-source').value = adv.ratings_source;
@@ -1215,6 +1209,7 @@ function gatherUiState() {
     no_dat: document.getElementById('opt-no-dat').checked,
     no_chd: document.getElementById('opt-no-chd').checked,
     no_cache: document.getElementById('opt-no-cache').checked,
+    max_depth: document.getElementById('opt-max-depth').value || '3',
     no_adult: !document.getElementById('opt-no-adult').checked,
     mame_version: document.getElementById('opt-mame-version').value || '',
     dat_dir: document.getElementById('opt-dat-dir').value || '',
