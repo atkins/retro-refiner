@@ -1180,7 +1180,6 @@ function doPreview() {
   }
   setRunning(true);
   clearResults();
-  showView('log');
   appendLog('Starting preview run...\n', 'log-info');
   pushConfigToBackend().then(function() {
     if (window.pywebview) window.pywebview.api.run_preview();
@@ -1196,7 +1195,6 @@ function doRun() {
   }
   setRunning(true);
   clearResults();
-  showView('log');
   appendLog('Starting commit run...\n', 'log-info');
   pushConfigToBackend().then(function() {
     if (window.pywebview) window.pywebview.api.run_commit();
