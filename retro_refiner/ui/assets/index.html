@@ -936,23 +936,25 @@ function addFolder() {
   }
 }
 
-async function addUrl() {
-  var url = '';
-  // Check clipboard for a URL first
-  try {
-    if (navigator.clipboard && navigator.clipboard.readText) {
-      var clip = await navigator.clipboard.readText();
-      if (clip && /^https?:\/\//i.test(clip.trim())) {
-        url = clip.trim();
-      }
+function addUrl() {
+  function finishAdd(url) {
+    if (url && url.trim()) {
+      sources.push(url.trim());
+      renderSources();
     }
-  } catch (e) { /* clipboard access denied — fall through to prompt */ }
-  if (!url) {
-    url = prompt('Enter source URL:');
   }
-  if (url && url.trim()) {
-    sources.push(url.trim());
-    renderSources();
+  if (window.pywebview) {
+    window.pywebview.api.read_clipboard().then(function(clip) {
+      if (clip && /^https?:\/\//i.test(clip.trim())) {
+        finishAdd(clip.trim());
+      } else {
+        var url = prompt('Enter source URL:');
+        finishAdd(url);
+      }
+    });
+  } else {
+    var url = prompt('Enter source URL:');
+    finishAdd(url);
   }
 }
 

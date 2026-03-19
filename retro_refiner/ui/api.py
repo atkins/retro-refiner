@@ -95,6 +95,18 @@ class Api:
         import webbrowser  # pylint: disable=import-outside-toplevel
         webbrowser.open(url)
 
+    def read_clipboard(self):
+        """Read text from the system clipboard."""
+        try:
+            import tkinter as tk  # pylint: disable=import-outside-toplevel
+            root = tk.Tk()
+            root.withdraw()
+            text = root.clipboard_get()
+            root.destroy()
+            return text
+        except Exception:  # pylint: disable=broad-except
+            return ''
+
     def copy_to_clipboard(self, text: str):
         """Copy text to the system clipboard."""
         try:
