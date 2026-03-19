@@ -1810,7 +1810,7 @@ function _handleEventOriginal(event) {
     if (d.state === 'completed' || d.state === 'error' || d.state === 'cancelled') {
       setRunning(false);
       if (d.state === 'completed' && Object.keys(cardElements).length > 0) {
-        showView('results');
+        setTimeout(function() { showView('results'); }, 2000);
       }
     }
 
