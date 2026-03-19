@@ -589,7 +589,7 @@
         </div>
         <div class="field-label">Destination</div>
         <input type="hidden" id="dest-path">
-        <div class="path-picker" onclick="browseDest()" title="Where filtered ROMs will be transferred">
+        <div class="path-picker" onclick="browsePathPicker('dest-path', 'dest-path-display')" title="Where filtered ROMs will be transferred">
           <span class="path-icon">&#x1F4C1;</span>
           <span class="path-text" id="dest-path-display">Select destination folder...</span>
           <span class="path-clear" onclick="event.stopPropagation(); clearPathPicker('dest-path', 'dest-path-display', 'Select destination folder...')">&#xD7;</span>
@@ -985,14 +985,6 @@ function openDest() {
   var path = document.getElementById('dest-path').value;
   if (path && window.pywebview) {
     window.pywebview.api.open_folder(path);
-  }
-}
-
-function browseDest() {
-  if (window.pywebview) {
-    window.pywebview.api.browse_folder().then(function(path) {
-      if (path) { setPathPicker('dest-path', 'dest-path-display', path); }
-    });
   }
 }
 

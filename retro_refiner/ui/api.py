@@ -14,6 +14,16 @@ from retro_refiner.systems import load_system_data
 
 _UI_STATE_FILENAME = '.retro-refiner-state.yaml'
 
+_SYSTEM_ABBREVS = frozenset(
+    ('snes', 'nes', 'gba', 'gbc', 'n64', 'psx', 'ps2', 'ps3', 'psp'))
+
+
+def _display_name(system: str) -> str:
+    """Convert a system code to a human-readable display name."""
+    if system.lower() in _SYSTEM_ABBREVS:
+        return system.upper()
+    return system.replace('-', ' ').replace('_', ' ').title()
+
 
 class Api:
     """Bridge between the JavaScript frontend and Python backend."""
@@ -257,7 +267,7 @@ class Api:
 
             # Import core modules
             from retro_refiner.network import (  # pylint: disable=import-outside-toplevel
-                is_url, validate_source,
+                is_url, validate_source, format_size,
             )
             from retro_refiner.scanner import (  # pylint: disable=import-outside-toplevel
                 scan_local_sources, scan_network_source,
@@ -354,7 +364,6 @@ class Api:
                     'text': '\nScanning local sources...\n',
                     'className': 'log-info',
                 })
-                local_systems = {}
                 ss = config.source_settings or {}
                 for src_path in local_sources:
                     src_key = str(src_path)
@@ -415,8 +424,6 @@ class Api:
             total_excluded = 0
             total_size = 0
             total_source = 0
-            all_breakdowns = {}  # reason -> count across all systems
-            system_stats = []    # per-system stats for fanfare
 
             for system in sorted(all_systems):
                 if not self._running:
@@ -436,11 +443,7 @@ class Api:
                         pass
                 sys_size = net_size + local_size
 
-                # Compute display name
-                _abbrevs = ('snes', 'nes', 'gba', 'gbc', 'n64',
-                            'psx', 'ps2', 'ps3', 'psp')
-                display_name = system.upper() if system.lower() in _abbrevs \
-                    else system.replace('-', ' ').replace('_', ' ').title()
+                display_name = _display_name(system)
 
                 # Push card-start event
                 self._push_event('card', {
@@ -592,10 +595,12 @@ class Api:
                             best_version=sel.best_version,
                             english_only=sel.english_only,
                         )
+                        name_to_path = {Path(f).name: Path(f)
+                                        for f in local_files}
                         selected_local = [
-                            Path(f) for rom in local_roms
-                            for f in local_files
-                            if Path(f).name == rom.filename
+                            name_to_path[rom.filename]
+                            for rom in local_roms
+                            if rom.filename in name_to_path
                         ]
                         local_size = local_info.get('selected_size', 0)
                     except Exception as exc:
@@ -622,18 +627,6 @@ class Api:
                 total_size += selected_size
                 total_source += source_count
 
-                # Accumulate per-system stats for fanfare
-                for reason, cnt in filter_breakdown.items():
-                    all_breakdowns[reason] = all_breakdowns.get(reason, 0) + cnt
-                system_stats.append({
-                    'system': display_name,
-                    'selected': selected_count,
-                    'excluded': excluded_count,
-                    'total': source_count,
-                    'size': selected_size,
-                    'elapsed_ms': int((time.monotonic() - t_start) * 1000),
-                })
-
                 self._push_event('card', {
                     'system': system,
                     'state': 'complete',
@@ -654,7 +647,6 @@ class Api:
                             'name': exc.filename,
                             'reason': exc.reason,
                         })
-                from retro_refiner.network import format_size  # pylint: disable=import-outside-toplevel
                 self._push_event('system-complete', {
                     'system': system,
                     'display_name': display_name,
@@ -795,7 +787,6 @@ class Api:
                                     system, rom_files, sys_dir)
 
             # Push summary
-            from retro_refiner.network import format_size as _fmt  # pylint: disable=import-outside-toplevel
             self._push_event('summary', {
                 'total_selected': total_selected,
                 'total_size': total_size,
@@ -902,13 +893,13 @@ class Api:
                 if total_selected > 0:
                     avg = total_size // total_selected
                     tidbits.append(
-                        f"\u2394 Avg ROM size: {_fmt(avg)}")
+                        f"\u2394 Avg ROM size: {format_size(avg)}")
 
             self._push_event('fanfare', {
                 'systems': total_systems,
                 'selected': total_selected,
                 'excluded': total_excluded,
-                'total_size': _fmt(total_size),
+                'total_size': format_size(total_size),
                 'elapsed': elapsed_str,
                 'tidbits': tidbits,
             })
@@ -982,9 +973,7 @@ class Api:
         """
         from retro_refiner.dat import normalize_title_for_dedupe  # pylint: disable=import-outside-toplevel
         from retro_refiner.filter import parse_rom_filename  # pylint: disable=import-outside-toplevel
-        from retro_refiner.network import (  # pylint: disable=import-outside-toplevel
-            get_filename_from_url, format_size,
-        )
+        from retro_refiner.network import get_filename_from_url  # pylint: disable=import-outside-toplevel
 
         priority = [s.strip() for s in priority_str.split(',') if s.strip()]
         if not priority:
@@ -1057,10 +1046,7 @@ class Api:
             claimed |= set(titles.keys()) - dupes_in_system
 
             # Log dedup results for this system
-            _abbr = ('snes', 'nes', 'gba', 'gbc', 'n64',
-                     'psx', 'ps2', 'ps3', 'psp')
-            display = system.upper() if system.lower() in _abbr \
-                else system.replace('-', ' ').replace('_', ' ').title()
+            display = _display_name(system)
             self._push_event('log', {
                 'text': f'  Dedup: {display} — removed '
                         f'{removed_count} cross-platform '
