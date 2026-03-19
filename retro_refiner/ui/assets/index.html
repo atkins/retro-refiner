@@ -371,6 +371,35 @@
   .log-view .log-warning { color: var(--warning); }
   .log-view .log-error { color: var(--accent); }
 
+  /* === Neo-Terminal Log Renderer === */
+  .log-view .log-boot-line { color: var(--text-muted); white-space: pre; }
+  .log-view .log-boot-line.ready { color: var(--accent); text-shadow: 0 0 8px var(--accent); font-weight: bold; }
+  .log-view .log-cursor { animation: blink-cursor 0.6s step-end infinite; color: var(--accent); }
+  .log-view .log-system-header { color: var(--text-heading); white-space: pre; margin: 0.6em 0 0.2em 0; overflow: hidden; }
+  .log-view .log-system-header .header-bar { display: inline-block; animation: draw-bar 0.3s ease-out forwards; }
+  .log-view .log-filter-line { white-space: pre; font-variant-numeric: tabular-nums; color: var(--text-muted); min-height: 1.5em; }
+  .log-view .log-filter-line .progress-bar { color: var(--accent); }
+  .log-view .log-breakdown { white-space: pre; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+  .log-view .log-breakdown .summary-line { color: var(--accent); }
+  .log-view .log-quip { font-style: italic; color: var(--text-muted); opacity: 0.6; padding-left: 2ch; animation: fade-in 0.5s ease; }
+  .log-view .log-fanfare { white-space: pre; color: var(--text-heading); margin: 1em 0; font-variant-numeric: tabular-nums; }
+  .log-view .log-fanfare .fanfare-border { color: var(--accent); animation: glow-border 0.5s ease-out; }
+  .log-view .log-fanfare .donut-area { display: block; line-height: 1; color: var(--text-muted); margin: 0.2em 0 0.2em 6ch; }
+  .log-view .log-audit-toggle { cursor: pointer; color: var(--accent); white-space: pre; }
+  .log-view .log-audit-toggle:hover { opacity: 0.8; }
+  .log-view .log-audit-list { display: none; white-space: pre; color: var(--text-muted); max-height: 300px; overflow-y: auto; font-size: 10px; padding-left: 2ch; border-left: 1px solid var(--border-subtle); margin-left: 2ch; }
+  .log-view .log-audit-list.expanded { display: block; }
+  @keyframes blink-cursor { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
+  @keyframes draw-bar { from { clip-path: inset(0 100% 0 0); } to { clip-path: inset(0 0 0 0); } }
+  @keyframes fade-in { from { opacity: 0; } to { opacity: 0.6; } }
+  @keyframes glow-border { 0% { text-shadow: 0 0 12px var(--accent); } 100% { text-shadow: none; } }
+  @media (prefers-reduced-motion: reduce) {
+    .log-view .log-cursor { animation: none; }
+    .log-view .log-system-header .header-bar { animation: none; }
+    .log-view .log-fanfare .fanfare-border { animation: none; }
+    .log-view .log-quip { animation: none; opacity: 0.6; }
+  }
+
   /* Results view */
   .results-view { height: 100%; overflow-y: auto; padding: 16px; }
 
@@ -1354,15 +1383,491 @@ function renderSummary(data) {
   results.insertBefore(summary, results.firstChild);
 }
 
+/* ===== Neo-Terminal Log Renderer ===== */
+var LogRenderer = {
+  _eventQueue: [],
+  _booting: false,
+  _usedQuips: [],
+  _systemLines: {},
+  _fanfareShown: false,
+  _reducedMotion: window.matchMedia('(prefers-reduced-motion: reduce)').matches,
+
+  _quips: {
+    filtering: [
+      'Consulting the ancient DAT scrolls...', 'Searching for proto cartridges in the couch cushions...',
+      'Dusting off the ROM vault...', 'Decrypting the sacred archives...',
+      'Separating the wheat from the chaff...', 'Applying the 1G1R sacred texts...',
+      'Running the gauntlet of quality control...', 'Consulting the region priority oracle...',
+      'Eliminating inferior revisions...', 'Performing digital archaeology...',
+      'Cross-referencing the No-Intro database...', 'Engaging turbo filter mode...',
+      'Deploying the duplicate destroyer...', 'Activating best-version protocol...',
+      'Parsing hieroglyphics from the BBS era...', 'Establishing uplink to the ROM dimension...',
+      'Checking behind the cartridge slot...', 'Polishing the crystal oscillator...',
+      'Recalibrating the CRC checksums...', 'Summoning the ghost of Gunpei Yokoi...',
+    ],
+    system: {
+      'nes': ["It's-a me, filtering!", 'Blowing on the cartridge...'],
+      'snes': ["It's-a me, filtering!", 'Mode 7 engaged...'],
+      'genesis': ['SEGA!', 'Blast processing engaged...', 'Welcome to the next level...'],
+      'game-gear': ['SEGA!', 'Portable power activated...'],
+      'master-system': ['SEGA!', 'Master system online...'],
+      'saturn': ['SEGA!', 'Welcome to the Saturn ring...'],
+      'dreamcast': ['SEGA!', "It's thinking..."],
+      'n64': ['Do a barrel roll!', 'Hey! Listen!', "It's dangerous to go alone..."],
+      'game-boy': ['A wild ROM appeared!', "Gotta catch 'em all..."],
+      'game-boy-advance': ['A wild ROM appeared!', 'Ready for portable adventures...'],
+      'game-boy-color': ['A wild ROM appeared!', 'Now in technicolor...'],
+      'psx': ['Press START to begin...', 'Memory card inserted...'],
+      'ps2': ['Red screen of destiny...', 'Emotion engine primed...'],
+      'gamecube': ['Melee stocks reset...', 'Mini-disc loaded...'],
+      'wii': ['Motion controls calibrated...', 'Wii would like to play...'],
+      'mame': ['INSERT COIN', 'Player 1 ready...', 'Cabinet powered on...'],
+      'fbneo': ['INSERT COIN', 'Arcade board initialized...'],
+      'atari-2600': ['E.T. not included...', 'Joystick waggling detected...'],
+      'neo-geo': ['The future is now!', 'Max 330 Mega engaged...'],
+      'commodore-64': ['LOAD "*",8,1', 'READY.'],
+      'amiga': ['Guru meditation avoided...', 'Workbench loaded...'],
+    },
+    nerdy: [
+      'Reticulating splines...', 'Reversing the polarity...', 'Adjusting the flux capacitor...',
+      'Calibrating the warp drive...', 'Compiling the ROM matrix...', 'Defragmenting the bit bucket...',
+      'Overclocking the nostalgia engine...', 'Initializing retro subroutines...',
+      'Bypassing the region lockout chip...', 'Quantum-entangling save states...',
+      'Warming up the CRT phosphors...', 'Charging the power glove...',
+      'Rerouting through the expansion pak...', 'Mapping the memory banks...',
+      'Spinning up the FDD...', 'Soldering the trace cuts...',
+      'Flipping DIP switches...', 'Loading from cassette tape...',
+      'Tuning the RF modulator...', 'Aligning the laser assembly...',
+    ],
+  },
+
+  _donut: {
+    A: 0, B: 0, R1: 1, R2: 2, K2: 5,
+    chars: '.,-~:;=!*#$@',
+    renderFrame: function(w, h) {
+      var out = [], zb = [];
+      for (var i = 0; i < w * h; i++) { out[i] = ' '; zb[i] = 0; }
+      var K1 = w * this.K2 * 3 / (8 * (this.R1 + this.R2));
+      var cA = Math.cos(this.A), sA = Math.sin(this.A);
+      var cB = Math.cos(this.B), sB = Math.sin(this.B);
+      for (var t = 0; t < 6.28; t += 0.07) {
+        var ct = Math.cos(t), st = Math.sin(t);
+        for (var p = 0; p < 6.28; p += 0.02) {
+          var cp = Math.cos(p), sp = Math.sin(p);
+          var cx = this.R2 + this.R1 * ct;
+          var x = cx * (cB * cp + sA * sB * sp) - this.R1 * cA * sB * st;
+          var y = cx * (sB * cp - sA * cB * sp) + this.R1 * cA * cB * st;
+          var z = this.K2 + cA * cx * sp + this.R1 * sA * st;
+          var ooz = 1 / z;
+          var xp = Math.floor(w / 2 + K1 * ooz * x);
+          var yp = Math.floor(h / 2 - K1 * ooz * y * 0.5);
+          var L = cp * ct * sB - cA * ct * sp - sA * st + cB * (cA * st - ct * sA * sp);
+          if (yp >= 0 && yp < h && xp >= 0 && xp < w && ooz > zb[yp * w + xp]) {
+            zb[yp * w + xp] = ooz;
+            out[yp * w + xp] = this.chars[Math.max(0, Math.floor(L * 8))] || '.';
+          }
+        }
+      }
+      this.A += 0.04; this.B += 0.02;
+      var lines = [];
+      for (var r = 0; r < h; r++) lines.push(out.slice(r * w, (r + 1) * w).join(''));
+      return lines.join('\n');
+    },
+    reset: function() { this.A = 0; this.B = 0; }
+  },
+
+  handle: function(event) {
+    if (this._booting && event.type !== 'boot') {
+      this._eventQueue.push(event);
+      return true;
+    }
+    switch (event.type) {
+      case 'boot':            this.renderBoot(event.data); return true;
+      case 'system-start':    this.renderSystemStart(event.data); return true;
+      case 'filter-tick':     this.renderFilterTick(event.data); return true;
+      case 'system-complete': this.renderSystemComplete(event.data); return true;
+      case 'fanfare':         this.renderFanfare(event.data); return true;
+      default: return false;
+    }
+  },
+
+  _flushQueue: function() {
+    var queue = this._eventQueue.slice();
+    this._eventQueue = [];
+    var self = this;
+    queue.forEach(function(evt) {
+      if (!self.handle(evt)) {
+        _handleEventOriginal(evt);
+      }
+    });
+  },
+
+  reset: function() {
+    this._eventQueue = [];
+    this._booting = false;
+    this._usedQuips = [];
+    this._systemLines = {};
+    this._fanfareShown = false;
+  },
+
+  _scrollLog: function() {
+    var log = document.getElementById('view-log');
+    if (document.getElementById('opt-autoscroll').checked) {
+      log.scrollTop = log.scrollHeight;
+    }
+  },
+
+  _pickQuip: function(system) {
+    var pool = [];
+    var sq = this._quips.system[system];
+    if (sq) pool = pool.concat(sq);
+    pool = pool.concat(this._quips.filtering).concat(this._quips.nerdy);
+    var self = this;
+    pool = pool.filter(function(q) { return self._usedQuips.indexOf(q) === -1; });
+    if (pool.length === 0) return null;
+    var pick = pool[Math.floor(Math.random() * pool.length)];
+    this._usedQuips.push(pick);
+    return pick;
+  },
+
+  renderBoot: function(data) {
+    var self = this;
+    this._booting = true;
+    var phases = (data.phases || []).concat(['READY']);
+    var logView = document.getElementById('view-log');
+    var container = document.createElement('div');
+    logView.appendChild(container);
+
+    if (this._reducedMotion) {
+      phases.forEach(function(phase) {
+        var line = document.createElement('div');
+        line.className = 'log-boot-line' + (phase === 'READY' ? ' ready' : '');
+        line.textContent = '> ' + phase;
+        container.appendChild(line);
+      });
+      self._booting = false;
+      self._flushQueue();
+      return;
+    }
+
+    var phaseIdx = 0;
+    function typeNextPhase() {
+      if (phaseIdx >= phases.length) {
+        self._booting = false;
+        self._flushQueue();
+        return;
+      }
+      var phase = phases[phaseIdx];
+      var isReady = (phase === 'READY');
+      var line = document.createElement('div');
+      line.className = 'log-boot-line' + (isReady ? ' ready' : '');
+      container.appendChild(line);
+      var text = '> ' + phase;
+      var charIdx = 0;
+      var cursor = document.createElement('span');
+      cursor.className = 'log-cursor';
+      cursor.textContent = '\u2588';
+      function typeChar() {
+        if (charIdx < text.length) {
+          line.textContent = text.substring(0, charIdx + 1);
+          line.appendChild(cursor);
+          charIdx++;
+          setTimeout(typeChar, 40 + Math.random() * 30);
+        } else {
+          if (cursor.parentNode) cursor.parentNode.removeChild(cursor);
+          phaseIdx++;
+          setTimeout(typeNextPhase, 250 + Math.random() * 150);
+        }
+        self._scrollLog();
+      }
+      typeChar();
+    }
+    typeNextPhase();
+  },
+
+  renderSystemStart: function(data) {
+    var logView = document.getElementById('view-log');
+    if (Math.random() < 0.3) {
+      var quip = this._pickQuip(data.system);
+      if (quip) {
+        var quipEl = document.createElement('div');
+        quipEl.className = 'log-quip';
+        quipEl.textContent = quip;
+        logView.appendChild(quipEl);
+      }
+    }
+    var name = ' ' + data.display_name + ' ';
+    var romCount = ' ' + (data.total_roms || 0).toLocaleString() + ' ROMs ';
+    var totalW = 60;
+    var nameSection = '\u2561' + name + '\u255E';
+    var barLen = Math.max(4, totalW - 4 - nameSection.length - romCount.length);
+    var headerText = '\u2550\u2550' + nameSection + '\u2550'.repeat(barLen) + romCount + '\u2550\u2550';
+    var headerEl = document.createElement('div');
+    headerEl.className = 'log-system-header';
+    var barSpan = document.createElement('span');
+    barSpan.className = 'header-bar';
+    barSpan.textContent = headerText;
+    headerEl.appendChild(barSpan);
+    logView.appendChild(headerEl);
+    this._scrollLog();
+  },
+
+  renderFilterTick: function(data) {
+    var logView = document.getElementById('view-log');
+    var line = this._systemLines[data.system];
+    if (!line) {
+      line = document.createElement('div');
+      line.className = 'log-filter-line';
+      logView.appendChild(line);
+      this._systemLines[data.system] = line;
+    }
+    var total = data.total || 1;
+    var processed = data.processed || 0;
+    var pct = Math.min(processed / total, 1);
+    var barW = 20;
+    var filled = Math.round(pct * barW);
+    var bar = '\u2593'.repeat(filled) + '\u2591'.repeat(barW - filled);
+    line.innerHTML = '<span class="progress-bar">' + bar + '</span> ' +
+      processed.toLocaleString() + '/' + total.toLocaleString() + ' \u2502 ' +
+      '\u2713 ' + (data.selected || 0).toLocaleString() + ' selected \u2502 ' +
+      (data.size_selected || '0 B');
+    this._scrollLog();
+  },
+
+  renderSystemComplete: function(data) {
+    var logView = document.getElementById('view-log');
+    var self = this;
+    var line = this._systemLines[data.system];
+    if (line && line.parentNode) line.parentNode.removeChild(line);
+    delete this._systemLines[data.system];
+
+    var breakdown = data.breakdown || {};
+    var parts = [];
+    Object.keys(breakdown).forEach(function(k) {
+      if (breakdown[k] > 0) parts.push(k + ': ' + breakdown[k].toLocaleString());
+    });
+
+    var pct = data.total > 0 ? ((data.selected / data.total) * 100).toFixed(1) : '0.0';
+    var summaryText = data.selected.toLocaleString() + ' selected (' + pct + '%) \u2502 ' +
+      data.size + ' \u2502 ' + data.elapsed_ms + 'ms';
+
+    var container = document.createElement('div');
+    container.className = 'log-breakdown';
+
+    if (parts.length > 0) {
+      var bdLine = document.createElement('div');
+      bdLine.textContent = '  \u251C\u2500 ' + parts.join('  ');
+      container.appendChild(bdLine);
+    }
+
+    var sumLine = document.createElement('div');
+    sumLine.className = 'summary-line';
+    container.appendChild(sumLine);
+
+    if (data.excluded_roms && data.excluded_roms.length > 0) {
+      var toggleEl = document.createElement('div');
+      toggleEl.className = 'log-audit-toggle';
+      toggleEl.textContent = '  \u2502  [+] ' + data.excluded_roms.length.toLocaleString() + ' excluded ROMs';
+      container.appendChild(toggleEl);
+      var auditList = document.createElement('div');
+      auditList.className = 'log-audit-list';
+      var auditBuilt = false;
+      toggleEl.addEventListener('click', function() {
+        if (!auditBuilt) {
+          data.excluded_roms.forEach(function(rom) {
+            var romLine = document.createElement('div');
+            var nm = rom.name;
+            var padded = nm.length < 50 ? nm + ' '.repeat(50 - nm.length) : nm + '  ';
+            romLine.textContent = padded + rom.reason;
+            auditList.appendChild(romLine);
+          });
+          auditBuilt = true;
+        }
+        var isExp = auditList.classList.contains('expanded');
+        auditList.classList.toggle('expanded');
+        toggleEl.textContent = '  \u2502  [' + (isExp ? '+' : '-') + '] ' +
+          data.excluded_roms.length.toLocaleString() + ' excluded ROMs';
+      });
+      container.appendChild(auditList);
+    }
+
+    logView.appendChild(container);
+
+    if (!this._reducedMotion) {
+      this._animateCountUp(sumLine, summaryText, 300);
+    } else {
+      sumLine.textContent = '  \u2514\u2500 ' + summaryText;
+    }
+    this._scrollLog();
+  },
+
+  _animateCountUp: function(element, finalText, durationMs) {
+    var numbers = [];
+    var regex = /[\d,]+/g;
+    var match;
+    while ((match = regex.exec(finalText)) !== null) {
+      numbers.push({ start: match.index, end: match.index + match[0].length,
+        final: parseInt(match[0].replace(/,/g, ''), 10) });
+    }
+    if (numbers.length === 0) { element.textContent = '  \u2514\u2500 ' + finalText; return; }
+    var startTime = performance.now();
+    function tick(now) {
+      var elapsed = now - startTime;
+      var t = Math.min(elapsed / durationMs, 1);
+      t = 1 - Math.pow(1 - t, 3);
+      var text = finalText;
+      for (var i = numbers.length - 1; i >= 0; i--) {
+        var n = numbers[i];
+        var current = Math.round(n.final * t);
+        text = text.substring(0, n.start) + current.toLocaleString() + text.substring(n.end);
+      }
+      element.textContent = '  \u2514\u2500 ' + text;
+      if (t < 1) requestAnimationFrame(tick);
+    }
+    requestAnimationFrame(tick);
+  },
+
+  renderFanfare: function(data) {
+    var logView = document.getElementById('view-log');
+    var self = this;
+    var container = document.createElement('div');
+    container.className = 'log-fanfare';
+    logView.appendChild(container);
+    this._fanfareShown = true;
+
+    var bw = 54;
+    var hc = '\u2550', vc = '\u2551';
+    var tl = '\u2554', tr = '\u2557', bl = '\u255A', br = '\u255D';
+    var ml = '\u2560', mr = '\u2563';
+    var topBar = tl + hc.repeat(bw - 2) + tr;
+    var midBar = ml + hc.repeat(bw - 2) + mr;
+    var botBar = bl + hc.repeat(bw - 2) + br;
+
+    function pad(s, w) { s = String(s); return s + ' '.repeat(Math.max(0, w - s.length)); }
+    function padLine(c) { return vc + ' ' + pad(c, bw - 4) + ' ' + vc; }
+
+    var title = 'SCAN COMPLETE';
+    var titlePad = Math.floor((bw - 4 - title.length) / 2);
+    var titleLine = padLine(' '.repeat(titlePad) + title);
+
+    var statsArr = [
+      padLine(''),
+      padLine('Systems    ' + pad(data.systems.toLocaleString(), 10) + 'Selected  ' + data.selected.toLocaleString()),
+      padLine('Excluded   ' + pad(data.excluded.toLocaleString(), 10) + 'Size      ' + data.total_size),
+      padLine('Elapsed    ' + data.elapsed),
+      padLine(''),
+    ];
+
+    var sepText = hc.repeat(bw + 4);
+    var fullBox = topBar + '\n' + titleLine + '\n' + midBar + '\n' + statsArr.join('\n') + '\n' + botBar;
+    var topSysText = '\n        \u2655 Top: ' + data.top_system.name +
+      ' (' + data.top_system.count.toLocaleString() + ')';
+
+    if (this._reducedMotion) {
+      var sep1 = document.createElement('div');
+      sep1.className = 'fanfare-border';
+      sep1.textContent = '\n' + sepText;
+      container.appendChild(sep1);
+      var box1 = document.createElement('div');
+      box1.className = 'fanfare-border';
+      box1.textContent = fullBox;
+      container.appendChild(box1);
+      this._donut.reset();
+      var dn1 = document.createElement('div');
+      dn1.className = 'donut-area';
+      dn1.textContent = this._donut.renderFrame(20, 16);
+      container.appendChild(dn1);
+      var ts1 = document.createElement('div');
+      ts1.textContent = topSysText;
+      container.appendChild(ts1);
+      var sep2 = document.createElement('div');
+      sep2.className = 'fanfare-border';
+      sep2.textContent = sepText + '\n';
+      container.appendChild(sep2);
+      self._scrollLog();
+      return;
+    }
+
+    var sepEl = document.createElement('div');
+    sepEl.className = 'fanfare-border';
+    sepEl.textContent = '\n' + sepText;
+    container.appendChild(sepEl);
+
+    var boxEl = document.createElement('div');
+    boxEl.className = 'fanfare-border';
+    boxEl.textContent = '';
+    container.appendChild(boxEl);
+
+    var ci = 0;
+    function drawTop() {
+      if (ci <= topBar.length) {
+        boxEl.textContent = topBar.substring(0, ci);
+        ci++;
+        setTimeout(drawTop, 200 / topBar.length);
+      } else {
+        boxEl.textContent = topBar + '\n' + titleLine + '\n' + midBar;
+        setTimeout(drawStats, 200);
+      }
+      self._scrollLog();
+    }
+
+    function drawStats() {
+      boxEl.textContent = fullBox;
+      startDonut();
+      setTimeout(drawTopSystem, 1200);
+    }
+
+    var donutEl = null;
+    var donutInterval = null;
+    function startDonut() {
+      self._donut.reset();
+      donutEl = document.createElement('div');
+      donutEl.className = 'donut-area';
+      container.appendChild(donutEl);
+      var frames = 0;
+      donutInterval = setInterval(function() {
+        donutEl.textContent = self._donut.renderFrame(20, 16);
+        frames++;
+        if (frames >= 75) clearInterval(donutInterval);
+        self._scrollLog();
+      }, 1000 / 15);
+    }
+
+    function drawTopSystem() {
+      var topEl = document.createElement('div');
+      container.appendChild(topEl);
+      var tci = 0;
+      function typeIt() {
+        if (tci < topSysText.length) {
+          topEl.textContent = topSysText.substring(0, tci + 1);
+          tci++;
+          setTimeout(typeIt, 30);
+        } else {
+          var endEl = document.createElement('div');
+          endEl.className = 'fanfare-border';
+          endEl.textContent = '\n' + sepText + '\n';
+          container.appendChild(endEl);
+        }
+        self._scrollLog();
+      }
+      typeIt();
+    }
+
+    drawTop();
+  },
+};
+
 /* ===== Python event handler ===== */
-window.handlePythonEvent = function(event) {
+function _handleEventOriginal(event) {
   var d = event.data;
 
   if (event.type === 'status') {
     setStatus(d.state, d.message);
+    if (d.state === 'running') {
+      LogRenderer.reset();
+    }
     if (d.state === 'completed' || d.state === 'error' || d.state === 'cancelled') {
       setRunning(false);
-      /* Auto-switch to results if we have cards */
       if (d.state === 'completed' && Object.keys(cardElements).length > 0) {
         showView('results');
       }
@@ -1391,8 +1896,15 @@ window.handlePythonEvent = function(event) {
     }
 
   } else if (event.type === 'summary') {
-    renderSummary(d);
+    if (!LogRenderer._fanfareShown) {
+      renderSummary(d);
+    }
   }
+}
+
+window.handlePythonEvent = function(event) {
+  if (LogRenderer.handle(event)) return;
+  _handleEventOriginal(event);
 };
 
 /* ===== ROM Picker ===== */
