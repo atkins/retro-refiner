@@ -3,7 +3,7 @@
 import json
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 
 # =============================================================================
@@ -313,6 +313,7 @@ class DeduplicationConfig:
 class Config:
     """Top-level configuration."""
     sources: List[str] = field(default_factory=list)
+    source_settings: Dict[str, dict] = field(default_factory=dict)
     destination: Optional[str] = None
     systems: Optional[List[str]] = None
     selection: SelectionConfig = field(default_factory=SelectionConfig)
@@ -355,7 +356,7 @@ class Config:
                          if k in {f.name for f in
                                   section_cls.__dataclass_fields__.values()}}
                 kwargs[key] = section_cls(**valid)
-            elif key in ('sources', 'destination', 'systems'):
+            elif key in ('sources', 'source_settings', 'destination', 'systems'):
                 kwargs[key] = value
         return cls(**kwargs)
 

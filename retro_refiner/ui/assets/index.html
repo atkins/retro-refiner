@@ -300,8 +300,15 @@
     display: flex; align-items: center; justify-content: space-between;
   }
   .source-item .path { overflow: hidden; text-overflow: ellipsis; flex: 1; }
+  .source-item .source-recursive {
+    color: var(--text-muted); cursor: pointer; margin-left: 6px; font-size: 9px;
+    padding: 1px 4px; border: 1px solid var(--border); border-radius: 3px;
+    user-select: none; white-space: nowrap;
+  }
+  .source-item .source-recursive:hover { border-color: var(--accent); color: var(--text-primary); }
+  .source-item .source-recursive.active { color: var(--accent); border-color: var(--accent); }
   .source-item .remove-btn {
-    color: var(--text-muted); cursor: pointer; margin-left: 6px; font-size: 12px;
+    color: var(--text-muted); cursor: pointer; margin-left: 4px; font-size: 12px;
   }
   .source-item .remove-btn:hover { color: var(--accent); }
   .source-buttons { display: flex; gap: 4px; }
@@ -728,10 +735,7 @@
           <label title="Don't download or use DAT files for metadata"><input type="checkbox" id="opt-no-dat"> Skip DAT files</label>
           <label title="Skip CHD (Compressed Hunks of Data) disc images"><input type="checkbox" id="opt-no-chd"> Skip CHD images</label>
           <label title="Force fresh scans, ignoring cached results"><input type="checkbox" id="opt-no-cache"> Disable cache</label>
-          <label title="Scan subfolders within source directories"><input type="checkbox" id="opt-recursive"> Recursive scan</label>
         </div>
-        <div class="field-label">Max scan depth</div>
-        <input type="number" id="opt-max-depth" min="1" max="10" value="3" title="How many levels deep to scan when recursive is enabled">
         <div class="field-label">MAME version</div>
         <input type="text" id="opt-mame-version" placeholder="e.g. 0.261" title="Specific MAME version for DAT file downloads">
         <div class="field-label">DAT directory</div>
@@ -899,14 +903,42 @@ function renderSources() {
   var list = document.getElementById('source-list');
   while (list.firstChild) { list.removeChild(list.firstChild); }
   sources.forEach(function(src, i) {
+    /* Normalize to object if legacy string */
+    if (typeof src === 'string') { sources[i] = { path: src, recursive: false, depth: 3 }; src = sources[i]; }
+    var isUrl = /^https?:\/\//i.test(src.path);
+
     var item = document.createElement('div');
     item.className = 'source-item';
 
     var pathSpan = document.createElement('span');
     pathSpan.className = 'path';
-    pathSpan.title = src;
-    try { pathSpan.textContent = decodeURIComponent(src); } catch(e) { pathSpan.textContent = src; }
+    pathSpan.title = src.path;
+    try { pathSpan.textContent = decodeURIComponent(src.path); } catch(e) { pathSpan.textContent = src.path; }
     item.appendChild(pathSpan);
+
+    /* Recursive toggle (local sources only) */
+    if (!isUrl) {
+      var recBtn = document.createElement('span');
+      recBtn.className = 'source-recursive' + (src.recursive ? ' active' : '');
+      recBtn.textContent = src.recursive ? 'R' + src.depth : 'R';
+      recBtn.title = src.recursive ? 'Recursive scan (depth ' + src.depth + ') \u2014 click to disable' : 'Click to enable recursive scan';
+      recBtn.setAttribute('data-index', i);
+      recBtn.addEventListener('click', function() {
+        var idx = parseInt(this.getAttribute('data-index'), 10);
+        var s = sources[idx];
+        if (!s.recursive) {
+          s.recursive = true;
+          s.depth = 3;
+        } else if (s.depth < 10) {
+          s.depth++;
+        } else {
+          s.recursive = false;
+          s.depth = 3;
+        }
+        renderSources();
+      });
+      item.appendChild(recBtn);
+    }
 
     var removeBtn = document.createElement('span');
     removeBtn.className = 'remove-btn';
@@ -929,7 +961,7 @@ function removeSource(index) {
 function addFolder() {
   if (window.pywebview) {
     window.pywebview.api.browse_folder().then(function(path) {
-      if (path) { sources.push(path); renderSources(); }
+      if (path) { sources.push({ path: path, recursive: false, depth: 3 }); renderSources(); }
     });
   }
 }
@@ -937,7 +969,7 @@ function addFolder() {
 function addUrl() {
   function finishAdd(url) {
     if (url && url.trim()) {
-      sources.push(url.trim());
+      sources.push({ path: url.trim(), recursive: false, depth: 3 });
       renderSources();
     }
   }
@@ -1052,7 +1084,14 @@ function restoreUiState(cfg) {
   var dedup = cfg.deduplication || {};
 
   /* Sources & destination */
-  if (cfg.sources && cfg.sources.length) { sources = cfg.sources; renderSources(); }
+  if (cfg.sources && cfg.sources.length) {
+    var ss = cfg.source_settings || {};
+    sources = cfg.sources.map(function(p) {
+      var s = ss[p] || {};
+      return { path: p, recursive: !!s.recursive, depth: s.depth || 3 };
+    });
+    renderSources();
+  }
   if (cfg.destination) setPathPicker('dest-path', 'dest-path-display', cfg.destination);
   if (cfg.systems && cfg.systems.length)
     document.getElementById('opt-systems').value = cfg.systems.join(', ');
@@ -1102,8 +1141,6 @@ function restoreUiState(cfg) {
   document.getElementById('opt-no-dat').checked = !!adv.no_dat;
   document.getElementById('opt-no-chd').checked = !!adv.no_chd;
   document.getElementById('opt-no-cache').checked = !!adv.no_cache;
-  document.getElementById('opt-recursive').checked = !!adv.recursive;
-  document.getElementById('opt-max-depth').value = adv.max_depth || 3;
   document.getElementById('opt-mame-version').value = adv.mame_version || '';
   if (adv.dat_dir) setPathPicker('opt-dat-dir', 'opt-dat-dir-display', adv.dat_dir);
   if (adv.ratings_source) document.getElementById('opt-ratings-source').value = adv.ratings_source;
@@ -1129,7 +1166,16 @@ function restoreUiState(cfg) {
 /* ===== Gather UI state ===== */
 function gatherUiState() {
   return {
-    sources: sources,
+    sources: sources.map(function(s) { return typeof s === 'string' ? s : s.path; }),
+    source_settings: (function() {
+      var ss = {};
+      sources.forEach(function(s) {
+        if (typeof s !== 'string' && s.recursive) {
+          ss[s.path] = { recursive: true, depth: s.depth || 3 };
+        }
+      });
+      return ss;
+    })(),
     destination: document.getElementById('dest-path').value || '',
     systems: document.getElementById('opt-systems').value || '',
     exclude_systems: document.getElementById('opt-exclude-systems').value || '',
@@ -1170,8 +1216,6 @@ function gatherUiState() {
     no_chd: document.getElementById('opt-no-chd').checked,
     no_cache: document.getElementById('opt-no-cache').checked,
     no_adult: !document.getElementById('opt-no-adult').checked,
-    recursive: document.getElementById('opt-recursive').checked,
-    max_depth: document.getElementById('opt-max-depth').value || '',
     mame_version: document.getElementById('opt-mame-version').value || '',
     dat_dir: document.getElementById('opt-dat-dir').value || '',
     ratings_source: document.getElementById('opt-ratings-source').value || 'combined',

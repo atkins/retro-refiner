@@ -131,6 +131,7 @@ class Api:
         """Update full config from UI sidebar state."""
         ui = json.loads(ui_json)
         self._config.sources = ui.get('sources', [])
+        self._config.source_settings = ui.get('source_settings', {})
         self._config.destination = ui.get('destination') or None
         self._config.systems = _parse_csv(ui.get('systems'))
 
@@ -353,16 +354,29 @@ class Api:
                     'text': '\nScanning local sources...\n',
                     'className': 'log-info',
                 })
-                local_systems = scan_local_sources(
-                    local_sources,
-                    recursive=config.advanced.recursive,
-                    max_depth=config.advanced.max_depth,
-                    verbose=config.selection.verbose,
-                    on_progress=lambda evt: self._push_event('progress', {
-                        'phase': evt.phase, 'message': evt.message,
-                        'current': evt.current, 'total': evt.total,
-                    }),
-                )
+                local_systems = {}
+                ss = config.source_settings or {}
+                for src_path in local_sources:
+                    src_key = str(src_path)
+                    src_opts = ss.get(src_key, {})
+                    recursive = src_opts.get('recursive', False)
+                    depth = src_opts.get('depth', 3)
+                    result = scan_local_sources(
+                        [src_path],
+                        recursive=recursive,
+                        max_depth=depth,
+                        verbose=config.selection.verbose,
+                        on_progress=lambda evt: self._push_event(
+                            'progress', {
+                                'phase': evt.phase,
+                                'message': evt.message,
+                                'current': evt.current,
+                                'total': evt.total,
+                            }),
+                    )
+                    for sys_code, files in result.items():
+                        local_systems.setdefault(
+                            sys_code, []).extend(files)
 
             if not self._running:
                 self._push_event('status', {
