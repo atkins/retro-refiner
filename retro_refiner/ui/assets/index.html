@@ -533,12 +533,14 @@
   }
   .picker-back:hover { opacity: 0.85; }
   .picker-title { color: var(--text-heading); font-size: 14px; font-weight: bold; flex-shrink: 0; }
+  .picker-search-row { display: flex; align-items: center; gap: 6px; padding: 0 12px 8px 12px; }
   .picker-search {
     background: var(--bg-input); border: 1px solid var(--border); border-radius: 3px;
-    padding: 4px 8px; color: var(--text-primary); font-size: 11px; font-family: var(--font-ui);
-    width: 220px; margin-left: auto;
+    padding: 6px 10px; color: var(--text-primary); font-size: 12px; font-family: var(--font-ui);
+    flex: 1;
   }
   .picker-search:focus { outline: none; border-color: var(--accent); }
+  .picker-search-hint { color: var(--text-muted); font-size: 9px; white-space: nowrap; }
   .picker-toggle {
     background: none; border: 1px solid var(--border); border-radius: 3px;
     padding: 4px 10px; font-size: 10px; cursor: pointer; color: var(--text-secondary);
@@ -1953,10 +1955,12 @@ function renderPicker(title) {
       '<button class="picker-back" onclick="closePicker()">&larr; Back</button>' +
       '<span class="picker-title">' + title + '</span>' +
       '<span class="picker-stats" id="picker-stats"></span>' +
-      '<input type="text" class="picker-search" id="picker-search" placeholder="Filter by filename..." oninput="onPickerSearch(this.value)">' +
       '<button class="picker-toggle" onclick="pickerInvert()">Invert</button>' +
       '<button class="picker-toggle" onclick="pickerReset()">Reset</button>' +
       '<button class="picker-toggle active" id="picker-excl-toggle" onclick="toggleExcluded()">Hide excluded</button>' +
+    '</div>' +
+    '<div class="picker-search-row">' +
+      '<input type="text" class="picker-search" id="picker-search" placeholder="Search by name, region, status, or reason..." oninput="onPickerSearch(this.value)">' +
     '</div>' +
     '<div class="picker-table-wrap">' +
       '<table class="picker-table">' +
@@ -1980,7 +1984,10 @@ function getFilteredRoms() {
   var query = pickerFilter.toLowerCase();
   return pickerRoms.filter(function(rom) {
     if (!pickerShowExcluded && rom.status === 'excluded') return false;
-    if (query && rom.filename.toLowerCase().indexOf(query) === -1) return false;
+    if (query) {
+      var haystack = (rom.filename + ' ' + rom.region + ' ' + rom.status + ' ' + (rom.reason || '')).toLowerCase();
+      if (haystack.indexOf(query) === -1) return false;
+    }
     return true;
   });
 }
