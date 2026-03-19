@@ -1229,15 +1229,60 @@ function doStop() {
 }
 
 /* ===== Log ===== */
+function _linkifyText(text, parent, className) {
+  /* Split text on URL patterns and create text nodes + anchor elements */
+  var urlRe = /https?:\/\/[^\s)>\]]+/g;
+  var lastIdx = 0;
+  var match;
+  var hasLinks = false;
+  while ((match = urlRe.exec(text)) !== null) {
+    hasLinks = true;
+    if (match.index > lastIdx) {
+      var before = text.substring(lastIdx, match.index);
+      if (className) {
+        var sp = document.createElement('span');
+        sp.className = className;
+        sp.textContent = before;
+        parent.appendChild(sp);
+      } else {
+        parent.appendChild(document.createTextNode(before));
+      }
+    }
+    var a = document.createElement('a');
+    a.href = '#';
+    a.textContent = match[0];
+    a.dataset.url = match[0];
+    a.style.cssText = 'color:var(--accent);text-decoration:underline;cursor:pointer;';
+    a.onclick = function(e) { e.preventDefault(); if (window.pywebview) window.pywebview.api.open_url(this.dataset.url); };
+    if (className) a.className = className;
+    parent.appendChild(a);
+    lastIdx = match.index + match[0].length;
+  }
+  if (hasLinks && lastIdx < text.length) {
+    var after = text.substring(lastIdx);
+    if (className) {
+      var sp2 = document.createElement('span');
+      sp2.className = className;
+      sp2.textContent = after;
+      parent.appendChild(sp2);
+    } else {
+      parent.appendChild(document.createTextNode(after));
+    }
+  }
+  return hasLinks;
+}
+
 function appendLog(text, className) {
   var log = document.getElementById('view-log');
-  if (className) {
-    var span = document.createElement('span');
-    span.className = className;
-    span.textContent = text;
-    log.appendChild(span);
-  } else {
-    log.appendChild(document.createTextNode(text));
+  if (!_linkifyText(text, log, className)) {
+    if (className) {
+      var span = document.createElement('span');
+      span.className = className;
+      span.textContent = text;
+      log.appendChild(span);
+    } else {
+      log.appendChild(document.createTextNode(text));
+    }
   }
   if (document.getElementById('opt-autoscroll').checked) {
     log.scrollTop = log.scrollHeight;
