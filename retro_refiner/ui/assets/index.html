@@ -654,7 +654,9 @@
         <input type="text" id="opt-dedup-priority" placeholder="e.g. snes, genesis, psx" title="When a game exists on multiple systems, prefer these systems first">
         <div class="field-label">Exclusion Playlists</div>
         <div class="source-list" id="exclusion-playlist-list"></div>
-        <button class="source-btn" onclick="addExclusionPlaylist()" title="Add a Launchbox, Retroarch, or XML playlist">+ Playlist</button>
+        <div class="source-buttons">
+          <button class="source-btn" onclick="addExclusionPlaylist()" title="Add a Launchbox, Retroarch, or XML playlist">+ Playlist</button>
+        </div>
         <div class="check-grid mt-sm">
           <label title="Actually delete duplicate files instead of just reporting them"><input type="checkbox" id="opt-dedup-delete"> Delete duplicates</label>
         </div>
