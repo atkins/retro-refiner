@@ -663,6 +663,11 @@ class Api:
             if self._running:
                 self._apply_budget_filters(config, all_systems, all_sizes)
 
+            # ----- Cross-system dedup -----
+            dedup_priority = config.deduplication.priority
+            if dedup_priority and self._running:
+                self._run_dedup(dedup_priority, all_sizes)
+
             if not self._running:
                 self._push_event('status', {
                     'state': 'cancelled', 'message': 'Cancelled',
@@ -954,6 +959,130 @@ class Api:
             'text': f'  {system.upper()}: download complete '
                     f'({total} files, tool={tool or "urllib"})\n',
         })
+
+    def _run_dedup(self, priority_str, all_sizes):
+        """Cross-system dedup: keep best version per game title.
+
+        Systems listed earlier in priority_str claim titles first.
+        Later systems have duplicates removed from their selected sets.
+        """
+        from retro_refiner.dat import normalize_title_for_dedupe  # pylint: disable=import-outside-toplevel
+        from retro_refiner.filter import parse_rom_filename  # pylint: disable=import-outside-toplevel
+        from retro_refiner.network import (  # pylint: disable=import-outside-toplevel
+            get_filename_from_url, format_size,
+        )
+
+        priority = [s.strip() for s in priority_str.split(',') if s.strip()]
+        if not priority:
+            return
+
+        # Build title -> system map for all selected ROMs
+        system_titles = {}  # system -> {norm_title: [urls/paths]}
+        for system, data in self._last_results.items():
+            titles = {}
+            for url in data.get('selected_urls', []):
+                fname = get_filename_from_url(url)
+                try:
+                    info = parse_rom_filename(fname)
+                    norm = normalize_title_for_dedupe(info.base_title)
+                    titles.setdefault(norm, []).append(('url', url))
+                except Exception:  # pylint: disable=broad-except
+                    pass
+            for fpath in data.get('selected_local', []):
+                try:
+                    info = parse_rom_filename(Path(fpath).name)
+                    norm = normalize_title_for_dedupe(info.base_title)
+                    titles.setdefault(norm, []).append(('local', fpath))
+                except Exception:  # pylint: disable=broad-except
+                    pass
+            system_titles[system] = titles
+
+        # Walk systems in priority order — earlier systems claim titles
+        claimed = set()
+        # Process priority systems first, then remaining alphabetically
+        all_systems = list(self._last_results.keys())
+        ordered = [s for s in priority if s in all_systems]
+        ordered += [s for s in sorted(all_systems) if s not in ordered]
+
+        total_deduped = 0
+        for system in ordered:
+            titles = system_titles.get(system, {})
+            dupes_in_system = set(titles.keys()) & claimed
+            if not dupes_in_system:
+                # No dupes — claim all titles
+                claimed |= set(titles.keys())
+                continue
+
+            # Remove duplicate titles from this system's selections
+            removed_urls = set()
+            removed_local = set()
+            for norm_title in dupes_in_system:
+                for entry_type, entry in titles[norm_title]:
+                    if entry_type == 'url':
+                        removed_urls.add(entry)
+                    else:
+                        removed_local.add(entry)
+
+            # Update _last_results
+            data = self._last_results[system]
+            old_url_count = len(data.get('selected_urls', []))
+            old_local_count = len(data.get('selected_local', []))
+            if removed_urls:
+                data['selected_urls'] = [
+                    u for u in data.get('selected_urls', [])
+                    if u not in removed_urls]
+            if removed_local:
+                data['selected_local'] = [
+                    f for f in data.get('selected_local', [])
+                    if f not in removed_local]
+
+            removed_count = len(removed_urls) + len(removed_local)
+            total_deduped += removed_count
+
+            # Claim non-dupe titles
+            claimed |= set(titles.keys()) - dupes_in_system
+
+            # Log dedup results for this system
+            _abbr = ('snes', 'nes', 'gba', 'gbc', 'n64',
+                     'psx', 'ps2', 'ps3', 'psp')
+            display = system.upper() if system.lower() in _abbr \
+                else system.replace('-', ' ').replace('_', ' ').title()
+            self._push_event('log', {
+                'text': f'  Dedup: {display} — removed '
+                        f'{removed_count} cross-platform '
+                        f'duplicates\n',
+                'className': 'log-info',
+            })
+
+            # Update card with new counts
+            new_selected = (len(data.get('selected_urls', []))
+                            + len(data.get('selected_local', [])))
+            new_size = sum(
+                all_sizes.get(u, 0)
+                for u in data.get('selected_urls', []))
+            for fpath in data.get('selected_local', []):
+                try:
+                    new_size += Path(fpath).stat().st_size
+                except OSError:
+                    pass
+            self._push_event('card', {
+                'system': system,
+                'state': 'complete',
+                'selected_count': new_selected,
+                'excluded_count': (old_url_count + old_local_count
+                                   - new_selected),
+                'selected_size': new_size,
+                'source_count': old_url_count + old_local_count,
+                'source_size': 0,
+                'filter_breakdown': {'cross-platform dupe': removed_count},
+            })
+
+        if total_deduped > 0:
+            self._push_event('log', {
+                'text': f'\n  Dedup total: {total_deduped} '
+                        f'cross-platform duplicates removed\n',
+                'className': 'log-success',
+            })
 
     def _apply_budget_filters(self, config, all_systems, all_sizes):
         """Apply --limit, --top, and --size budget filters after filtering."""
