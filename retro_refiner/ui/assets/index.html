@@ -602,9 +602,10 @@
           <div class="check-grid">
             <label title="1G1R: select one best ROM per game based on region and revision"><input type="checkbox" id="opt-best-version"> 1 Game 1 Rom</label>
             <label title="Only keep ROMs with English language support"><input type="checkbox" id="opt-english"> English only</label>
-            <label title="Remove prototype and pre-release ROMs"><input type="checkbox" id="opt-protos"> Exclude prototypes</label>
-            <label title="Keep beta versions (normally excluded)"><input type="checkbox" id="opt-betas"> Include betas</label>
-            <label title="Remove unlicensed and unofficial ROMs"><input type="checkbox" id="opt-no-unlicensed"> Exclude unlicensed</label>
+            <label title="Include prototype and pre-release ROMs"><input type="checkbox" id="opt-protos"> Include prototypes</label>
+            <label title="Include beta versions"><input type="checkbox" id="opt-betas"> Include betas</label>
+            <label title="Include unlicensed and unofficial ROMs"><input type="checkbox" id="opt-no-unlicensed"> Include unlicensed</label>
+            <label title="Include adult/mature-rated games"><input type="checkbox" id="opt-no-adult"> Include adult</label>
           </div>
           <div class="field-label">Region priority</div>
           <input type="text" id="opt-region-priority" placeholder="USA, World, Europe, Australia..." title="Order of preference when choosing between regional versions">
@@ -711,7 +712,6 @@
           <label title="Don't download or use DAT files for metadata"><input type="checkbox" id="opt-no-dat"> Skip DAT files</label>
           <label title="Skip CHD (Compressed Hunks of Data) disc images"><input type="checkbox" id="opt-no-chd"> Skip CHD images</label>
           <label title="Force fresh scans, ignoring cached results"><input type="checkbox" id="opt-no-cache"> Disable cache</label>
-          <label title="Exclude adult/mature-rated games from MAME results"><input type="checkbox" id="opt-no-adult"> Hide adult content</label>
           <label title="Scan subfolders within source directories"><input type="checkbox" id="opt-recursive"> Recursive scan</label>
         </div>
         <div class="field-label">Max scan depth</div>
@@ -1027,9 +1027,10 @@ function restoreUiState(cfg) {
   document.getElementById('opt-all-roms').checked = !!sel.all_roms;
   document.getElementById('opt-best-version').checked = !!sel.best_version;
   document.getElementById('opt-english').checked = !!sel.english_only;
-  document.getElementById('opt-protos').checked = !!sel.exclude_protos;
+  document.getElementById('opt-protos').checked = !sel.exclude_protos;
   document.getElementById('opt-betas').checked = !!sel.include_betas;
-  document.getElementById('opt-no-unlicensed').checked = !sel.include_unlicensed;
+  document.getElementById('opt-no-unlicensed').checked = !!sel.include_unlicensed;
+  document.getElementById('opt-no-adult').checked = !adv.no_adult;
   toggleSelectionOpts();
   if (sel.region_priority && sel.region_priority.length)
     document.getElementById('opt-region-priority').value = sel.region_priority.join(', ');
@@ -1067,7 +1068,6 @@ function restoreUiState(cfg) {
   document.getElementById('opt-no-dat').checked = !!adv.no_dat;
   document.getElementById('opt-no-chd').checked = !!adv.no_chd;
   document.getElementById('opt-no-cache').checked = !!adv.no_cache;
-  document.getElementById('opt-no-adult').checked = !!adv.no_adult;
   document.getElementById('opt-recursive').checked = !!adv.recursive;
   document.getElementById('opt-max-depth').value = adv.max_depth || 3;
   document.getElementById('opt-mame-version').value = adv.mame_version || '';
@@ -1103,9 +1103,9 @@ function gatherUiState() {
     all_roms: document.getElementById('opt-all-roms').checked,
     best_version: document.getElementById('opt-best-version').checked,
     english_only: document.getElementById('opt-english').checked,
-    exclude_protos: document.getElementById('opt-protos').checked,
+    exclude_protos: !document.getElementById('opt-protos').checked,
     include_betas: document.getElementById('opt-betas').checked,
-    no_unlicensed: document.getElementById('opt-no-unlicensed').checked,
+    no_unlicensed: !document.getElementById('opt-no-unlicensed').checked,
     region_priority: document.getElementById('opt-region-priority').value || '',
     keep_regions: document.getElementById('opt-keep-regions').value || '',
     include_patterns: document.getElementById('opt-include-patterns').value || '',
@@ -1135,7 +1135,7 @@ function gatherUiState() {
     no_dat: document.getElementById('opt-no-dat').checked,
     no_chd: document.getElementById('opt-no-chd').checked,
     no_cache: document.getElementById('opt-no-cache').checked,
-    no_adult: document.getElementById('opt-no-adult').checked,
+    no_adult: !document.getElementById('opt-no-adult').checked,
     recursive: document.getElementById('opt-recursive').checked,
     max_depth: document.getElementById('opt-max-depth').value || '',
     mame_version: document.getElementById('opt-mame-version').value || '',
