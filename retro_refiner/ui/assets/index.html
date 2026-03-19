@@ -670,8 +670,11 @@
         <span class="arrow">&#9656;</span> DEDUPLICATION
       </div>
       <div class="section-body hidden">
-        <div class="field-label">System priority</div>
-        <input type="text" id="opt-dedup-priority" placeholder="e.g. snes, genesis, psx" title="When a game exists on multiple systems, prefer these systems first">
+        <div class="field-label">System priority <span id="dedup-priority-hint" style="color:var(--text-muted);font-weight:normal;font-size:9px">click to set order</span></div>
+        <div class="system-pills" id="dedup-priority-pills">
+          <span class="system-pill-placeholder">Scan sources to discover systems</span>
+        </div>
+        <input type="hidden" id="opt-dedup-priority">
         <div class="field-label">Exclusion Playlists</div>
         <div class="source-list" id="exclusion-playlist-list"></div>
         <div class="source-buttons">
@@ -1064,6 +1067,44 @@ function populateSystemPills(systemList) {
     if (!(sys in systemPillState)) systemPillState[sys] = true;
   });
   renderSystemPills();
+  renderDedupPriorityPills();
+}
+
+/* Dedup priority pills — ordered list */
+var dedupPriorityOrder = [];  /* ordered list of prioritized system codes */
+
+function renderDedupPriorityPills() {
+  var container = document.getElementById('dedup-priority-pills');
+  while (container.firstChild) container.removeChild(container.firstChild);
+  var systems = Object.keys(systemPillState).sort();
+  if (systems.length === 0) {
+    var ph = document.createElement('span');
+    ph.className = 'system-pill-placeholder';
+    ph.textContent = 'Scan sources to discover systems';
+    container.appendChild(ph);
+    return;
+  }
+  systems.forEach(function(sys) {
+    var idx = dedupPriorityOrder.indexOf(sys);
+    var isActive = idx >= 0;
+    var pill = document.createElement('span');
+    pill.className = 'system-pill' + (isActive ? ' active' : '');
+    pill.textContent = isActive ? (idx + 1) + '. ' + sys : sys;
+    pill.title = isActive
+      ? 'Priority #' + (idx + 1) + ' \u2014 click to remove from priority'
+      : 'Click to add to dedup priority (next in line)';
+    pill.addEventListener('click', function() {
+      if (isActive) {
+        dedupPriorityOrder.splice(idx, 1);
+      } else {
+        dedupPriorityOrder.push(sys);
+      }
+      renderDedupPriorityPills();
+    });
+    container.appendChild(pill);
+  });
+  /* Sync hidden input */
+  document.getElementById('opt-dedup-priority').value = dedupPriorityOrder.join(',');
 }
 
 function renderExclusionPlaylists() {
@@ -1271,7 +1312,13 @@ function restoreUiState(cfg) {
   document.getElementById('opt-ia-secret-key').value = auth.ia_secret_key || '';
 
   /* Dedup */
-  document.getElementById('opt-dedup-priority').value = dedup.priority || '';
+  if (dedup.priority) {
+    var pList = (typeof dedup.priority === 'string') ? dedup.priority.split(',') : dedup.priority;
+    dedupPriorityOrder = pList.map(function(s) { return s.trim(); }).filter(Boolean);
+    /* Ensure priority systems appear in pill state */
+    dedupPriorityOrder.forEach(function(s) { if (!(s in systemPillState)) systemPillState[s] = true; });
+  }
+  renderDedupPriorityPills();
   if (dedup.pc_lists && dedup.pc_lists.length) {
     exclusionPlaylists = dedup.pc_lists.slice();
     renderExclusionPlaylists();
