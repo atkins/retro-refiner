@@ -320,6 +320,21 @@
   }
   .source-btn:hover { background: var(--accent-hover); color: var(--text-primary); }
 
+  /* System pills */
+  .system-pills {
+    display: flex; flex-wrap: wrap; gap: 3px; padding: 4px;
+    background: var(--bg-input); border: 1px solid var(--border); border-radius: 3px;
+    min-height: 26px; max-height: 120px; overflow-y: auto;
+  }
+  .system-pill {
+    display: inline-block; padding: 2px 6px; border-radius: 3px; font-size: 9px;
+    cursor: pointer; user-select: none; border: 1px solid var(--border);
+    color: var(--text-muted); background: transparent; transition: all 0.15s;
+  }
+  .system-pill:hover { border-color: var(--accent); color: var(--text-primary); }
+  .system-pill.active { background: var(--accent-bg); color: var(--accent); border-color: var(--accent); }
+  .system-pill-placeholder { font-size: 10px; color: var(--text-muted); padding: 2px; }
+
   /* Checkboxes */
   .check-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; font-size: 10px; }
   .check-grid label { color: var(--text-secondary); display: flex; align-items: center; gap: 4px; cursor: pointer; }
@@ -605,10 +620,12 @@
           <option value="hardlink" title="Create hard links sharing the same data on disk. Zero extra space used. Deleting one copy doesn't affect the other. Works on NTFS with no special permissions. Both paths must be on the same drive. Best option for most Windows users who want a zero-cost organized collection.">Hardlink</option>
           <option value="delete-dupes" title="Remove duplicate ROMs directly from your source folders based on dedup settings. No destination needed. Use to clean up an existing collection in-place.">Delete Duplicates In-Place</option>
         </select>
-        <div class="field-label">Include systems</div>
-        <input type="text" id="opt-systems" placeholder="e.g. snes, genesis, psx" title="Only process these systems (comma-separated). Leave empty for all.">
-        <div class="field-label">Exclude systems</div>
-        <input type="text" id="opt-exclude-systems" placeholder="e.g. 3do, jaguar" title="Skip these systems during scanning (comma-separated)">
+        <div class="field-label">Systems <span id="system-pill-count" style="color:var(--text-muted);font-weight:normal"></span> <span id="system-pill-actions" style="display:none;font-weight:normal"><a href="#" onclick="event.preventDefault();toggleAllPills(true)" style="color:var(--accent);font-size:9px">All</a> <a href="#" onclick="event.preventDefault();toggleAllPills(false)" style="color:var(--accent);font-size:9px">None</a></span></div>
+        <div class="system-pills" id="system-pills">
+          <span class="system-pill-placeholder">Scan sources to discover systems</span>
+        </div>
+        <input type="hidden" id="opt-systems">
+        <input type="hidden" id="opt-exclude-systems">
       </div>
     </div>
 
@@ -997,6 +1014,58 @@ function browsePathPicker(inputId, displayId) {
 
 var exclusionPlaylists = [];
 
+/* System pill filter */
+var systemPillState = {};  /* system -> true/false */
+
+function renderSystemPills() {
+  var container = document.getElementById('system-pills');
+  while (container.firstChild) container.removeChild(container.firstChild);
+  var systems = Object.keys(systemPillState).sort();
+  if (systems.length === 0) {
+    var ph = document.createElement('span');
+    ph.className = 'system-pill-placeholder';
+    ph.textContent = 'Scan sources to discover systems';
+    container.appendChild(ph);
+    document.getElementById('system-pill-count').textContent = '';
+    document.getElementById('system-pill-actions').style.display = 'none';
+    return;
+  }
+  var activeCount = 0;
+  systems.forEach(function(sys) {
+    var pill = document.createElement('span');
+    pill.className = 'system-pill' + (systemPillState[sys] ? ' active' : '');
+    pill.textContent = sys;
+    pill.title = systemPillState[sys] ? 'Included \u2014 click to exclude' : 'Excluded \u2014 click to include';
+    pill.addEventListener('click', function() {
+      systemPillState[sys] = !systemPillState[sys];
+      renderSystemPills();
+    });
+    container.appendChild(pill);
+    if (systemPillState[sys]) activeCount++;
+  });
+  document.getElementById('system-pill-count').textContent =
+    '(' + activeCount + '/' + systems.length + ')';
+  document.getElementById('system-pill-actions').style.display = 'inline';
+  /* Sync hidden inputs */
+  var included = systems.filter(function(s) { return systemPillState[s]; });
+  var excluded = systems.filter(function(s) { return !systemPillState[s]; });
+  document.getElementById('opt-systems').value = included.length < systems.length ? included.join(',') : '';
+  document.getElementById('opt-exclude-systems').value = excluded.length > 0 ? excluded.join(',') : '';
+}
+
+function toggleAllPills(state) {
+  Object.keys(systemPillState).forEach(function(s) { systemPillState[s] = state; });
+  renderSystemPills();
+}
+
+function populateSystemPills(systemList) {
+  /* Add newly discovered systems, preserve existing selections */
+  systemList.forEach(function(sys) {
+    if (!(sys in systemPillState)) systemPillState[sys] = true;
+  });
+  renderSystemPills();
+}
+
 function renderExclusionPlaylists() {
   var list = document.getElementById('exclusion-playlist-list');
   while (list.firstChild) list.removeChild(list.firstChild);
@@ -1133,8 +1202,16 @@ function restoreUiState(cfg) {
     renderSources();
   }
   if (cfg.destination) setPathPicker('dest-path', 'dest-path-display', cfg.destination);
-  if (cfg.systems && cfg.systems.length)
-    document.getElementById('opt-systems').value = cfg.systems.join(', ');
+  /* Restore system pill state from saved include/exclude lists */
+  if (cfg.systems && cfg.systems.length) {
+    cfg.systems.forEach(function(s) { systemPillState[s] = true; });
+  }
+  var savedExclude = cfg.exclude_systems;
+  if (savedExclude) {
+    var exList = (typeof savedExclude === 'string') ? savedExclude.split(',') : savedExclude;
+    exList.forEach(function(s) { s = s.trim(); if (s) systemPillState[s] = false; });
+  }
+  renderSystemPills();
 
   /* Selection */
   document.getElementById('opt-all-roms').checked = !!sel.all_roms;
@@ -1764,6 +1841,7 @@ function _handleEventOriginal(event) {
   } else if (event.type === 'card') {
     var results = document.getElementById('view-results');
     if (d.state === 'filtering') {
+      populateSystemPills([d.system]);
       var card = createFilteringCard(d.system, d.source_count, d.source_size);
       results.appendChild(card);
       cardElements[d.system] = card;
