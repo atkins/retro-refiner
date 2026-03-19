@@ -1228,55 +1228,41 @@ function doStop() {
 }
 
 /* ===== Log ===== */
-function _linkifyText(text, parent, className) {
-  /* Split text on URL patterns and create text nodes + anchor elements */
-  var urlRe = /https?:\/\/[^\s)>\]]+/g;
-  var lastIdx = 0;
-  var match;
-  var hasLinks = false;
-  while ((match = urlRe.exec(text)) !== null) {
-    var url = match[0].replace(/[.,:;!?]+$/, '');
-    if (!url || url.length < 10) continue;
-    /* Only linkify encoded URLs — decoded ones (with spaces) get truncated by regex */
-    if (url.indexOf('%') === -1) continue;
-    hasLinks = true;
-    if (match.index > lastIdx) {
-      var before = text.substring(lastIdx, match.index);
-      if (className) {
-        var sp = document.createElement('span');
-        sp.className = className;
-        sp.textContent = before;
-        parent.appendChild(sp);
-      } else {
-        parent.appendChild(document.createTextNode(before));
-      }
-    }
-    var a = document.createElement('a');
-    a.href = '#';
-    try { a.textContent = decodeURIComponent(match[0]); } catch(ex) { a.textContent = match[0]; }
-    a.style.cssText = 'color:var(--accent);text-decoration:underline;cursor:pointer;';
-    (function(url) { a.onclick = function(e) { e.preventDefault(); if (window.pywebview) window.pywebview.api.open_url(url); }; })(match[0]);
-    if (className) a.className = className;
-    parent.appendChild(a);
-    lastIdx = match.index + match[0].length;
-  }
-  if (hasLinks && lastIdx < text.length) {
-    var after = text.substring(lastIdx);
-    if (className) {
-      var sp2 = document.createElement('span');
-      sp2.className = className;
-      sp2.textContent = after;
-      parent.appendChild(sp2);
-    } else {
-      parent.appendChild(document.createTextNode(after));
-    }
-  }
-  return hasLinks;
-}
-
-function appendLog(text, className) {
+function appendLog(text, className, url) {
   var log = document.getElementById('view-log');
-  if (!_linkifyText(text, log, className)) {
+  if (url) {
+    /* Render text with the URL portion as a clickable link */
+    var decoded = text;
+    try { decoded = decodeURIComponent(url); } catch(e) { decoded = url; }
+    var idx = text.indexOf(decoded);
+    if (idx === -1) idx = text.indexOf(url);
+    if (idx >= 0) {
+      var matchLen = text.indexOf(decoded) >= 0 ? decoded.length : url.length;
+      /* Text before the URL */
+      if (idx > 0) {
+        var before = document.createTextNode(text.substring(0, idx));
+        if (className) { var sb = document.createElement('span'); sb.className = className; sb.textContent = text.substring(0, idx); log.appendChild(sb); }
+        else log.appendChild(before);
+      }
+      /* The clickable URL */
+      var a = document.createElement('a');
+      a.href = '#';
+      a.textContent = text.substring(idx, idx + matchLen);
+      a.style.cssText = 'color:var(--accent);text-decoration:underline;cursor:pointer;';
+      (function(rawUrl) { a.onclick = function(e) { e.preventDefault(); if (window.pywebview) window.pywebview.api.open_url(rawUrl); }; })(url);
+      log.appendChild(a);
+      /* Text after the URL */
+      var after = text.substring(idx + matchLen);
+      if (after) {
+        if (className) { var sa = document.createElement('span'); sa.className = className; sa.textContent = after; log.appendChild(sa); }
+        else log.appendChild(document.createTextNode(after));
+      }
+    } else {
+      /* Fallback: couldn't find URL in text, render as plain */
+      if (className) { var sp = document.createElement('span'); sp.className = className; sp.textContent = text; log.appendChild(sp); }
+      else log.appendChild(document.createTextNode(text));
+    }
+  } else {
     if (className) {
       var span = document.createElement('span');
       span.className = className;
@@ -1853,7 +1839,7 @@ function _handleEventOriginal(event) {
     }
 
   } else if (event.type === 'log') {
-    appendLog(d.text, d.className || null);
+    appendLog(d.text, d.className || null, d.url || null);
 
   } else if (event.type === 'progress') {
     updateProgress(d.current || 0, d.total || 0);
