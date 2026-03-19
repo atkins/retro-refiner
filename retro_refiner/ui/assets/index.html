@@ -312,6 +312,7 @@
     color: var(--text-muted); cursor: pointer; margin-left: 4px; font-size: 12px;
   }
   .source-item .remove-btn:hover { color: var(--accent); }
+  .source-drop-zone.drag-over { border: 2px dashed var(--accent); background: var(--accent-bg); border-radius: 3px; }
   .source-buttons { display: flex; gap: 4px; }
   .source-btn {
     flex: 1; background: var(--accent-bg); color: var(--text-secondary); text-align: center;
@@ -462,6 +463,9 @@
   }
   .filter-tag .count { color: var(--accent); font-weight: bold; margin-right: 3px; }
 
+  .card-preview { margin: 8px 16px 0; }
+  .card-preview .title { font-size: 9px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 2px; }
+  .card-preview .preview-title { font-size: 10px; color: var(--text-secondary); padding: 1px 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .card-actions { padding: 8px 16px; border-top: 1px solid var(--border); display: flex; gap: 8px; }
   .card-btn {
     padding: 4px 12px; background: var(--accent-bg); color: var(--info); border-radius: 3px;
@@ -549,6 +553,7 @@
   .picker-toggle:hover { border-color: var(--accent); color: var(--text-primary); }
   .picker-toggle.active { border-color: var(--accent); color: var(--accent); }
   .picker-stats { color: var(--text-secondary); font-size: 10px; white-space: nowrap; }
+  .picker-saved { color: var(--success); font-size: 10px; transition: opacity 0.3s; opacity: 0; margin-left: 8px; }
 
   .picker-table-wrap { flex: 1; overflow-y: auto; }
   .picker-table { width: 100%; border-collapse: collapse; font-size: 11px; }
@@ -588,8 +593,8 @@
   <!-- ===== Sidebar ===== -->
   <div class="sidebar">
     <div class="sidebar-actions">
-      <button class="btn btn-preview" id="btn-preview" onclick="doPreview()" title="Scan sources and preview what would be selected">Scan</button>
-      <button class="btn btn-run" id="btn-run" onclick="doRun()" title="Scan, download, and transfer files to destination">Run</button>
+      <button class="btn btn-preview" id="btn-preview" onclick="doPreview()" title="Scan sources and preview what would be selected">Preview</button>
+      <button class="btn btn-run" id="btn-run" onclick="doRun()" title="Scan, download, and transfer files to destination">Commit</button>
       <button class="btn btn-stop" id="btn-stop" onclick="doStop()" disabled title="Cancel the current operation">Stop</button>
     </div>
 
@@ -600,10 +605,12 @@
       </div>
       <div class="section-body">
         <div class="field-label">Sources</div>
+        <div id="source-drop-zone" class="source-drop-zone">
         <div class="source-list" id="source-list"></div>
         <div class="source-buttons">
           <button class="source-btn" onclick="addFolder()" title="Add a local folder as a ROM source">+ Folder</button>
           <button class="source-btn" onclick="addUrl()" title="Add a network URL as a ROM source">+ URL</button>
+        </div>
         </div>
         <div id="dest-group">
           <div class="field-label">Destination</div>
@@ -638,7 +645,7 @@
       </div>
       <div class="section-body">
         <div class="check-grid">
-          <label title="Skip all filtering — download every file from sources"><input type="checkbox" id="opt-all-roms" checked onchange="toggleSelectionOpts()"> All files</label>
+          <label title="Enable filtering — uncheck to pass through every file from sources"><input type="checkbox" id="opt-all-roms" onchange="toggleSelectionOpts()"> Apply filters</label>
         </div>
         <div id="selection-filter-opts" class="sub-options disabled">
           <div class="check-grid">
@@ -832,8 +839,8 @@
         <h2>Retro-Refiner</h2>
         <p>
           Add source folders or URLs in the sidebar, choose a destination,
-          then click <span class="shortcut">Scan</span> to see what would
-          be selected or <span class="shortcut">Run</span> to transfer files.
+          then click <span class="shortcut">Preview</span> to see what would
+          be selected or <span class="shortcut">Commit</span> to transfer files.
         </p>
       </div>
 
@@ -1008,6 +1015,49 @@ function addUrl() {
     finishAdd(url);
   }
 }
+
+/* ===== Drag-and-drop for sources ===== */
+(function initSourceDropZone() {
+  function setup() {
+    var dropZone = document.getElementById('source-drop-zone');
+    if (!dropZone) return;
+    var dragCounter = 0;
+    dropZone.addEventListener('dragover', function(e) { e.preventDefault(); });
+    dropZone.addEventListener('dragenter', function(e) {
+      e.preventDefault();
+      dragCounter++;
+      dropZone.classList.add('drag-over');
+    });
+    dropZone.addEventListener('dragleave', function() {
+      dragCounter--;
+      if (dragCounter <= 0) { dragCounter = 0; dropZone.classList.remove('drag-over'); }
+    });
+    dropZone.addEventListener('drop', function(e) {
+      e.preventDefault();
+      dragCounter = 0;
+      dropZone.classList.remove('drag-over');
+      var files = e.dataTransfer.files;
+      var added = false;
+      for (var i = 0; i < files.length; i++) {
+        var path = files[i].path || files[i].name;
+        if (path) {
+          if (/^https?:\/\//i.test(path)) {
+            sources.push({ path: path, recursive: false, depth: 3 });
+          } else {
+            sources.push({ path: path, recursive: false, depth: 3 });
+          }
+          added = true;
+        }
+      }
+      if (added) renderSources();
+    });
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', setup);
+  } else {
+    setup();
+  }
+})();
 
 function browsePathPicker(inputId, displayId) {
   if (window.pywebview) {
@@ -1200,10 +1250,10 @@ function setTheme(name) {
 }
 
 function toggleSelectionOpts() {
-  var allFiles = document.getElementById('opt-all-roms').checked;
+  var applyFilters = document.getElementById('opt-all-roms').checked;
   var opts = document.getElementById('selection-filter-opts');
-  if (allFiles) opts.classList.add('disabled');
-  else opts.classList.remove('disabled');
+  if (applyFilters) opts.classList.remove('disabled');
+  else opts.classList.add('disabled');
 }
 
 function toggleDestForTransferMode() {
@@ -1257,7 +1307,7 @@ function restoreUiState(cfg) {
   renderSystemPills();
 
   /* Selection */
-  document.getElementById('opt-all-roms').checked = !!sel.all_roms;
+  document.getElementById('opt-all-roms').checked = !sel.all_roms;
   document.getElementById('opt-best-version').checked = !!sel.best_version;
   document.getElementById('opt-english').checked = !!sel.english_only;
   document.getElementById('opt-protos').checked = !sel.exclude_protos;
@@ -1353,7 +1403,7 @@ function gatherUiState() {
     systems: document.getElementById('opt-systems').value || '',
     exclude_systems: document.getElementById('opt-exclude-systems').value || '',
     /* Selection */
-    all_roms: document.getElementById('opt-all-roms').checked,
+    all_roms: !document.getElementById('opt-all-roms').checked,
     best_version: document.getElementById('opt-best-version').checked,
     english_only: document.getElementById('opt-english').checked,
     exclude_protos: !document.getElementById('opt-protos').checked,
@@ -1440,7 +1490,7 @@ function doPreview() {
 
 function doRun() {
   if (isRunning) return;
-  if (!confirm('Start downloading and transferring files to the destination?')) return;
+  if (!confirm('Start committing files to the destination?')) return;
   if (sources.length === 0) {
     appendLog('No sources configured. Add a folder or URL first.\n', 'log-warning');
     showView('log');
@@ -1581,7 +1631,7 @@ function updateCardComplete(card, data) {
   if (msg) msg.remove();
 
   /* Remove prior dynamic content (stats, bar, filters, actions) so dedup updates in-place */
-  ['.card-stats', '.card-bar', '.card-filters', '.card-actions'].forEach(function(sel) {
+  ['.card-stats', '.card-bar', '.card-filters', '.card-preview', '.card-actions'].forEach(function(sel) {
     var el = card.querySelector(sel);
     if (el) el.remove();
   });
@@ -1630,6 +1680,21 @@ function updateCardComplete(card, data) {
     card.appendChild(filtersDiv);
   }
 
+  /* Preview titles */
+  var previews = data.preview_titles || [];
+  if (previews.length > 0) {
+    var previewDiv = document.createElement('div');
+    previewDiv.className = 'card-preview';
+    previewDiv.innerHTML = '<div class="title">Sample titles</div>';
+    previews.forEach(function(t) {
+      var line = document.createElement('div');
+      line.className = 'preview-title';
+      line.textContent = t;
+      previewDiv.appendChild(line);
+    });
+    card.appendChild(previewDiv);
+  }
+
   /* Card actions */
   var actionsDiv = document.createElement('div');
   actionsDiv.className = 'card-actions';
@@ -1652,7 +1717,7 @@ function renderSummary(data) {
 
   var summary = document.createElement('div');
   summary.className = 'summary';
-  var modeLabel = data.commit ? 'Commit' : 'Scan';
+  var modeLabel = data.commit ? 'Commit' : 'Preview';
   summary.innerHTML =
     '<div style="display:flex;justify-content:space-between;align-items:center;">' +
       '<div class="summary-title">' + modeLabel + ' Complete</div>' +
@@ -1953,7 +2018,7 @@ function renderPicker(title) {
   container.innerHTML =
     '<div class="picker-toolbar">' +
       '<button class="picker-back" onclick="closePicker()">&larr; Back</button>' +
-      '<span style="flex:1;text-align:center"><span class="picker-title">' + title + '</span> <span class="picker-stats" id="picker-stats"></span></span>' +
+      '<span style="flex:1;text-align:center"><span class="picker-title">' + title + '</span> <span class="picker-stats" id="picker-stats"></span><span class="picker-saved" id="picker-saved-indicator"></span></span>' +
       '<button class="picker-toggle" onclick="pickerInvert()">Invert</button>' +
       '<button class="picker-toggle" onclick="pickerReset()">Reset</button>' +
       '<button class="picker-toggle active" id="picker-excl-toggle" onclick="toggleExcluded()">Hide excluded</button>' +
@@ -2143,6 +2208,15 @@ function pickerReset() {
   });
 }
 
+function showPickerSaved() {
+  var el = document.getElementById('picker-saved-indicator');
+  if (!el) return;
+  el.textContent = 'Changes saved';
+  el.style.opacity = '1';
+  clearTimeout(el._timer);
+  el._timer = setTimeout(function() { el.style.opacity = '0'; }, 1500);
+}
+
 function savePickerSelections() {
   if (!window.pywebview) return;
   if (pickerSystem) {
@@ -2163,6 +2237,7 @@ function savePickerSelections() {
       window.pywebview.api.update_rom_selection(sys, JSON.stringify(bySystem[sys]));
     });
   }
+  showPickerSaved();
 }
 
 /* ===== Init ===== */

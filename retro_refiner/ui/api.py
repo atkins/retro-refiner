@@ -862,6 +862,16 @@ class Api:
                           else 0)
         selected_size = net_size + local_sel_size
 
+        # Build preview titles (first 5 selected)
+        preview = []
+        for u in selected_urls[:5]:
+            preview.append(
+                urllib.parse.unquote(
+                    u.split('?')[0].split('#')[0].split('/')[-1]
+                ).rsplit('.', 1)[0])
+        for f in selected_local[:max(0, 5 - len(preview))]:
+            preview.append(Path(f).stem)
+
         self._push_event('card', {
             'system': system,
             'state': 'complete',
@@ -871,6 +881,7 @@ class Api:
             'source_count': source_count,
             'source_size': sys_size,
             'filter_breakdown': filter_breakdown,
+            'preview_titles': preview,
         })
 
         # Emit system-complete for log renderer
