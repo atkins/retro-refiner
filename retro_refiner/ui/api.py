@@ -457,15 +457,19 @@ class Api:
                 t_start = time.monotonic()
 
                 # Run actual filtering
-                from retro_refiner.filter import filter_network_roms  # pylint: disable=import-outside-toplevel
+                from retro_refiner.filter import (  # pylint: disable=import-outside-toplevel
+                    filter_network_roms, filter_roms_from_files,
+                )
                 from retro_refiner.mame import filter_mame_network_roms  # pylint: disable=import-outside-toplevel
                 from retro_refiner.teknoparrot import filter_teknoparrot_network_roms  # pylint: disable=import-outside-toplevel
 
                 selected_urls = urls
-                excluded_count = 0
+                selected_local = list(local_files)
                 filter_breakdown = {}
                 result = None
+                sel = config.selection
 
+                # --- Filter network URLs ---
                 if urls:
                     try:
                         if system in ('mame', 'fbneo', 'fba', 'arcade'):
@@ -485,13 +489,13 @@ class Api:
                                     urls,
                                     categories=categories,
                                     games=games,
-                                    include_patterns=config.selection.include_patterns or None,
-                                    exclude_patterns=config.selection.exclude_patterns or None,
+                                    include_patterns=sel.include_patterns or None,
+                                    exclude_patterns=sel.exclude_patterns or None,
                                     include_adult=not config.advanced.no_adult,
                                     url_sizes=all_sizes,
-                                    verbose=config.selection.verbose,
-                                    no_filter=config.selection.all_roms,
-                                    english_only=config.selection.english_only,
+                                    verbose=sel.verbose,
+                                    no_filter=sel.all_roms,
+                                    english_only=sel.english_only,
                                 )
                                 filter_breakdown = _info.get('filter_breakdown', {}) if isinstance(_info, dict) else {}
                         elif system == 'teknoparrot':
@@ -505,14 +509,14 @@ class Api:
                                 urls,
                                 include_platforms=tp_include,
                                 exclude_platforms=tp_exclude,
-                                region_priority=config.selection.region_priority,
+                                region_priority=sel.region_priority,
                                 keep_all_versions=config.advanced.tp_all_versions,
-                                include_patterns=config.selection.include_patterns or None,
-                                exclude_patterns=config.selection.exclude_patterns or None,
+                                include_patterns=sel.include_patterns or None,
+                                exclude_patterns=sel.exclude_patterns or None,
                                 url_sizes=all_sizes,
-                                verbose=config.selection.verbose,
-                                no_filter=config.selection.all_roms,
-                                english_only=config.selection.english_only,
+                                verbose=sel.verbose,
+                                no_filter=sel.all_roms,
+                                english_only=sel.english_only,
                             )
                             filter_breakdown = _info.get('filter_breakdown', {}) if isinstance(_info, dict) else {}
                         else:
@@ -545,9 +549,66 @@ class Api:
                             'className': 'log-error',
                         })
 
-                excluded_count = source_count - len(selected_urls)
-                selected_count = len(selected_urls)
-                selected_size = sum(all_sizes.get(u, 0) for u in selected_urls)
+                # --- Filter local files ---
+                if local_files:
+                    try:
+                        rp = sel.region_priority
+                        region_list = ([r.strip() for r in rp.split(',')
+                                        if r.strip()] if rp else None)
+                        kr = sel.keep_regions
+                        keep_list = ([r.strip() for r in kr.split(',')
+                                      if r.strip()] if kr else None)
+                        ip = sel.include_patterns
+                        inc_pats = ([p.strip() for p in ip.split(',')
+                                     if p.strip()] if ip else None)
+                        ep = sel.exclude_patterns
+                        exc_pats = ([p.strip() for p in ep.split(',')
+                                     if p.strip()] if ep else None)
+                        yf = sel.year_from
+                        yt = sel.year_to
+                        local_roms, local_info = filter_roms_from_files(
+                            local_files,
+                            dest_dir=config.destination or '.',
+                            system=system,
+                            dry_run=True,
+                            include_patterns=inc_pats,
+                            exclude_patterns=exc_pats,
+                            exclude_protos=sel.exclude_protos,
+                            include_betas=sel.include_betas,
+                            include_unlicensed=sel.include_unlicensed,
+                            region_priority=region_list,
+                            keep_regions=keep_list,
+                            year_from=int(yf) if yf else None,
+                            year_to=int(yt) if yt else None,
+                            no_filter=sel.all_roms,
+                            best_version=sel.best_version,
+                            english_only=sel.english_only,
+                        )
+                        selected_local = [
+                            Path(f) for rom in local_roms
+                            for f in local_files
+                            if Path(f).name == rom.filename
+                        ]
+                        local_size = local_info.get('selected_size', 0)
+                    except Exception as exc:
+                        self._push_event('log', {
+                            'text': f'  Local filter error: {exc}\n',
+                            'className': 'log-error',
+                        })
+                        selected_local = list(local_files)
+                        local_size = sum(
+                            Path(f).stat().st_size
+                            for f in local_files if Path(f).exists())
+
+                # --- Combine results ---
+                net_selected = len(selected_urls)
+                local_selected = len(selected_local)
+                selected_count = net_selected + local_selected
+                excluded_count = source_count - selected_count
+                net_size = sum(all_sizes.get(u, 0) for u in selected_urls)
+                local_sel_size = (local_size if local_files
+                                  else 0)
+                selected_size = net_size + local_sel_size
                 total_selected += selected_count
                 total_excluded += excluded_count
                 total_size += selected_size
@@ -598,9 +659,11 @@ class Api:
                     'excluded_roms': excluded_roms,
                 })
 
-                # Store selected URLs for commit mode
+                # Store selected URLs/files for commit mode
                 if system in self._last_results:
                     self._last_results[system]['selected_urls'] = selected_urls
+                    self._last_results[system]['selected_local'] = [
+                        str(f) for f in selected_local]
 
             # ----- Budget filters: --limit, --top, --size -----
             if self._running:
@@ -745,7 +808,7 @@ class Api:
                         all_roms.append(parse_rom_filename(fname))
                     except Exception:  # pylint: disable=broad-except
                         pass
-                for fpath in sys_data.get('local_files', []):
+                for fpath in sys_data.get('selected_local', []):
                     try:
                         all_roms.append(
                             parse_rom_filename(Path(fpath).name))
