@@ -1749,8 +1749,7 @@ var LogRenderer = {
 
     var sepText = hc.repeat(bw + 4);
     var fullBox = topBar + '\n' + titleLine + '\n' + midBar + '\n' + statsArr.join('\n') + '\n' + botBar;
-    var topSysText = '\n        \u2655 Top: ' + data.top_system.name +
-      ' (' + data.top_system.count.toLocaleString() + ')';
+    var tidbits = data.tidbits || [];
 
     if (this._reducedMotion) {
       var sep1 = document.createElement('div');
@@ -1761,9 +1760,11 @@ var LogRenderer = {
       box1.className = 'fanfare-border';
       box1.textContent = fullBox;
       container.appendChild(box1);
-      var ts1 = document.createElement('div');
-      ts1.textContent = topSysText;
-      container.appendChild(ts1);
+      tidbits.forEach(function(t) {
+        var tl = document.createElement('div');
+        tl.textContent = '        ' + t;
+        container.appendChild(tl);
+      });
       var sep2 = document.createElement('div');
       sep2.className = 'fanfare-border';
       sep2.textContent = sepText + '\n';
@@ -1798,18 +1799,21 @@ var LogRenderer = {
 
     function drawStats() {
       boxEl.textContent = fullBox;
-      setTimeout(drawTopSystem, 1200);
+      setTimeout(drawTidbits, 800);
     }
 
-    function drawTopSystem() {
-      var topEl = document.createElement('div');
-      container.appendChild(topEl);
-      var tci = 0;
-      function typeIt() {
-        if (tci < topSysText.length) {
-          topEl.textContent = topSysText.substring(0, tci + 1);
-          tci++;
-          setTimeout(typeIt, 30);
+    function drawTidbits() {
+      var idx = 0;
+      function showNext() {
+        if (idx < tidbits.length) {
+          var tl = document.createElement('div');
+          tl.textContent = '        ' + tidbits[idx];
+          tl.style.opacity = '0';
+          container.appendChild(tl);
+          /* Fade in */
+          setTimeout(function() { tl.style.transition = 'opacity 0.3s'; tl.style.opacity = '1'; }, 10);
+          idx++;
+          setTimeout(showNext, 250);
         } else {
           var endEl = document.createElement('div');
           endEl.className = 'fanfare-border';
@@ -1819,7 +1823,7 @@ var LogRenderer = {
         }
         self._scrollLog();
       }
-      typeIt();
+      showNext();
     }
 
     drawTop();

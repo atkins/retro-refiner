@@ -400,6 +400,9 @@ class Api:
             total_selected = 0
             total_excluded = 0
             total_size = 0
+            total_source = 0
+            all_breakdowns = {}  # reason -> count across all systems
+            system_stats = []    # per-system stats for fanfare
 
             for system in sorted(all_systems):
                 if not self._running:
@@ -548,6 +551,19 @@ class Api:
                 total_selected += selected_count
                 total_excluded += excluded_count
                 total_size += selected_size
+                total_source += source_count
+
+                # Accumulate per-system stats for fanfare
+                for reason, cnt in filter_breakdown.items():
+                    all_breakdowns[reason] = all_breakdowns.get(reason, 0) + cnt
+                system_stats.append({
+                    'system': display_name,
+                    'selected': selected_count,
+                    'excluded': excluded_count,
+                    'total': source_count,
+                    'size': selected_size,
+                    'elapsed_ms': int((time.monotonic() - t_start) * 1000),
+                })
 
                 self._push_event('card', {
                     'system': system,
@@ -717,26 +733,75 @@ class Api:
             mins, secs = divmod(int(elapsed_secs), 60)
             elapsed_str = f'{mins}m {secs:02d}s' if mins else f'{secs}s'
 
-            top_system = {'name': '', 'count': 0}
-            for sys_code, sys_data in self._last_results.items():
-                count = len(sys_data.get('selected_urls', []))
-                if count > top_system['count']:
-                    _abbr = ('snes', 'nes', 'gba', 'gbc', 'n64',
-                             'psx', 'ps2', 'ps3', 'psp')
-                    name = sys_code.upper() if sys_code.lower() in _abbr \
-                        else sys_code.replace('-', ' ').replace('_', ' ').title()
-                    top_system = {'name': name, 'count': count}
+            # Compute fanfare tidbits
+            tidbits = []
 
+            # 1. Top system by count
+            active = [s for s in system_stats if s['selected'] > 0]
+            if active:
+                top = max(active, key=lambda s: s['selected'])
+                tidbits.append(
+                    f"\u2655 Top: {top['system']} ({top['selected']:,} ROMs)")
+
+            # 2. Largest system by size
+            if active:
+                biggest = max(active, key=lambda s: s['size'])
+                tidbits.append(
+                    f"\u2394 Largest: {biggest['system']} ({_fmt(biggest['size'])})")
+
+            # 3. Most filtered system (highest exclusion %)
+            filtered = [s for s in system_stats
+                        if s['total'] > 0 and s['excluded'] > 0]
+            if filtered:
+                most = max(filtered,
+                           key=lambda s: s['excluded'] / s['total'])
+                pct = (most['excluded'] / most['total']) * 100
+                tidbits.append(
+                    f"\u2702 Most filtered: {most['system']} "
+                    f"({pct:.0f}% excluded)")
+
+            # 4. Top filter reason
+            if all_breakdowns:
+                top_reason = max(all_breakdowns, key=all_breakdowns.get)
+                tidbits.append(
+                    f"\u2691 Top filter: {top_reason} "
+                    f"({all_breakdowns[top_reason]:,} removed)")
+
+            # 5. Keep rate
+            if total_source > 0:
+                keep_pct = (total_selected / total_source) * 100
+                tidbits.append(
+                    f"\u2714 Keep rate: {keep_pct:.1f}% "
+                    f"({total_selected:,} of {total_source:,})")
+
+            # 6. Average ROM size
+            if total_selected > 0:
+                avg = total_size // total_selected
+                tidbits.append(
+                    f"\u25A3 Avg ROM size: {_fmt(avg)}")
+
+            # 7. Fastest system
+            timed = [s for s in system_stats if s['selected'] > 0]
+            if len(timed) > 1:
+                fastest = min(timed, key=lambda s: s['elapsed_ms'])
+                tidbits.append(
+                    f"\u26A1 Fastest: {fastest['system']} "
+                    f"({fastest['elapsed_ms']}ms)")
+
+            # 8. Filters applied
             filters_applied = []
             sel = config.selection
             if sel.english_only:
-                filters_applied.append('english_only')
+                filters_applied.append('English only')
             if sel.exclude_protos:
-                filters_applied.append('exclude_protos')
+                filters_applied.append('No protos')
             if sel.best_version:
-                filters_applied.append('best_version')
+                filters_applied.append('1G1R')
             if not sel.include_unlicensed:
-                filters_applied.append('no_unlicensed')
+                filters_applied.append('No unlicensed')
+            if filters_applied:
+                tidbits.append(
+                    f"\u2699 Filters: {', '.join(filters_applied)}")
 
             self._push_event('fanfare', {
                 'systems': total_systems,
@@ -744,8 +809,7 @@ class Api:
                 'excluded': total_excluded,
                 'total_size': _fmt(total_size),
                 'elapsed': elapsed_str,
-                'top_system': top_system,
-                'filters_applied': filters_applied,
+                'tidbits': tidbits,
             })
 
             label = 'Commit' if commit else 'Preview'
