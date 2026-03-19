@@ -905,7 +905,7 @@ function renderSources() {
     var pathSpan = document.createElement('span');
     pathSpan.className = 'path';
     pathSpan.title = src;
-    pathSpan.textContent = src;
+    try { pathSpan.textContent = decodeURIComponent(src); } catch(e) { pathSpan.textContent = src; }
     item.appendChild(pathSpan);
 
     var removeBtn = document.createElement('span');
