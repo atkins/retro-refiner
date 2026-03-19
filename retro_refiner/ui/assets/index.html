@@ -1803,27 +1803,17 @@ var LogRenderer = {
     }
 
     function drawTidbits() {
-      var idx = 0;
-      function showNext() {
-        if (idx < tidbits.length) {
-          var tl = document.createElement('div');
-          tl.textContent = '        ' + tidbits[idx];
-          tl.style.opacity = '0';
-          container.appendChild(tl);
-          /* Fade in */
-          setTimeout(function() { tl.style.transition = 'opacity 0.3s'; tl.style.opacity = '1'; }, 10);
-          idx++;
-          setTimeout(showNext, 250);
-        } else {
-          var endEl = document.createElement('div');
-          endEl.className = 'fanfare-border';
-          endEl.textContent = '\n' + sepText + '\n';
-          container.appendChild(endEl);
-          self.renderFinish();
-        }
-        self._scrollLog();
-      }
-      showNext();
+      tidbits.forEach(function(t) {
+        var tl = document.createElement('div');
+        tl.textContent = '        ' + t;
+        container.appendChild(tl);
+      });
+      var endEl = document.createElement('div');
+      endEl.className = 'fanfare-border';
+      endEl.textContent = '\n' + sepText + '\n';
+      container.appendChild(endEl);
+      self.renderFinish();
+      self._scrollLog();
     }
 
     drawTop();
