@@ -1962,7 +1962,11 @@ function _handleEventOriginal(event) {
     if (d.state === 'completed' || d.state === 'error' || d.state === 'cancelled') {
       setRunning(false);
       if (d.state === 'completed' && Object.keys(cardElements).length > 0) {
-        showView('results');
+        if (currentView === 'picker') {
+          refreshPicker();
+        } else {
+          showView('results');
+        }
       }
     }
 
@@ -2028,6 +2032,22 @@ function openPickerAll() {
 
 function closePicker() {
   showView('results');
+}
+
+function refreshPicker() {
+  /* Reload picker data after a new scan while keeping the user in the picker */
+  if (!window.pywebview) return;
+  if (pickerSystem === null) {
+    window.pywebview.api.get_all_roms().then(function(jsonStr) {
+      pickerRoms = JSON.parse(jsonStr);
+      updatePickerTable();
+    });
+  } else {
+    window.pywebview.api.get_system_roms(pickerSystem).then(function(jsonStr) {
+      pickerRoms = JSON.parse(jsonStr);
+      updatePickerTable();
+    });
+  }
 }
 
 function renderPicker(title) {
