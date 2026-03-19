@@ -390,7 +390,6 @@
   .log-view .log-quip { font-style: italic; color: var(--text-muted); opacity: 0.6; padding-left: 2ch; animation: fade-in 0.5s ease; }
   .log-view .log-fanfare { white-space: pre; color: var(--text-heading); margin: 1em 0; font-variant-numeric: tabular-nums; }
   .log-view .log-fanfare .fanfare-border { color: var(--accent); animation: glow-border 0.5s ease-out; }
-  .log-view .log-fanfare .donut-area { display: block; line-height: 1; color: var(--text-muted); margin: 0.2em 0 0.2em 6ch; }
   .log-view .log-audit-toggle { cursor: pointer; color: var(--accent); white-space: pre; }
   .log-view .log-audit-toggle:hover { opacity: 0.8; }
   .log-view .log-audit-list { display: none; white-space: pre; color: var(--text-muted); max-height: 300px; overflow-y: auto; font-size: 10px; padding-left: 2ch; border-left: 1px solid var(--border-subtle); margin-left: 2ch; }
@@ -1490,41 +1489,6 @@ var LogRenderer = {
     ],
   },
 
-  _donut: {
-    A: 0, B: 0, R1: 1, R2: 2, K2: 5,
-    chars: '.,-~:;=!*#$@',
-    renderFrame: function(w, h) {
-      var out = [], zb = [];
-      for (var i = 0; i < w * h; i++) { out[i] = ' '; zb[i] = 0; }
-      var K1 = w * this.K2 * 3 / (8 * (this.R1 + this.R2));
-      var cA = Math.cos(this.A), sA = Math.sin(this.A);
-      var cB = Math.cos(this.B), sB = Math.sin(this.B);
-      for (var t = 0; t < 6.28; t += 0.07) {
-        var ct = Math.cos(t), st = Math.sin(t);
-        for (var p = 0; p < 6.28; p += 0.02) {
-          var cp = Math.cos(p), sp = Math.sin(p);
-          var cx = this.R2 + this.R1 * ct;
-          var x = cx * (cB * cp + sA * sB * sp) - this.R1 * cA * sB * st;
-          var y = cx * (sB * cp - sA * cB * sp) + this.R1 * cA * cB * st;
-          var z = this.K2 + cA * cx * sp + this.R1 * sA * st;
-          var ooz = 1 / z;
-          var xp = Math.floor(w / 2 + K1 * ooz * x);
-          var yp = Math.floor(h / 2 - K1 * ooz * y * 0.5);
-          var L = cp * ct * sB - cA * ct * sp - sA * st + cB * (cA * st - ct * sA * sp);
-          if (yp >= 0 && yp < h && xp >= 0 && xp < w && ooz > zb[yp * w + xp]) {
-            zb[yp * w + xp] = ooz;
-            out[yp * w + xp] = this.chars[Math.max(0, Math.floor(L * 8))] || '.';
-          }
-        }
-      }
-      this.A += 0.04; this.B += 0.02;
-      var lines = [];
-      for (var r = 0; r < h; r++) lines.push(out.slice(r * w, (r + 1) * w).join(''));
-      return lines.join('\n');
-    },
-    reset: function() { this.A = 0; this.B = 0; }
-  },
-
   handle: function(event) {
     if (this._booting && event.type !== 'boot') {
       this._eventQueue.push(event);
@@ -1805,11 +1769,6 @@ var LogRenderer = {
       box1.className = 'fanfare-border';
       box1.textContent = fullBox;
       container.appendChild(box1);
-      this._donut.reset();
-      var dn1 = document.createElement('div');
-      dn1.className = 'donut-area';
-      dn1.textContent = this._donut.renderFrame(20, 16);
-      container.appendChild(dn1);
       var ts1 = document.createElement('div');
       ts1.textContent = topSysText;
       container.appendChild(ts1);
@@ -1846,24 +1805,7 @@ var LogRenderer = {
 
     function drawStats() {
       boxEl.textContent = fullBox;
-      startDonut();
       setTimeout(drawTopSystem, 1200);
-    }
-
-    var donutEl = null;
-    var donutInterval = null;
-    function startDonut() {
-      self._donut.reset();
-      donutEl = document.createElement('div');
-      donutEl.className = 'donut-area';
-      container.appendChild(donutEl);
-      var frames = 0;
-      donutInterval = setInterval(function() {
-        donutEl.textContent = self._donut.renderFrame(20, 16);
-        frames++;
-        if (frames >= 75) clearInterval(donutInterval);
-        self._scrollLog();
-      }, 1000 / 15);
     }
 
     function drawTopSystem() {
