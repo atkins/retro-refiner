@@ -221,14 +221,7 @@ class Api:
             })
             run_start = time.monotonic()
 
-            self._push_event('boot', {
-                'phases': [
-                    'Validating sources',
-                    'Initializing scanner',
-                    'Loading DAT files',
-                    'Calibrating filters',
-                ]
-            })
+            self._push_event('boot', {})
 
             config = self._config
 
