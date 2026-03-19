@@ -1349,6 +1349,12 @@ function updateCardComplete(card, data) {
   var msg = card.querySelector('.card-filtering-msg');
   if (msg) msg.remove();
 
+  /* Remove prior dynamic content (stats, bar, filters, actions) so dedup updates in-place */
+  ['.card-stats', '.card-bar', '.card-filters', '.card-actions'].forEach(function(sel) {
+    var el = card.querySelector(sel);
+    if (el) el.remove();
+  });
+
   /* Update size in header */
   var sizeEl = card.querySelector('.card-size');
   if (sizeEl) sizeEl.textContent = formatSize(data.selected_size || 0);
