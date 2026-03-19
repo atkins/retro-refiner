@@ -373,38 +373,18 @@
   .log-view .log-warning { color: var(--warning); }
   .log-view .log-error { color: var(--accent); }
 
-  /* === Neo-Terminal Log Renderer === */
-  .log-view .log-finish-line {
-    white-space: pre; font-weight: bold;
-    background: linear-gradient(90deg, var(--accent), var(--success), var(--info), var(--accent));
-    background-size: 200% 100%;
-    -webkit-background-clip: text; background-clip: text;
-    -webkit-text-fill-color: transparent;
-    animation: gradient-shift 2s ease forwards;
-  }
-  @keyframes gradient-shift { 0% { background-position: 0% 50%; } 100% { background-position: 100% 50%; } }
-  .log-view .log-system-header { color: var(--text-heading); white-space: pre; margin: 0.6em 0 0.2em 0; overflow: hidden; }
-  .log-view .log-system-header .header-bar { display: inline-block; animation: draw-bar 0.3s ease-out forwards; }
+  /* === Log Renderer (plain structured output) === */
+  .log-view .log-system-header { color: var(--text-heading); white-space: pre; margin: 0.6em 0 0.2em 0; }
   .log-view .log-filter-line { white-space: pre; font-variant-numeric: tabular-nums; color: var(--text-muted); min-height: 1.5em; }
   .log-view .log-filter-line .progress-bar { color: var(--accent); }
   .log-view .log-breakdown { white-space: pre; color: var(--text-muted); font-variant-numeric: tabular-nums; }
   .log-view .log-breakdown .summary-line { color: var(--accent); }
-  .log-view .log-quip { font-style: italic; color: var(--text-muted); opacity: 0.6; padding-left: 2ch; animation: fade-in 0.5s ease; }
   .log-view .log-fanfare { white-space: pre; color: var(--text-heading); margin: 1em 0; font-variant-numeric: tabular-nums; }
-  .log-view .log-fanfare .fanfare-border { color: var(--accent); animation: glow-border 0.5s ease-out; }
+  .log-view .log-fanfare .fanfare-border { color: var(--accent); }
   .log-view .log-audit-toggle { cursor: pointer; color: var(--accent); white-space: pre; }
   .log-view .log-audit-toggle:hover { opacity: 0.8; }
   .log-view .log-audit-list { display: none; white-space: pre; color: var(--text-muted); max-height: 300px; overflow-y: auto; font-size: 10px; padding-left: 2ch; border-left: 1px solid var(--border-subtle); margin-left: 2ch; }
   .log-view .log-audit-list.expanded { display: block; }
-  @keyframes draw-bar { from { clip-path: inset(0 100% 0 0); } to { clip-path: inset(0 0 0 0); } }
-  @keyframes fade-in { from { opacity: 0; } to { opacity: 0.6; } }
-  @keyframes glow-border { 0% { text-shadow: 0 0 12px var(--accent); } 100% { text-shadow: none; } }
-  @media (prefers-reduced-motion: reduce) {
-    .log-view .log-finish-line { animation: none; }
-    .log-view .log-system-header .header-bar { animation: none; }
-    .log-view .log-fanfare .fanfare-border { animation: none; }
-    .log-view .log-quip { animation: none; opacity: 0.6; }
-  }
 
   /* Results view */
   .results-view { height: 100%; overflow-y: auto; padding: 16px; }
@@ -1433,59 +1413,8 @@ function renderSummary(data) {
 
 /* ===== Neo-Terminal Log Renderer ===== */
 var LogRenderer = {
-  _usedQuips: [],
   _systemLines: {},
   _fanfareShown: false,
-  _reducedMotion: window.matchMedia('(prefers-reduced-motion: reduce)').matches,
-
-  _quips: {
-    filtering: [
-      'Consulting the ancient DAT scrolls...', 'Searching for proto cartridges in the couch cushions...',
-      'Dusting off the ROM vault...', 'Decrypting the sacred archives...',
-      'Separating the wheat from the chaff...', 'Applying the 1G1R sacred texts...',
-      'Running the gauntlet of quality control...', 'Consulting the region priority oracle...',
-      'Eliminating inferior revisions...', 'Performing digital archaeology...',
-      'Cross-referencing the No-Intro database...', 'Engaging turbo filter mode...',
-      'Deploying the duplicate destroyer...', 'Activating best-version protocol...',
-      'Parsing hieroglyphics from the BBS era...', 'Establishing uplink to the ROM dimension...',
-      'Checking behind the cartridge slot...', 'Polishing the crystal oscillator...',
-      'Recalibrating the CRC checksums...', 'Summoning the ghost of Gunpei Yokoi...',
-    ],
-    system: {
-      'nes': ["It's-a me, filtering!", 'Blowing on the cartridge...'],
-      'snes': ["It's-a me, filtering!", 'Mode 7 engaged...'],
-      'genesis': ['SEGA!', 'Blast processing engaged...', 'Welcome to the next level...'],
-      'game-gear': ['SEGA!', 'Portable power activated...'],
-      'master-system': ['SEGA!', 'Master system online...'],
-      'saturn': ['SEGA!', 'Welcome to the Saturn ring...'],
-      'dreamcast': ['SEGA!', "It's thinking..."],
-      'n64': ['Do a barrel roll!', 'Hey! Listen!', "It's dangerous to go alone..."],
-      'game-boy': ['A wild ROM appeared!', "Gotta catch 'em all..."],
-      'game-boy-advance': ['A wild ROM appeared!', 'Ready for portable adventures...'],
-      'game-boy-color': ['A wild ROM appeared!', 'Now in technicolor...'],
-      'psx': ['Press START to begin...', 'Memory card inserted...'],
-      'ps2': ['Red screen of destiny...', 'Emotion engine primed...'],
-      'gamecube': ['Melee stocks reset...', 'Mini-disc loaded...'],
-      'wii': ['Motion controls calibrated...', 'Wii would like to play...'],
-      'mame': ['INSERT COIN', 'Player 1 ready...', 'Cabinet powered on...'],
-      'fbneo': ['INSERT COIN', 'Arcade board initialized...'],
-      'atari-2600': ['E.T. not included...', 'Joystick waggling detected...'],
-      'neo-geo': ['The future is now!', 'Max 330 Mega engaged...'],
-      'commodore-64': ['LOAD "*",8,1', 'READY.'],
-      'amiga': ['Guru meditation avoided...', 'Workbench loaded...'],
-    },
-    nerdy: [
-      'Reticulating splines...', 'Reversing the polarity...', 'Adjusting the flux capacitor...',
-      'Calibrating the warp drive...', 'Compiling the ROM matrix...', 'Defragmenting the bit bucket...',
-      'Overclocking the nostalgia engine...', 'Initializing retro subroutines...',
-      'Bypassing the region lockout chip...', 'Quantum-entangling save states...',
-      'Warming up the CRT phosphors...', 'Charging the power glove...',
-      'Rerouting through the expansion pak...', 'Mapping the memory banks...',
-      'Spinning up the FDD...', 'Soldering the trace cuts...',
-      'Flipping DIP switches...', 'Loading from cassette tape...',
-      'Tuning the RF modulator...', 'Aligning the laser assembly...',
-    ],
-  },
 
   handle: function(event) {
     switch (event.type) {
@@ -1498,7 +1427,6 @@ var LogRenderer = {
   },
 
   reset: function() {
-    this._usedQuips = [];
     this._systemLines = {};
     this._fanfareShown = false;
   },
@@ -1514,72 +1442,8 @@ var LogRenderer = {
     }
   },
 
-  _pickQuip: function(system) {
-    var pool = [];
-    var sq = this._quips.system[system];
-    if (sq) pool = pool.concat(sq);
-    pool = pool.concat(this._quips.filtering).concat(this._quips.nerdy);
-    var self = this;
-    pool = pool.filter(function(q) { return self._usedQuips.indexOf(q) === -1; });
-    if (pool.length === 0) return null;
-    var pick = pool[Math.floor(Math.random() * pool.length)];
-    this._usedQuips.push(pick);
-    return pick;
-  },
-
-  renderFinish: function() {
-    var self = this;
-    var logView = document.getElementById('view-log');
-
-    var allQuips = this._quips.filtering.concat(this._quips.nerdy);
-    var pool = allQuips.filter(function(q) { return self._usedQuips.indexOf(q) === -1; });
-    if (pool.length === 0) pool = allQuips;
-    var quip = pool[Math.floor(Math.random() * pool.length)];
-
-    var line = document.createElement('div');
-    line.className = 'log-finish-line';
-    logView.appendChild(line);
-
-    function switchToResults() {
-      if (Object.keys(cardElements).length > 0) {
-        setTimeout(function() { showView('results'); }, 1000);
-      }
-    }
-
-    if (this._reducedMotion) {
-      line.textContent = quip;
-      self._scrollLog();
-      switchToResults();
-      return;
-    }
-
-    var text = quip;
-    var charIdx = 0;
-    var delay = Math.max(10, Math.floor(1800 / text.length));
-    function typeChar() {
-      if (charIdx < text.length) {
-        line.textContent = text.substring(0, charIdx + 1);
-        charIdx++;
-        setTimeout(typeChar, delay);
-      } else {
-        switchToResults();
-      }
-      self._scrollLog();
-    }
-    typeChar();
-  },
-
   renderSystemStart: function(data) {
     var logView = document.getElementById('view-log');
-    if (Math.random() < 0.3) {
-      var quip = this._pickQuip(data.system);
-      if (quip) {
-        var quipEl = document.createElement('div');
-        quipEl.className = 'log-quip';
-        quipEl.textContent = quip;
-        logView.appendChild(quipEl);
-      }
-    }
     var name = ' ' + data.display_name + ' ';
     var romCount = ' ' + (data.total_roms || 0).toLocaleString() + ' ROMs ';
     var totalW = 60;
@@ -1588,10 +1452,7 @@ var LogRenderer = {
     var headerText = '\u2550\u2550' + nameSection + '\u2550'.repeat(barLen) + romCount + '\u2550\u2550';
     var headerEl = document.createElement('div');
     headerEl.className = 'log-system-header';
-    var barSpan = document.createElement('span');
-    barSpan.className = 'header-bar';
-    barSpan.textContent = headerText;
-    headerEl.appendChild(barSpan);
+    headerEl.textContent = headerText;
     logView.appendChild(headerEl);
     this._scrollLog();
   },
@@ -1620,7 +1481,6 @@ var LogRenderer = {
 
   renderSystemComplete: function(data) {
     var logView = document.getElementById('view-log');
-    var self = this;
     var line = this._systemLines[data.system];
     if (line && line.parentNode) line.parentNode.removeChild(line);
     delete this._systemLines[data.system];
@@ -1631,7 +1491,6 @@ var LogRenderer = {
       if (breakdown[k] > 0) parts.push(k + ': ' + breakdown[k].toLocaleString());
     });
 
-    /* Skip breakdown entirely when nothing was filtered */
     if (data.selected === 0 && data.excluded === 0) {
       var noResult = document.createElement('div');
       noResult.className = 'log-breakdown';
@@ -1659,6 +1518,7 @@ var LogRenderer = {
 
     var sumLine = document.createElement('div');
     sumLine.className = 'summary-line';
+    sumLine.textContent = '  \u2514\u2500 ' + summaryText;
     container.appendChild(sumLine);
 
     if (data.excluded_roms && data.excluded_roms.length > 0) {
@@ -1689,44 +1549,11 @@ var LogRenderer = {
     }
 
     logView.appendChild(container);
-
-    if (!this._reducedMotion) {
-      this._animateCountUp(sumLine, summaryText, 300);
-    } else {
-      sumLine.textContent = '  \u2514\u2500 ' + summaryText;
-    }
     this._scrollLog();
-  },
-
-  _animateCountUp: function(element, finalText, durationMs) {
-    var numbers = [];
-    var regex = /[\d,]+/g;
-    var match;
-    while ((match = regex.exec(finalText)) !== null) {
-      numbers.push({ start: match.index, end: match.index + match[0].length,
-        final: parseInt(match[0].replace(/,/g, ''), 10) });
-    }
-    if (numbers.length === 0) { element.textContent = '  \u2514\u2500 ' + finalText; return; }
-    var startTime = performance.now();
-    function tick(now) {
-      var elapsed = now - startTime;
-      var t = Math.min(elapsed / durationMs, 1);
-      t = 1 - Math.pow(1 - t, 3);
-      var text = finalText;
-      for (var i = numbers.length - 1; i >= 0; i--) {
-        var n = numbers[i];
-        var current = Math.round(n.final * t);
-        text = text.substring(0, n.start) + current.toLocaleString() + text.substring(n.end);
-      }
-      element.textContent = '  \u2514\u2500 ' + text;
-      if (t < 1) requestAnimationFrame(tick);
-    }
-    requestAnimationFrame(tick);
   },
 
   renderFanfare: function(data) {
     var logView = document.getElementById('view-log');
-    var self = this;
     var container = document.createElement('div');
     container.className = 'log-fanfare';
     logView.appendChild(container);
@@ -1759,72 +1586,24 @@ var LogRenderer = {
     var fullBox = topBar + '\n' + titleLine + '\n' + midBar + '\n' + statsArr.join('\n') + '\n' + botBar;
     var tidbits = data.tidbits || [];
 
-    if (this._reducedMotion) {
-      var sep1 = document.createElement('div');
-      sep1.className = 'fanfare-border';
-      sep1.textContent = '\n' + sepText;
-      container.appendChild(sep1);
-      var box1 = document.createElement('div');
-      box1.className = 'fanfare-border';
-      box1.textContent = fullBox;
-      container.appendChild(box1);
-      tidbits.forEach(function(t) {
-        var tl = document.createElement('div');
-        tl.textContent = '        ' + t;
-        container.appendChild(tl);
-      });
-      var sep2 = document.createElement('div');
-      sep2.className = 'fanfare-border';
-      sep2.textContent = sepText + '\n';
-      container.appendChild(sep2);
-      this.renderFinish();
-      self._scrollLog();
-      return;
-    }
-
-    var sepEl = document.createElement('div');
-    sepEl.className = 'fanfare-border';
-    sepEl.textContent = '\n' + sepText;
-    container.appendChild(sepEl);
-
-    var boxEl = document.createElement('div');
-    boxEl.className = 'fanfare-border';
-    boxEl.textContent = '';
-    container.appendChild(boxEl);
-
-    var ci = 0;
-    function drawTop() {
-      if (ci <= topBar.length) {
-        boxEl.textContent = topBar.substring(0, ci);
-        ci++;
-        setTimeout(drawTop, 200 / topBar.length);
-      } else {
-        boxEl.textContent = topBar + '\n' + titleLine + '\n' + midBar;
-        setTimeout(drawStats, 200);
-      }
-      self._scrollLog();
-    }
-
-    function drawStats() {
-      boxEl.textContent = fullBox;
-      setTimeout(drawTidbits, 800);
-    }
-
-    function drawTidbits() {
-      tidbits.forEach(function(t) {
-        var tl = document.createElement('div');
-        tl.textContent = '        ' + t;
-        container.appendChild(tl);
-      });
-      var endEl = document.createElement('div');
-      endEl.className = 'fanfare-border';
-      endEl.textContent = '\n' + sepText + '\n';
-      container.appendChild(endEl);
-      self.renderFinish();
-      self._scrollLog();
-    }
-
-    drawTop();
+    var sep1 = document.createElement('div');
+    sep1.className = 'fanfare-border';
+    sep1.textContent = '\n' + sepText;
+    container.appendChild(sep1);
+    var box1 = document.createElement('div');
+    box1.className = 'fanfare-border';
+    box1.textContent = fullBox;
+    container.appendChild(box1);
+    tidbits.forEach(function(t) {
+      var tidbitEl = document.createElement('div');
+      tidbitEl.textContent = '        ' + t;
+      container.appendChild(tidbitEl);
+    });
+    var sep2 = document.createElement('div');
+    sep2.className = 'fanfare-border';
+    sep2.textContent = sepText + '\n';
+    container.appendChild(sep2);
+    this._scrollLog();
   },
 };
 
@@ -1839,7 +1618,9 @@ function _handleEventOriginal(event) {
     }
     if (d.state === 'completed' || d.state === 'error' || d.state === 'cancelled') {
       setRunning(false);
-      /* Results view switch is handled by renderFinish after fanfare */
+      if (d.state === 'completed' && Object.keys(cardElements).length > 0) {
+        showView('results');
+      }
     }
 
   } else if (event.type === 'log') {
