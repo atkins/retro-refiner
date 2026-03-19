@@ -733,75 +733,100 @@ class Api:
             mins, secs = divmod(int(elapsed_secs), 60)
             elapsed_str = f'{mins}m {secs:02d}s' if mins else f'{secs}s'
 
-            # Compute fanfare tidbits
+            # Compute fanfare tidbits from ROM content
+            from retro_refiner.filter import parse_rom_filename  # pylint: disable=import-outside-toplevel
+            from retro_refiner.network import get_filename_from_url  # pylint: disable=import-outside-toplevel
             tidbits = []
+            all_roms = []
+            for sys_data in self._last_results.values():
+                for url in sys_data.get('selected_urls', []):
+                    fname = get_filename_from_url(url)
+                    try:
+                        all_roms.append(parse_rom_filename(fname))
+                    except Exception:  # pylint: disable=broad-except
+                        pass
+                for fpath in sys_data.get('local_files', []):
+                    try:
+                        all_roms.append(
+                            parse_rom_filename(Path(fpath).name))
+                    except Exception:  # pylint: disable=broad-except
+                        pass
 
-            # 1. Top system by count
-            active = [s for s in system_stats if s['selected'] > 0]
-            if active:
-                top = max(active, key=lambda s: s['selected'])
-                tidbits.append(
-                    f"\u2655 Top: {top['system']} ({top['selected']:,} ROMs)")
+            if all_roms:
+                # 1. Top franchise — most common base_title prefix
+                from collections import Counter  # pylint: disable=import-outside-toplevel
+                titles = [r.base_title for r in all_roms if r.base_title]
+                # Group by first significant word(s) for series detection
+                series = Counter()
+                for t in titles:
+                    words = t.split()
+                    # Use first 1-2 words as series key
+                    key = words[0] if words else t
+                    # Merge numbered sequels: "Mario 2" -> "Mario"
+                    if len(words) > 1 and not words[1].isdigit():
+                        key = ' '.join(words[:2])
+                    series[key] += 1
+                top_series = series.most_common(1)
+                if top_series and top_series[0][1] > 1:
+                    tidbits.append(
+                        f"\u2655 Top series: {top_series[0][0]} "
+                        f"({top_series[0][1]} titles)")
 
-            # 2. Largest system by size
-            if active:
-                biggest = max(active, key=lambda s: s['size'])
-                tidbits.append(
-                    f"\u2394 Largest: {biggest['system']} ({_fmt(biggest['size'])})")
+                # 2. Region breakdown — top 3 regions
+                regions = Counter(
+                    r.region for r in all_roms if r.region)
+                top_regions = regions.most_common(3)
+                if top_regions:
+                    parts = [f"{reg} ({cnt})" for reg, cnt in top_regions]
+                    tidbits.append(
+                        f"\u2691 Regions: {', '.join(parts)}")
 
-            # 3. Most filtered system (highest exclusion %)
-            filtered = [s for s in system_stats
-                        if s['total'] > 0 and s['excluded'] > 0]
-            if filtered:
-                most = max(filtered,
-                           key=lambda s: s['excluded'] / s['total'])
-                pct = (most['excluded'] / most['total']) * 100
-                tidbits.append(
-                    f"\u2702 Most filtered: {most['system']} "
-                    f"({pct:.0f}% excluded)")
+                # 3. Year range
+                years = [r.year for r in all_roms if r.year > 0]
+                if years:
+                    oldest = min(years)
+                    newest = max(years)
+                    if oldest == newest:
+                        tidbits.append(f"\u2605 All from {oldest}")
+                    else:
+                        tidbits.append(
+                            f"\u2605 Spanning {oldest}\u2013{newest}")
 
-            # 4. Top filter reason
-            if all_breakdowns:
-                top_reason = max(all_breakdowns, key=all_breakdowns.get)
-                tidbits.append(
-                    f"\u2691 Top filter: {top_reason} "
-                    f"({all_breakdowns[top_reason]:,} removed)")
+                # 4. Peak decade
+                if len(years) > 5:
+                    decades = Counter(
+                        (y // 10) * 10 for y in years)
+                    peak = decades.most_common(1)[0]
+                    tidbits.append(
+                        f"\u266B Peak decade: {peak[0]}s "
+                        f"({peak[1]} titles)")
 
-            # 5. Keep rate
-            if total_source > 0:
-                keep_pct = (total_selected / total_source) * 100
-                tidbits.append(
-                    f"\u2714 Keep rate: {keep_pct:.1f}% "
-                    f"({total_selected:,} of {total_source:,})")
+                # 5. Translations
+                translations = sum(
+                    1 for r in all_roms if r.is_translation)
+                if translations:
+                    tidbits.append(
+                        f"\u2694 Fan translations: {translations}")
 
-            # 6. Average ROM size
-            if total_selected > 0:
-                avg = total_size // total_selected
-                tidbits.append(
-                    f"\u25A3 Avg ROM size: {_fmt(avg)}")
+                # 6. Multi-disc games
+                multi_disc = sum(
+                    1 for r in all_roms if r.disc_number > 1)
+                if multi_disc:
+                    tidbits.append(
+                        f"\u25CE Multi-disc: {multi_disc} additional discs")
 
-            # 7. Fastest system
-            timed = [s for s in system_stats if s['selected'] > 0]
-            if len(timed) > 1:
-                fastest = min(timed, key=lambda s: s['elapsed_ms'])
-                tidbits.append(
-                    f"\u26A1 Fastest: {fastest['system']} "
-                    f"({fastest['elapsed_ms']}ms)")
+                # 7. Unique titles
+                unique_titles = len(set(
+                    r.base_title for r in all_roms if r.base_title))
+                if unique_titles and unique_titles != len(all_roms):
+                    tidbits.append(
+                        f"\u25A3 Unique titles: {unique_titles:,}")
 
-            # 8. Filters applied
-            filters_applied = []
-            sel = config.selection
-            if sel.english_only:
-                filters_applied.append('English only')
-            if sel.exclude_protos:
-                filters_applied.append('No protos')
-            if sel.best_version:
-                filters_applied.append('1G1R')
-            if not sel.include_unlicensed:
-                filters_applied.append('No unlicensed')
-            if filters_applied:
-                tidbits.append(
-                    f"\u2699 Filters: {', '.join(filters_applied)}")
+                # 8. Collection size
+                if total_selected > 0:
+                    avg = total_size // total_selected
+                    tidbits.append(
+                        f"\u2394 Avg ROM size: {_fmt(avg)}")
 
             self._push_event('fanfare', {
                 'systems': total_systems,
