@@ -588,19 +588,22 @@
           <button class="source-btn" onclick="addFolder()" title="Add a local folder as a ROM source">+ Folder</button>
           <button class="source-btn" onclick="addUrl()" title="Add a network URL as a ROM source">+ URL</button>
         </div>
-        <div class="field-label">Destination</div>
-        <input type="hidden" id="dest-path">
-        <div class="path-picker" onclick="browsePathPicker('dest-path', 'dest-path-display')" title="Where filtered ROMs will be transferred">
-          <span class="path-icon">&#x1F4C1;</span>
-          <span class="path-text" id="dest-path-display">Select destination folder...</span>
-          <span class="path-clear" aria-label="Clear destination" onclick="event.stopPropagation(); clearPathPicker('dest-path', 'dest-path-display', 'Select destination folder...')">&#xD7;</span>
+        <div id="dest-group">
+          <div class="field-label">Destination</div>
+          <input type="hidden" id="dest-path">
+          <div class="path-picker" onclick="browsePathPicker('dest-path', 'dest-path-display')" title="Where filtered ROMs will be transferred">
+            <span class="path-icon">&#x1F4C1;</span>
+            <span class="path-text" id="dest-path-display">Select destination folder...</span>
+            <span class="path-clear" aria-label="Clear destination" onclick="event.stopPropagation(); clearPathPicker('dest-path', 'dest-path-display', 'Select destination folder...')">&#xD7;</span>
+          </div>
         </div>
         <div class="field-label">Transfer mode</div>
-        <select id="opt-transfer" title="How to transfer files to the destination">
+        <select id="opt-transfer" title="How to transfer files to the destination" onchange="toggleDestForTransferMode()">
           <option value="copy">Copy</option>
           <option value="move">Move</option>
           <option value="symlink">Symlink</option>
           <option value="hardlink">Hardlink</option>
+          <option value="delete-dupes">Delete Duplicates In-Place</option>
         </select>
         <div class="field-label">Include systems</div>
         <input type="text" id="opt-systems" placeholder="e.g. snes, genesis, psx" title="Only process these systems (comma-separated). Leave empty for all.">
@@ -656,9 +659,6 @@
         <div class="source-list" id="exclusion-playlist-list"></div>
         <div class="source-buttons">
           <button class="source-btn" onclick="addExclusionPlaylist()" title="Add a Launchbox, Retroarch, or XML playlist">+ Playlist</button>
-        </div>
-        <div class="check-grid mt-sm">
-          <label title="Actually delete duplicate files instead of just reporting them"><input type="checkbox" id="opt-dedup-delete"> Delete duplicates</label>
         </div>
       </div>
     </div>
@@ -1094,6 +1094,18 @@ function toggleSelectionOpts() {
   else opts.classList.remove('disabled');
 }
 
+function toggleDestForTransferMode() {
+  var mode = document.getElementById('opt-transfer').value;
+  var destGroup = document.getElementById('dest-group');
+  if (mode === 'delete-dupes') {
+    destGroup.style.opacity = '0.35';
+    destGroup.style.pointerEvents = 'none';
+  } else {
+    destGroup.style.opacity = '1';
+    destGroup.style.pointerEvents = '';
+  }
+}
+
 /* ===== Restore UI state from config ===== */
 function restoreUiState(cfg) {
   if (!cfg || !cfg.selection) return;
@@ -1155,6 +1167,7 @@ function restoreUiState(cfg) {
   document.getElementById('opt-gamelists').checked = !!out.gamelist;
   document.getElementById('opt-flatten').checked = !!out.flat;
   document.getElementById('opt-transfer').value = out.transfer_mode || 'move';
+  toggleDestForTransferMode();
   if (out.retroarch_playlists) setPathPicker('opt-retroarch-playlists', 'opt-retroarch-playlists-display', out.retroarch_playlists);
   if (adv.log_dir) setPathPicker('opt-log-dir', 'opt-log-dir-display', adv.log_dir);
 
@@ -1180,7 +1193,10 @@ function restoreUiState(cfg) {
     exclusionPlaylists = dedup.pc_lists.slice();
     renderExclusionPlaylists();
   }
-  document.getElementById('opt-dedup-delete').checked = !!dedup['delete'];
+  if (dedup['delete']) {
+    document.getElementById('opt-transfer').value = 'delete-dupes';
+  }
+  toggleDestForTransferMode();
 
   /* Theme */
   var themeName = (cfg.theme && cfg.theme.mode) ? cfg.theme.mode : 'midnight-terminal';
@@ -1253,7 +1269,7 @@ function gatherUiState() {
     /* Dedup */
     dedup_priority: document.getElementById('opt-dedup-priority').value || '',
     dedup_pc_lists: exclusionPlaylists.join(','),
-    dedup_delete: document.getElementById('opt-dedup-delete').checked,
+    dedup_delete: document.getElementById('opt-transfer').value === 'delete-dupes',
     /* Theme */
     theme: document.getElementById('opt-theme').value,
   };
