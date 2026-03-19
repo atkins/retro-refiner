@@ -637,8 +637,14 @@ class Api:
                 'local_files': local_systems.get(sys_code, []),
             }
 
-        # Combine all discovered systems
+        # Combine all discovered systems, then apply include/exclude filters
         all_systems = set(all_urls.keys()) | set(local_systems.keys())
+        if config.systems:
+            allowed = set(config.systems)
+            all_systems = all_systems & allowed
+        exclude = getattr(self, '_exclude_systems', [])
+        if exclude:
+            all_systems -= set(exclude)
         if not all_systems:
             self._push_event('status', {
                 'state': 'completed',
