@@ -1248,6 +1248,7 @@ class Api:
         roms = []
         result = self._last_results.get(system, {})
         selected_urls = set(result.get('selected_urls', []))
+        selected_local = set(result.get('selected_local', []))
 
         for url in result.get('urls', []):
             filename = urllib.parse.unquote(url.split('/')[-1])
@@ -1257,6 +1258,8 @@ class Api:
             reason = ''
             if not is_selected:
                 reason = _get_exclusion_reason(rom_info)
+                if not reason:
+                    reason = 'cross-platform duplicate'
             roms.append({
                 'filename': filename,
                 'url': url,
@@ -1272,13 +1275,19 @@ class Api:
             except OSError:
                 size = 0
             rom_info = parse_rom_filename(filename)
+            is_selected = str(filepath) in selected_local
+            reason = ''
+            if not is_selected:
+                reason = _get_exclusion_reason(rom_info)
+                if not reason:
+                    reason = 'cross-platform duplicate'
             roms.append({
                 'filename': filename,
-                'url': '',
+                'url': str(filepath),
                 'size': size,
                 'region': rom_info.region,
-                'status': 'selected',
-                'reason': '',
+                'status': 'selected' if is_selected else 'excluded',
+                'reason': reason,
             })
 
         # Cache for persistence across picker reopens
