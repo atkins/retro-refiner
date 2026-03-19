@@ -1539,13 +1539,13 @@ var LogRenderer = {
     }
 
     if (this._reducedMotion) {
-      line.textContent = '> ' + quip;
+      line.textContent = quip;
       self._scrollLog();
       switchToResults();
       return;
     }
 
-    var text = '> ' + quip;
+    var text = quip;
     var charIdx = 0;
     var delay = Math.max(10, Math.floor(1800 / text.length));
     function typeChar() {
@@ -1622,6 +1622,19 @@ var LogRenderer = {
     Object.keys(breakdown).forEach(function(k) {
       if (breakdown[k] > 0) parts.push(k + ': ' + breakdown[k].toLocaleString());
     });
+
+    /* Skip breakdown entirely when nothing was filtered */
+    if (data.selected === 0 && data.excluded === 0) {
+      var noResult = document.createElement('div');
+      noResult.className = 'log-breakdown';
+      var noLine = document.createElement('span');
+      noLine.className = 'summary-line';
+      noLine.textContent = '  \u2514\u2500 no network ROMs to filter';
+      noResult.appendChild(noLine);
+      logView.appendChild(noResult);
+      this._scrollLog();
+      return;
+    }
 
     var pct = data.total > 0 ? ((data.selected / data.total) * 100).toFixed(1) : '0.0';
     var summaryText = data.selected.toLocaleString() + ' selected (' + pct + '%) \u2502 ' +
