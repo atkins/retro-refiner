@@ -652,8 +652,13 @@
       <div class="section-body hidden">
         <div class="field-label">System priority</div>
         <input type="text" id="opt-dedup-priority" placeholder="e.g. snes, genesis, psx" title="When a game exists on multiple systems, prefer these systems first">
-        <div class="field-label">Exclude titles list (comma-separated paths)</div>
-        <input type="text" id="opt-dedup-pc-lists" placeholder="Paths to title list files..." title="Text/XML files listing game titles to exclude from all systems (e.g. games you already own on another platform)">
+        <div class="field-label">Exclusion Playlists</div>
+        <input type="hidden" id="opt-dedup-pc-lists">
+        <div class="path-picker" onclick="browseFilePicker('opt-dedup-pc-lists', 'opt-dedup-pc-lists-display')" title="Launchbox, Retroarch, XML Playlists">
+          <span class="path-icon">&#x1F4C1;</span>
+          <span class="path-text" id="opt-dedup-pc-lists-display">Launchbox, Retroarch, XML Playlists</span>
+          <span class="path-clear" onclick="event.stopPropagation(); clearPathPicker('opt-dedup-pc-lists', 'opt-dedup-pc-lists-display', 'Launchbox, Retroarch, XML Playlists')" aria-label="Clear selection">&#xD7;</span>
+        </div>
         <div class="check-grid mt-sm">
           <label title="Actually delete duplicate files instead of just reporting them"><input type="checkbox" id="opt-dedup-delete"> Delete duplicates</label>
         </div>
@@ -992,6 +997,19 @@ function browsePathPicker(inputId, displayId) {
   }
 }
 
+function browseFilePicker(inputId, displayId) {
+  if (window.pywebview) {
+    window.pywebview.api.browse_file(['Playlists (*.xml;*.lpl;*.m3u)', 'All files (*.*)']).then(function(path) {
+      if (path) {
+        var current = document.getElementById(inputId).value;
+        var paths = current ? current.split(',').map(function(p) { return p.trim(); }).filter(Boolean) : [];
+        if (paths.indexOf(path) === -1) paths.push(path);
+        setPathPicker(inputId, displayId, paths.join(', '));
+      }
+    });
+  }
+}
+
 function setPathPicker(inputId, displayId, path) {
   document.getElementById(inputId).value = path;
   var display = document.getElementById(displayId);
@@ -1135,8 +1153,9 @@ function restoreUiState(cfg) {
 
   /* Dedup */
   document.getElementById('opt-dedup-priority').value = dedup.priority || '';
-  document.getElementById('opt-dedup-pc-lists').value =
-    (dedup.pc_lists && dedup.pc_lists.length) ? dedup.pc_lists.join(', ') : '';
+  if (dedup.pc_lists && dedup.pc_lists.length) {
+    setPathPicker('opt-dedup-pc-lists', 'opt-dedup-pc-lists-display', dedup.pc_lists.join(', '));
+  }
   document.getElementById('opt-dedup-delete').checked = !!dedup['delete'];
 
   /* Theme */
