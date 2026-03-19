@@ -1230,11 +1230,15 @@ function doStop() {
 /* ===== Log ===== */
 function _linkifyText(text, parent, className) {
   /* Split text on URL patterns and create text nodes + anchor elements */
-  var urlRe = /https?:\/\/[^\s)>\]]+?(?=[.]{2,}|[,;!?)>\]\s]|$)/g;
+  var urlRe = /https?:\/\/[^\s)>\]]+/g;
   var lastIdx = 0;
   var match;
   var hasLinks = false;
   while ((match = urlRe.exec(text)) !== null) {
+    var url = match[0].replace(/[.,:;!?]+$/, '');
+    if (!url || url.length < 10) continue;
+    /* Only linkify encoded URLs — decoded ones (with spaces) get truncated by regex */
+    if (url.indexOf('%') === -1) continue;
     hasLinks = true;
     if (match.index > lastIdx) {
       var before = text.substring(lastIdx, match.index);
