@@ -90,8 +90,7 @@ class Api:
         """Update theme immediately so it persists on close."""
         self._config.theme.mode = theme_name
 
-    @staticmethod
-    def open_url(url: str):
+    def open_url(self, url: str):
         """Open a URL in the system default browser."""
         import webbrowser  # pylint: disable=import-outside-toplevel
         webbrowser.open(url)
