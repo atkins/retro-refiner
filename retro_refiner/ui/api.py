@@ -2,6 +2,7 @@
 
 import json
 import threading
+import time
 import urllib.parse
 from pathlib import Path
 
@@ -218,6 +219,16 @@ class Api:
                 'state': 'running',
                 'message': f'Starting {mode} run...',
             })
+            run_start = time.monotonic()
+
+            self._push_event('boot', {
+                'phases': [
+                    'Validating sources',
+                    'Initializing scanner',
+                    'Loading DAT files',
+                    'Calibrating filters',
+                ]
+            })
 
             config = self._config
 
@@ -363,6 +374,7 @@ class Api:
 
             # Process each system and push card events
             total_selected = 0
+            total_excluded = 0
             total_size = 0
 
             for system in sorted(all_systems):
@@ -383,6 +395,12 @@ class Api:
                         pass
                 sys_size = net_size + local_size
 
+                # Compute display name
+                _abbrevs = ('snes', 'nes', 'gba', 'gbc', 'n64',
+                            'psx', 'ps2', 'ps3', 'psp')
+                display_name = system.upper() if system.lower() in _abbrevs \
+                    else system.replace('-', ' ').replace('_', ' ').title()
+
                 # Push card-start event
                 self._push_event('card', {
                     'system': system,
@@ -391,10 +409,25 @@ class Api:
                     'source_size': sys_size,
                 })
 
+                self._push_event('system-start', {
+                    'system': system,
+                    'display_name': display_name,
+                    'total_roms': source_count,
+                })
+                self._push_event('filter-tick', {
+                    'system': system,
+                    'selected': 0,
+                    'excluded': 0,
+                    'processed': 0,
+                    'total': source_count,
+                    'size_selected': '0 B',
+                })
+
                 self._push_event('log', {
                     'text': f'\n{system.upper()}: '
                             f'Filtering {source_count} ROMs...\n',
                 })
+                t_start = time.monotonic()
 
                 # Run actual filtering
                 from retro_refiner.filter import filter_network_roms  # pylint: disable=import-outside-toplevel
@@ -404,6 +437,7 @@ class Api:
                 selected_urls = urls
                 excluded_count = 0
                 filter_breakdown = {}
+                result = None
 
                 if urls:
                     try:
@@ -488,6 +522,7 @@ class Api:
                 selected_count = len(selected_urls)
                 selected_size = sum(all_sizes.get(u, 0) for u in selected_urls)
                 total_selected += selected_count
+                total_excluded += excluded_count
                 total_size += selected_size
 
                 self._push_event('card', {
@@ -499,6 +534,28 @@ class Api:
                     'source_count': source_count,
                     'source_size': sys_size,
                     'filter_breakdown': filter_breakdown,
+                })
+
+                # Emit system-complete for log renderer
+                elapsed_ms = int((time.monotonic() - t_start) * 1000)
+                excluded_roms = []
+                if result and hasattr(result, 'excluded'):
+                    for exc in result.excluded[:500]:
+                        excluded_roms.append({
+                            'name': exc.filename,
+                            'reason': exc.reason,
+                        })
+                from retro_refiner.network import format_size  # pylint: disable=import-outside-toplevel
+                self._push_event('system-complete', {
+                    'system': system,
+                    'display_name': display_name,
+                    'selected': selected_count,
+                    'excluded': excluded_count,
+                    'total': source_count,
+                    'size': format_size(selected_size),
+                    'breakdown': filter_breakdown,
+                    'elapsed_ms': elapsed_ms,
+                    'excluded_roms': excluded_roms,
                 })
 
                 # Store selected URLs for commit mode
@@ -622,11 +679,49 @@ class Api:
                                     system, rom_files, sys_dir)
 
             # Push summary
+            from retro_refiner.network import format_size as _fmt  # pylint: disable=import-outside-toplevel
             self._push_event('summary', {
                 'total_selected': total_selected,
                 'total_size': total_size,
                 'system_count': len(all_systems),
                 'commit': commit,
+            })
+
+            # Fanfare for log renderer
+            total_systems = len(all_systems)
+            elapsed_secs = time.monotonic() - run_start
+            mins, secs = divmod(int(elapsed_secs), 60)
+            elapsed_str = f'{mins}m {secs:02d}s' if mins else f'{secs}s'
+
+            top_system = {'name': '', 'count': 0}
+            for sys_code, sys_data in self._last_results.items():
+                count = len(sys_data.get('selected_urls', []))
+                if count > top_system['count']:
+                    _abbr = ('snes', 'nes', 'gba', 'gbc', 'n64',
+                             'psx', 'ps2', 'ps3', 'psp')
+                    name = sys_code.upper() if sys_code.lower() in _abbr \
+                        else sys_code.replace('-', ' ').replace('_', ' ').title()
+                    top_system = {'name': name, 'count': count}
+
+            filters_applied = []
+            sel = config.selection
+            if sel.english_only:
+                filters_applied.append('english_only')
+            if sel.exclude_protos:
+                filters_applied.append('exclude_protos')
+            if sel.best_version:
+                filters_applied.append('best_version')
+            if not sel.include_unlicensed:
+                filters_applied.append('no_unlicensed')
+
+            self._push_event('fanfare', {
+                'systems': total_systems,
+                'selected': total_selected,
+                'excluded': total_excluded,
+                'total_size': _fmt(total_size),
+                'elapsed': elapsed_str,
+                'top_system': top_system,
+                'filters_applied': filters_applied,
             })
 
             label = 'Commit' if commit else 'Preview'
