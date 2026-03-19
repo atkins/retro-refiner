@@ -1250,7 +1250,7 @@ function _linkifyText(text, parent, className) {
     }
     var a = document.createElement('a');
     a.href = '#';
-    a.textContent = match[0];
+    try { a.textContent = decodeURIComponent(match[0]); } catch(ex) { a.textContent = match[0]; }
     a.style.cssText = 'color:var(--accent);text-decoration:underline;cursor:pointer;';
     (function(url) { a.onclick = function(e) { e.preventDefault(); if (window.pywebview) window.pywebview.api.open_url(url); }; })(match[0]);
     if (className) a.className = className;

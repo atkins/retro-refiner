@@ -256,7 +256,6 @@ class Api:
                 return
 
             # Validate sources
-            from retro_refiner.network import format_url  # pylint: disable=import-outside-toplevel
             self._push_event('log', {'text': 'Validating sources...\n'})
             for src in config.sources:
                 if not self._running:
@@ -264,11 +263,9 @@ class Api:
                 ok, error = validate_source(src)
                 status = 'OK' if ok else error
                 css = 'log-success' if ok else 'log-error'
-                pretty = format_url(src)
                 self._push_event('log', {
-                    'text': f'  {pretty}... {status}\n',
+                    'text': f'  {src}... {status}\n',
                     'className': css,
-                    'url': src if is_url(src) else None,
                 })
                 if not ok:
                     self._push_event('status', {
@@ -299,9 +296,8 @@ class Api:
                 if not self._running:
                     break
                 self._push_event('log', {
-                    'text': f'\nScanning: {format_url(net_url)}\n',
+                    'text': f'\nScanning: {net_url}\n',
                     'className': 'log-info',
-                    'url': net_url,
                 })
 
                 systems_filter = config.systems
