@@ -2063,7 +2063,8 @@ function toggleExcluded() {
 function pickerToggleAll(checked) {
   var filtered = getFilteredRoms();
   filtered.forEach(function(rom) {
-    rom.status = checked ? 'selected' : 'excluded';
+    if (checked) { rom.status = 'selected'; rom.reason = ''; }
+    else { rom.status = 'excluded'; rom.reason = 'User removed'; }
   });
   updatePickerTable();
   savePickerSelections();
@@ -2072,7 +2073,9 @@ function pickerToggleAll(checked) {
 function pickerToggleRow(filteredIdx, checked) {
   var filtered = getFilteredRoms();
   if (filteredIdx >= 0 && filteredIdx < filtered.length) {
-    filtered[filteredIdx].status = checked ? 'selected' : 'excluded';
+    var rom = filtered[filteredIdx];
+    if (checked) { rom.status = 'selected'; rom.reason = ''; }
+    else { rom.status = 'excluded'; rom.reason = 'User removed'; }
   }
   updatePickerTable();
   savePickerSelections();
@@ -2081,7 +2084,8 @@ function pickerToggleRow(filteredIdx, checked) {
 function pickerInvert() {
   var filtered = getFilteredRoms();
   filtered.forEach(function(rom) {
-    rom.status = rom.status === 'selected' ? 'excluded' : 'selected';
+    if (rom.status === 'selected') { rom.status = 'excluded'; rom.reason = 'User removed'; }
+    else { rom.status = 'selected'; rom.reason = ''; }
   });
   updatePickerTable();
   savePickerSelections();
