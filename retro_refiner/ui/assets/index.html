@@ -253,6 +253,7 @@
   .btn-stop { width: 50px; background: var(--border); color: var(--text-secondary); padding: 8px; }
   .btn-stop:hover { background: var(--accent-hover); }
   .btn-stop:disabled { opacity: 0.4; cursor: default; }
+  .btn-preview:disabled, .btn-run:disabled { opacity: 0.4; cursor: default; pointer-events: none; }
 
   /* Sections */
   .section { border-bottom: 1px solid var(--border); }
@@ -356,7 +357,7 @@
   .status-text.idle { color: var(--text-secondary); }
   .status-text.running { color: var(--warning); }
   .status-text.completed { color: var(--success); }
-  .status-text.error { color: var(--accent); }
+  .status-text.error { color: var(--bar-low); }
 
   .view-tabs { display: flex; gap: 2px; }
   .view-tab {
@@ -389,7 +390,7 @@
   .log-view .log-info { color: var(--info); }
   .log-view .log-success { color: var(--success); }
   .log-view .log-warning { color: var(--warning); }
-  .log-view .log-error { color: var(--accent); }
+  .log-view .log-error { color: var(--bar-low); }
 
   /* === Log Renderer (plain structured output) === */
   .log-view .log-system-header { color: var(--text-heading); white-space: pre; margin: 0.6em 0 0.2em 0; }
@@ -561,7 +562,7 @@
   ::-webkit-scrollbar { width: 8px; }
   ::-webkit-scrollbar-track { background: var(--bg-primary); }
   ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
-  ::-webkit-scrollbar-thumb:hover { background: #555; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
 </style>
 </head>
 <body>
@@ -592,7 +593,7 @@
         <div class="path-picker" onclick="browsePathPicker('dest-path', 'dest-path-display')" title="Where filtered ROMs will be transferred">
           <span class="path-icon">&#x1F4C1;</span>
           <span class="path-text" id="dest-path-display">Select destination folder...</span>
-          <span class="path-clear" onclick="event.stopPropagation(); clearPathPicker('dest-path', 'dest-path-display', 'Select destination folder...')">&#xD7;</span>
+          <span class="path-clear" aria-label="Clear destination" onclick="event.stopPropagation(); clearPathPicker('dest-path', 'dest-path-display', 'Select destination folder...')">&#xD7;</span>
         </div>
         <div class="field-label">Transfer mode</div>
         <select id="opt-transfer" title="How to transfer files to the destination">
@@ -712,14 +713,14 @@
         <div class="path-picker" onclick="browsePathPicker('opt-retroarch-playlists', 'opt-retroarch-playlists-display')" title="Path to RetroArch playlists directory">
           <span class="path-icon">&#x1F4C1;</span>
           <span class="path-text" id="opt-retroarch-playlists-display">Select folder...</span>
-          <span class="path-clear" onclick="event.stopPropagation(); clearPathPicker('opt-retroarch-playlists', 'opt-retroarch-playlists-display', 'Select folder...')">&#xD7;</span>
+          <span class="path-clear" aria-label="Clear playlists path" onclick="event.stopPropagation(); clearPathPicker('opt-retroarch-playlists', 'opt-retroarch-playlists-display', 'Select folder...')">&#xD7;</span>
         </div>
         <div class="field-label">Log directory</div>
         <input type="hidden" id="opt-log-dir">
         <div class="path-picker" onclick="browsePathPicker('opt-log-dir', 'opt-log-dir-display')" title="Directory for filter log files">
           <span class="path-icon">&#x1F4C1;</span>
           <span class="path-text" id="opt-log-dir-display">Select folder...</span>
-          <span class="path-clear" onclick="event.stopPropagation(); clearPathPicker('opt-log-dir', 'opt-log-dir-display', 'Select folder...')">&#xD7;</span>
+          <span class="path-clear" aria-label="Clear log directory" onclick="event.stopPropagation(); clearPathPicker('opt-log-dir', 'opt-log-dir-display', 'Select folder...')">&#xD7;</span>
         </div>
       </div>
     </div>
@@ -745,7 +746,7 @@
         <div class="path-picker" onclick="browsePathPicker('opt-dat-dir', 'opt-dat-dir-display')" title="Directory for DAT metadata files">
           <span class="path-icon">&#x1F4C1;</span>
           <span class="path-text" id="opt-dat-dir-display">Default: ./dat_files</span>
-          <span class="path-clear" onclick="event.stopPropagation(); clearPathPicker('opt-dat-dir', 'opt-dat-dir-display', 'Default: ./dat_files')">&#xD7;</span>
+          <span class="path-clear" aria-label="Clear DAT directory" onclick="event.stopPropagation(); clearPathPicker('opt-dat-dir', 'opt-dat-dir-display', 'Default: ./dat_files')">&#xD7;</span>
         </div>
         <div class="field-label">Ratings source</div>
         <select id="opt-ratings-source" title="Which rating database to use for Top N filtering">
@@ -925,6 +926,7 @@ function renderSources() {
       recBtn.textContent = 'R';
       recBtn.title = src.recursive ? 'Recursive scan enabled \u2014 click to disable' : 'Click to enable recursive scan';
       recBtn.setAttribute('data-index', i);
+      recBtn.setAttribute('aria-label', 'Toggle recursive scan');
       recBtn.addEventListener('click', function() {
         var idx = parseInt(this.getAttribute('data-index'), 10);
         sources[idx].recursive = !sources[idx].recursive;
@@ -937,6 +939,7 @@ function renderSources() {
     removeBtn.className = 'remove-btn';
     removeBtn.textContent = '\u00D7';
     removeBtn.setAttribute('data-index', i);
+    removeBtn.setAttribute('aria-label', 'Remove source');
     removeBtn.addEventListener('click', function() {
       removeSource(parseInt(this.getAttribute('data-index'), 10));
     });
@@ -978,13 +981,6 @@ function addUrl() {
   } else {
     var url = prompt('Enter source URL:');
     finishAdd(url);
-  }
-}
-
-function openDest() {
-  var path = document.getElementById('dest-path').value;
-  if (path && window.pywebview) {
-    window.pywebview.api.open_folder(path);
   }
 }
 
@@ -1253,6 +1249,7 @@ function doPreview() {
 
 function doRun() {
   if (isRunning) return;
+  if (!confirm('Start downloading and transferring files to the destination?')) return;
   if (sources.length === 0) {
     appendLog('No sources configured. Add a folder or URL first.\n', 'log-warning');
     showView('log');
@@ -1431,7 +1428,11 @@ function updateCardComplete(card, data) {
     keys.forEach(function(key) {
       var tag = document.createElement('span');
       tag.className = 'filter-tag';
-      tag.innerHTML = '<span class="count">' + breakdown[key] + '</span>' + key;
+      var countSpan = document.createElement('span');
+      countSpan.className = 'count';
+      countSpan.textContent = breakdown[key];
+      tag.appendChild(countSpan);
+      tag.appendChild(document.createTextNode(key));
       tagsDiv.appendChild(tag);
     });
     filtersDiv.appendChild(tagsDiv);
@@ -1709,9 +1710,7 @@ function _handleEventOriginal(event) {
     }
 
   } else if (event.type === 'summary') {
-    if (!LogRenderer._fanfareShown) {
-      renderSummary(d);
-    }
+    renderSummary(d);
   }
 }
 
@@ -1856,7 +1855,7 @@ function updatePickerTable() {
     var checked = rom.status === 'selected' ? ' checked' : '';
     var statusClass = rom.status === 'selected' ? 'selected' : 'excluded';
     html += '<tr class="' + rowClass + '">' +
-      '<td><input type="checkbox"' + checked + ' onchange="pickerToggleRow(' + idx + ',this.checked)"></td>' +
+      '<td><input type="checkbox"' + checked + ' onchange="pickerToggleRow(\'' + escapeHtml(rom.filename).replace(/'/g, "&#39;") + '\',this.checked)"></td>' +
       (hasSystem ? '<td>' + (rom.system || '').toUpperCase() + '</td>' : '') +
       '<td class="rom-fname">' + escapeHtml(rom.filename) + '</td>' +
       '<td class="rom-size-cell">' + formatSize(rom.size) + '</td>' +
@@ -1874,9 +1873,11 @@ function escapeHtml(text) {
   return div.innerHTML;
 }
 
+var _pickerSearchTimer = null;
 function onPickerSearch(value) {
   pickerFilter = value;
-  updatePickerTable();
+  clearTimeout(_pickerSearchTimer);
+  _pickerSearchTimer = setTimeout(updatePickerTable, 150);
 }
 
 function pickerSortBy(col) {
@@ -1914,10 +1915,9 @@ function pickerToggleAll(checked) {
   savePickerSelections();
 }
 
-function pickerToggleRow(filteredIdx, checked) {
-  var filtered = getFilteredRoms();
-  if (filteredIdx >= 0 && filteredIdx < filtered.length) {
-    var rom = filtered[filteredIdx];
+function pickerToggleRow(filename, checked) {
+  var rom = pickerRoms.find(function(r) { return r.filename === filename; });
+  if (rom) {
     if (checked) { rom.status = 'selected'; rom.reason = ''; }
     else { rom.status = 'excluded'; rom.reason = 'User removed'; }
   }
@@ -1996,6 +1996,11 @@ function savePickerSelections() {
       pushConfigToBackend();
     }
   });
+
+  /* Periodic config sync in case beforeunload is unreliable */
+  setInterval(function() {
+    if (window.pywebview && !isRunning) pushConfigToBackend();
+  }, 30000);
 })();
 </script>
 </body>

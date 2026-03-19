@@ -1005,6 +1005,7 @@ class Api:
 
         total = len(downloads)
         tool = get_download_tool()
+        fail_count = 0
 
         if tool == 'aria2c':
             download_batch_with_aria2c(downloads, parallel=parallel)
@@ -1031,11 +1032,18 @@ class Api:
                         with open(dl_path, 'wb') as f_out:
                             _shutil.copyfileobj(resp, f_out)
                 except Exception:  # pylint: disable=broad-except
-                    pass
+                    fail_count += 1
+                    self._push_event('log', {
+                        'text': f'  {system.upper()}: failed to download '
+                                f'{Path(dl_path).name}\n',
+                        'level': 'warning',
+                    })
 
+        fail_msg = f', {fail_count} failed' if fail_count else ''
         self._push_event('log', {
             'text': f'  {system.upper()}: download complete '
-                    f'({total} files, tool={tool or "urllib"})\n',
+                    f'({total} files, tool={tool or "urllib"}'
+                    f'{fail_msg})\n',
         })
 
     def _run_dedup(self, priority_str, all_sizes):
