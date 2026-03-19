@@ -595,6 +595,13 @@
           <button class="browse-btn" onclick="browseDest()">Browse</button>
           <button class="browse-btn" onclick="openDest()">Open</button>
         </div>
+        <div class="field-label">Transfer mode</div>
+        <select id="opt-transfer" title="How to transfer files to the destination">
+          <option value="copy">Copy</option>
+          <option value="move">Move</option>
+          <option value="symlink">Symlink</option>
+          <option value="hardlink">Hardlink</option>
+        </select>
         <div class="field-label">Include systems</div>
         <input type="text" id="opt-systems" placeholder="e.g. snes, genesis, psx" title="Only process these systems (comma-separated). Leave empty for all.">
         <div class="field-label">Exclude systems</div>
@@ -636,6 +643,22 @@
       </div>
     </div>
 
+    <!-- Deduplication -->
+    <div class="section" data-section="deduplication">
+      <div class="section-header collapsed" onclick="toggleSection(this)">
+        <span class="arrow">&#9656;</span> DEDUPLICATION
+      </div>
+      <div class="section-body hidden">
+        <div class="field-label">System priority</div>
+        <input type="text" id="opt-dedup-priority" placeholder="e.g. snes, genesis, psx" title="When a game exists on multiple systems, prefer these systems first">
+        <div class="field-label">PC game lists (comma-separated paths)</div>
+        <input type="text" id="opt-dedup-pc-lists" placeholder="Paths to PC game list files..." title="Text files listing PC games to exclude from console selections">
+        <div class="check-grid mt-sm">
+          <label title="Actually delete duplicate files instead of just reporting them"><input type="checkbox" id="opt-dedup-delete"> Delete duplicates</label>
+        </div>
+      </div>
+    </div>
+
     <!-- Budget & Limits -->
     <div class="section" data-section="budget">
       <div class="section-header collapsed" onclick="toggleSection(this)">
@@ -653,22 +676,6 @@
         </div>
         <div class="field-label">Platform exclusive rating boost</div>
         <input type="number" id="opt-prefer-exclusives" placeholder="e.g. 1.5" step="0.1" min="0" title="Multiply ratings of platform-exclusive games by this factor (e.g. 1.5 = 50% boost)">
-      </div>
-    </div>
-
-    <!-- Deduplication -->
-    <div class="section" data-section="deduplication">
-      <div class="section-header collapsed" onclick="toggleSection(this)">
-        <span class="arrow">&#9656;</span> DEDUPLICATION
-      </div>
-      <div class="section-body hidden">
-        <div class="field-label">System priority</div>
-        <input type="text" id="opt-dedup-priority" placeholder="e.g. snes, genesis, psx" title="When a game exists on multiple systems, prefer these systems first">
-        <div class="field-label">PC game lists (comma-separated paths)</div>
-        <input type="text" id="opt-dedup-pc-lists" placeholder="Paths to PC game list files..." title="Text files listing PC games to exclude from console selections">
-        <div class="check-grid mt-sm">
-          <label title="Actually delete duplicate files instead of just reporting them"><input type="checkbox" id="opt-dedup-delete"> Delete duplicates</label>
-        </div>
       </div>
     </div>
 
@@ -700,13 +707,6 @@
           <label title="Generate EmulationStation gamelist.xml files"><input type="checkbox" id="opt-gamelists"> Gamelists</label>
           <label title="Put all ROMs in one folder instead of per-system subfolders"><input type="checkbox" id="opt-flatten"> Flatten output</label>
         </div>
-        <div class="field-label">Transfer mode</div>
-        <select id="opt-transfer" title="How to transfer files to the destination">
-          <option value="copy">Copy</option>
-          <option value="move">Move</option>
-          <option value="symlink">Symlink</option>
-          <option value="hardlink">Hardlink</option>
-        </select>
         <div class="field-label">RetroArch playlists dir</div>
         <div class="flex-row">
           <input type="text" id="opt-retroarch-playlists" placeholder="Path to RetroArch playlists..." class="flex-1">
