@@ -653,12 +653,8 @@
         <div class="field-label">System priority</div>
         <input type="text" id="opt-dedup-priority" placeholder="e.g. snes, genesis, psx" title="When a game exists on multiple systems, prefer these systems first">
         <div class="field-label">Exclusion Playlists</div>
-        <input type="hidden" id="opt-dedup-pc-lists">
-        <div class="path-picker" onclick="browseFilePicker('opt-dedup-pc-lists', 'opt-dedup-pc-lists-display')" title="Launchbox, Retroarch, XML Playlists">
-          <span class="path-icon">&#x1F4C1;</span>
-          <span class="path-text" id="opt-dedup-pc-lists-display">Launchbox, Retroarch, XML Playlists</span>
-          <span class="path-clear" onclick="event.stopPropagation(); clearPathPicker('opt-dedup-pc-lists', 'opt-dedup-pc-lists-display', 'Launchbox, Retroarch, XML Playlists')" aria-label="Clear selection">&#xD7;</span>
-        </div>
+        <div class="source-list" id="exclusion-playlist-list"></div>
+        <button class="source-btn" onclick="addExclusionPlaylist()" title="Add a Launchbox, Retroarch, or XML playlist">+ Playlist</button>
         <div class="check-grid mt-sm">
           <label title="Actually delete duplicate files instead of just reporting them"><input type="checkbox" id="opt-dedup-delete"> Delete duplicates</label>
         </div>
@@ -997,14 +993,39 @@ function browsePathPicker(inputId, displayId) {
   }
 }
 
-function browseFilePicker(inputId, displayId) {
+var exclusionPlaylists = [];
+
+function renderExclusionPlaylists() {
+  var list = document.getElementById('exclusion-playlist-list');
+  while (list.firstChild) list.removeChild(list.firstChild);
+  exclusionPlaylists.forEach(function(fullPath, i) {
+    var item = document.createElement('div');
+    item.className = 'source-item';
+    var nameSpan = document.createElement('span');
+    nameSpan.className = 'path';
+    nameSpan.title = fullPath;
+    nameSpan.textContent = fullPath.split(/[/\\]/).pop();
+    item.appendChild(nameSpan);
+    var removeBtn = document.createElement('span');
+    removeBtn.className = 'remove-btn';
+    removeBtn.textContent = '\u00D7';
+    removeBtn.setAttribute('aria-label', 'Remove playlist');
+    removeBtn.setAttribute('data-index', i);
+    removeBtn.addEventListener('click', function() {
+      exclusionPlaylists.splice(parseInt(this.getAttribute('data-index'), 10), 1);
+      renderExclusionPlaylists();
+    });
+    item.appendChild(removeBtn);
+    list.appendChild(item);
+  });
+}
+
+function addExclusionPlaylist() {
   if (window.pywebview) {
     window.pywebview.api.browse_file(['Playlists (*.xml;*.lpl;*.m3u)', 'All files (*.*)']).then(function(path) {
-      if (path) {
-        var current = document.getElementById(inputId).value;
-        var paths = current ? current.split(',').map(function(p) { return p.trim(); }).filter(Boolean) : [];
-        if (paths.indexOf(path) === -1) paths.push(path);
-        setPathPicker(inputId, displayId, paths.join(', '));
+      if (path && exclusionPlaylists.indexOf(path) === -1) {
+        exclusionPlaylists.push(path);
+        renderExclusionPlaylists();
       }
     });
   }
@@ -1154,7 +1175,8 @@ function restoreUiState(cfg) {
   /* Dedup */
   document.getElementById('opt-dedup-priority').value = dedup.priority || '';
   if (dedup.pc_lists && dedup.pc_lists.length) {
-    setPathPicker('opt-dedup-pc-lists', 'opt-dedup-pc-lists-display', dedup.pc_lists.join(', '));
+    exclusionPlaylists = dedup.pc_lists.slice();
+    renderExclusionPlaylists();
   }
   document.getElementById('opt-dedup-delete').checked = !!dedup['delete'];
 
@@ -1228,7 +1250,7 @@ function gatherUiState() {
     ia_secret_key: document.getElementById('opt-ia-secret-key').value || '',
     /* Dedup */
     dedup_priority: document.getElementById('opt-dedup-priority').value || '',
-    dedup_pc_lists: document.getElementById('opt-dedup-pc-lists').value || '',
+    dedup_pc_lists: exclusionPlaylists.join(','),
     dedup_delete: document.getElementById('opt-dedup-delete').checked,
     /* Theme */
     theme: document.getElementById('opt-theme').value,
