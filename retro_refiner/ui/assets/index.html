@@ -2133,6 +2133,15 @@ function savePickerSelections() {
     window.addEventListener('pywebviewready', loadSavedState);
   }
 
+  /* F5 / Ctrl+R to reload the webview */
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'F5' || (e.ctrlKey && e.key === 'r')) {
+      e.preventDefault();
+      if (window.pywebview) pushConfigToBackend();
+      setTimeout(function() { location.reload(); }, 100);
+    }
+  });
+
   /* Push UI state to backend before window closes so it can be saved */
   window.addEventListener('beforeunload', function() {
     if (window.pywebview) {
