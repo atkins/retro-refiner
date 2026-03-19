@@ -4,6 +4,7 @@ Standalone implementations extracted from the monolith. No Console/Style
 dependencies — output goes through callbacks or plain stderr.
 """
 import json
+import os
 import re
 import socket
 import threading
@@ -49,7 +50,39 @@ def format_size(size_bytes: int) -> str:
         return f"{size_bytes / 1024:.1f} KB"
     if size_bytes < 1024 * 1024 * 1024:
         return f"{size_bytes / (1024 * 1024):.1f} MB"
-    return f"{size_bytes / (1024 * 1024 * 1024):.2f} GB"
+    if size_bytes < 1024 ** 4:
+        return f"{size_bytes / (1024 * 1024 * 1024):.2f} GB"
+    return f"{size_bytes / (1024 ** 4):.2f} TB"
+
+
+def parse_budget_size(size_str):
+    """Parse a budget size string like '10GB', '500MB' into bytes.
+
+    Returns integer bytes or None if parsing fails.  Unlike
+    ``parse_size_string`` (which returns 0 on failure for HTTP size
+    headers), this function returns None so callers can distinguish
+    "no budget" from "zero".
+    """
+    if not size_str:
+        return None
+    size_str = str(size_str).strip().upper()
+    multipliers = {
+        'TB': 1024 ** 4, 'T': 1024 ** 4,
+        'GB': 1024 ** 3, 'G': 1024 ** 3,
+        'MB': 1024 ** 2, 'M': 1024 ** 2,
+        'KB': 1024, 'K': 1024,
+        'B': 1,
+    }
+    for suffix, mult in multipliers.items():
+        if size_str.endswith(suffix):
+            try:
+                return int(float(size_str[:-len(suffix)].strip()) * mult)
+            except ValueError:
+                return None
+    try:
+        return int(float(size_str))
+    except ValueError:
+        return None
 
 
 def format_url(url: str, max_length: int = 0) -> str:
@@ -454,6 +487,54 @@ def parse_html_for_directories(html: str, base_url: str) -> List[str]:
 
 
 # ---------------------------------------------------------------------------
+# SSRF protection
+# ---------------------------------------------------------------------------
+
+_PRIVATE_IP_PREFIXES = (
+    '127.', '10.', '192.168.', '0.',
+)
+
+_PRIVATE_172_RANGE = range(16, 32)
+
+
+def _is_private_ip(ip_str: str) -> bool:
+    """Return True if *ip_str* is a private/loopback IP literal."""
+    bare = ip_str.strip('[]')
+    if bare in ('::1', ''):
+        return True
+    for prefix in _PRIVATE_IP_PREFIXES:
+        if bare.startswith(prefix):
+            return True
+    # 172.16.0.0 - 172.31.255.255
+    if bare.startswith('172.'):
+        parts = bare.split('.')
+        try:
+            if int(parts[1]) in _PRIVATE_172_RANGE:
+                return True
+        except (IndexError, ValueError):
+            pass
+    return False
+
+
+def _is_private_host(hostname: str) -> bool:
+    """Return True if *hostname* resolves to a private/loopback address."""
+    if hostname in ('localhost', '[::1]'):
+        return True
+    if _is_private_ip(hostname):
+        return True
+    # Resolve DNS and check all resulting addresses
+    try:
+        addr_info = socket.getaddrinfo(hostname, None, socket.AF_UNSPEC,
+                                       socket.SOCK_STREAM)
+        for _family, _type, _proto, _canonname, sockaddr in addr_info:
+            if _is_private_ip(sockaddr[0]):
+                return True
+    except socket.gaierror:
+        pass
+    return False
+
+
+# ---------------------------------------------------------------------------
 # Source validation
 # ---------------------------------------------------------------------------
 
@@ -461,8 +542,15 @@ def validate_source(source: str, timeout: int = 15) -> Tuple[bool, str]:
     """Validate a source path or URL is accessible.
 
     Returns (is_valid, message) tuple.
+    Rejects URLs pointing to private/localhost addresses (SSRF protection).
     """
     if is_url(source):
+        # SSRF check — reject private / loopback targets
+        _scheme, host, _path = parse_url(source)
+        # Strip port if present
+        host_no_port = host.rsplit(':', 1)[0] if ':' in host else host
+        if _is_private_host(host_no_port):
+            return False, "URL points to a private/localhost address"
         try:
             request = urllib.request.Request(
                 source,
@@ -694,8 +782,23 @@ def save_scan_cache(cache_dir: Path, url: str,
         'sizes': url_sizes,
     }
     try:
+        import tempfile as _tmpmod  # pylint: disable=import-outside-toplevel
         cache_dir.mkdir(parents=True, exist_ok=True)
-        with open(cache_path, 'w', encoding='utf-8') as fh:
-            json.dump(cache, fh)
+        # Write to a temp file first, then atomically rename to avoid
+        # partial writes if the process is interrupted.
+        fd, tmp_path = _tmpmod.mkstemp(
+            dir=str(cache_dir), suffix='.tmp')
+        try:
+            with os.fdopen(fd, 'w', encoding='utf-8') as fh:
+                json.dump(cache, fh)
+            # os.replace is atomic on POSIX; near-atomic on Windows
+            os.replace(tmp_path, str(cache_path))
+        except BaseException:
+            # Clean up temp file on failure
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+            raise
     except IOError:
         pass

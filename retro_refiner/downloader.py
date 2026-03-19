@@ -609,14 +609,12 @@ class DownloadUI:
 
     @staticmethod
     def _format_size(bytes_val: int) -> str:
-        """Format bytes as human-readable size."""
-        if bytes_val < 1024:
-            return f"{bytes_val} B"
-        if bytes_val < 1024 * 1024:
-            return f"{bytes_val / 1024:.1f} KB"
-        if bytes_val < 1024 * 1024 * 1024:
-            return f"{bytes_val / (1024 * 1024):.1f} MB"
-        return f"{bytes_val / (1024 * 1024 * 1024):.1f} GB"
+        """Format bytes as human-readable size.
+
+        Delegates to ``network.format_size`` for consistency.
+        """
+        from retro_refiner.network import format_size as _fmt  # pylint: disable=import-outside-toplevel
+        return _fmt(bytes_val)
 
     @staticmethod
     def _truncate(text: str, max_len: int) -> str:

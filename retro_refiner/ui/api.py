@@ -70,10 +70,21 @@ class Api:
         return json.dumps(self._config.to_dict())
 
     def save_ui_state(self):
-        """Auto-save current config to the default UI state file."""
+        """Auto-save current config to the default UI state file.
+
+        Auth credentials are excluded from the persisted state to avoid
+        storing secrets in cleartext on disk.
+        """
         path = get_runtime_path() / _UI_STATE_FILENAME
         try:
-            save_config(self._config, path)
+            # Temporarily clear auth fields so they are not persisted
+            saved_auth = self._config.auth
+            from retro_refiner.config import AuthConfig  # pylint: disable=import-outside-toplevel
+            self._config.auth = AuthConfig()
+            try:
+                save_config(self._config, path)
+            finally:
+                self._config.auth = saved_auth
         except OSError:
             pass
 
@@ -106,27 +117,52 @@ class Api:
         webbrowser.open(url)
 
     def read_clipboard(self):
-        """Read text from the system clipboard."""
+        """Read text from the system clipboard using platform-native APIs."""
+        import subprocess as _sp  # pylint: disable=import-outside-toplevel
+        import sys as _sys  # pylint: disable=import-outside-toplevel
         try:
-            import tkinter as tk  # pylint: disable=import-outside-toplevel
-            root = tk.Tk()
-            root.withdraw()
-            text = root.clipboard_get()
-            root.destroy()
-            return text
+            if _sys.platform == 'win32':
+                result = _sp.run(
+                    ['powershell', '-NoProfile', '-Command',
+                     'Get-Clipboard'],
+                    capture_output=True, text=True, timeout=5,
+                    check=False,
+                    creationflags=_sp.CREATE_NO_WINDOW,
+                )
+                return result.stdout.rstrip('\r\n')
+            if _sys.platform == 'darwin':
+                result = _sp.run(
+                    ['pbpaste'], capture_output=True, text=True,
+                    timeout=5, check=False)
+                return result.stdout
+            # Linux / other: try xclip, then xsel
+            result = _sp.run(
+                ['xclip', '-selection', 'clipboard', '-o'],
+                capture_output=True, text=True, timeout=5, check=False)
+            return result.stdout
         except Exception:  # pylint: disable=broad-except
             return ''
 
     def copy_to_clipboard(self, text: str):
-        """Copy text to the system clipboard."""
+        """Copy text to the system clipboard using platform-native APIs."""
+        import subprocess as _sp  # pylint: disable=import-outside-toplevel
+        import sys as _sys  # pylint: disable=import-outside-toplevel
         try:
-            import tkinter as tk  # pylint: disable=import-outside-toplevel
-            root = tk.Tk()
-            root.withdraw()
-            root.clipboard_clear()
-            root.clipboard_append(text)
-            root.update()
-            root.destroy()
+            if _sys.platform == 'win32':
+                _sp.run(
+                    ['powershell', '-NoProfile', '-Command',
+                     'Set-Clipboard -Value $input'],
+                    input=text, text=True, timeout=5,
+                    check=False,
+                    creationflags=_sp.CREATE_NO_WINDOW,
+                )
+            elif _sys.platform == 'darwin':
+                _sp.run(['pbcopy'], input=text, text=True,
+                        timeout=5, check=False)
+            else:
+                _sp.run(
+                    ['xclip', '-selection', 'clipboard'],
+                    input=text, text=True, timeout=5, check=False)
         except Exception:  # pylint: disable=broad-except
             pass
 
@@ -247,6 +283,8 @@ class Api:
     def cancel_run(self):
         """Cancel the current run."""
         self._running = False
+        from retro_refiner.network import request_shutdown  # pylint: disable=import-outside-toplevel
+        request_shutdown()
 
     def is_running(self) -> bool:
         """Return whether a run is currently in progress."""
@@ -254,6 +292,8 @@ class Api:
 
     def _do_run(self, commit: bool):
         """Execute the run in a background thread."""
+        from retro_refiner.network import reset_shutdown  # pylint: disable=import-outside-toplevel
+        reset_shutdown()
         try:
             mode = 'commit' if commit else 'preview'
             self._push_event('status', {
@@ -289,30 +329,7 @@ class Api:
                 })
                 return
 
-            # Validate sources
-            self._push_event('log', {'text': 'Validating sources...\n'})
-            for src in config.sources:
-                if not self._running:
-                    break
-                ok, error = validate_source(src)
-                status = 'OK' if ok else error
-                css = 'log-success' if ok else 'log-error'
-                self._push_event('log', {
-                    'text': f'  {urllib.parse.unquote(src)}... {status}\n',
-                    'className': css,
-                    'url': src if is_url(src) else None,
-                })
-                if not ok:
-                    self._push_event('status', {
-                        'state': 'error',
-                        'message': f'Source validation failed: {error}',
-                    })
-                    return
-
-            if not self._running:
-                self._push_event('status', {
-                    'state': 'cancelled', 'message': 'Cancelled',
-                })
+            if not self._validate_sources(config, is_url, validate_source):
                 return
 
             # Determine cache dir
@@ -323,101 +340,12 @@ class Api:
             else:
                 cache_dir = get_runtime_path() / 'cache'
 
-            # Scan network sources
-            all_urls = {}   # system -> [urls]
-            all_sizes = {}  # url -> size
-
-            for net_url in network_sources:
-                if not self._running:
-                    break
-                self._push_event('log', {
-                    'text': f'\nScanning: {urllib.parse.unquote(net_url)}\n',
-                    'className': 'log-info',
-                    'url': net_url,
-                })
-
-                systems_filter = config.systems
-                exclude = getattr(self, '_exclude_systems', [])
-                if exclude and systems_filter:
-                    systems_filter = [s for s in systems_filter
-                                      if s not in exclude]
-
-                result = scan_network_source(
-                    net_url, systems_filter,
-                    cache_dir=cache_dir,
-                    no_cache=config.advanced.no_cache,
-                    scan_workers=config.network.scan_workers,
-                    on_progress=lambda evt: self._push_event('progress', {
-                        'phase': evt.phase, 'message': evt.message,
-                        'current': evt.current, 'total': evt.total,
-                    }),
-                )
-
-                for system, urls in result.url_dict.items():
-                    all_urls.setdefault(system, []).extend(urls)
-                all_sizes.update(result.url_sizes)
-
-            # Scan local sources
-            local_systems = {}
-            if local_sources and self._running:
-                self._push_event('log', {
-                    'text': '\nScanning local sources...\n',
-                    'className': 'log-info',
-                })
-                ss = config.source_settings or {}
-                for src_path in local_sources:
-                    src_key = str(src_path)
-                    src_opts = ss.get(src_key, {})
-                    recursive = src_opts.get('recursive', False)
-                    depth = config.advanced.max_depth or 3
-                    result = scan_local_sources(
-                        [src_path],
-                        recursive=recursive,
-                        max_depth=depth,
-                        verbose=config.selection.verbose,
-                        on_progress=lambda evt: self._push_event(
-                            'progress', {
-                                'phase': evt.phase,
-                                'message': evt.message,
-                                'current': evt.current,
-                                'total': evt.total,
-                            }),
-                    )
-                    for sys_code, files in result.items():
-                        local_systems.setdefault(
-                            sys_code, []).extend(files)
-
-            if not self._running:
-                self._push_event('status', {
-                    'state': 'cancelled', 'message': 'Cancelled',
-                })
+            scan = self._scan_sources(
+                config, local_sources, network_sources,
+                cache_dir, scan_network_source, scan_local_sources)
+            if scan is None:
                 return
-
-            # Store scan results for the ROM picker (clear prior state)
-            self._last_results = {}
-            self._picker_state = {}
-            self._manual_selections = {}
-            for sys_code in set(all_urls.keys()) | set(local_systems.keys()):
-                self._last_results[sys_code] = {
-                    'urls': all_urls.get(sys_code, []),
-                    'sizes': {u: all_sizes.get(u, 0)
-                              for u in all_urls.get(sys_code, [])},
-                    'local_files': local_systems.get(sys_code, []),
-                }
-
-            # Combine all discovered systems
-            all_systems = set(all_urls.keys()) | set(local_systems.keys())
-            if not all_systems:
-                self._push_event('status', {
-                    'state': 'completed',
-                    'message': 'No systems found in sources',
-                })
-                return
-
-            self._push_event('log', {
-                'text': f'\nFound {len(all_systems)} systems\n',
-                'className': 'log-success',
-            })
+            all_urls, all_sizes, local_systems, all_systems = scan
 
             # Process each system and push card events
             total_selected = 0
@@ -428,242 +356,14 @@ class Api:
             for system in sorted(all_systems):
                 if not self._running:
                     break
-
-                urls = all_urls.get(system, [])
-                local_files = local_systems.get(system, [])
-                source_count = len(urls) + len(local_files)
-
-                # Compute sizes
-                net_size = sum(all_sizes.get(u, 0) for u in urls)
-                local_size = 0
-                for filepath in local_files:
-                    try:
-                        local_size += Path(filepath).stat().st_size
-                    except OSError:
-                        pass
-                sys_size = net_size + local_size
-
-                display_name = _display_name(system)
-
-                # Push card-start event
-                self._push_event('card', {
-                    'system': system,
-                    'state': 'filtering',
-                    'source_count': source_count,
-                    'source_size': sys_size,
-                })
-
-                self._push_event('system-start', {
-                    'system': system,
-                    'display_name': display_name,
-                    'total_roms': source_count,
-                })
-                self._push_event('filter-tick', {
-                    'system': system,
-                    'selected': 0,
-                    'excluded': 0,
-                    'processed': 0,
-                    'total': source_count,
-                    'size_selected': '0 B',
-                })
-
-                self._push_event('log', {
-                    'text': f'\n{system.upper()}: '
-                            f'Filtering {source_count} ROMs...\n',
-                })
-                t_start = time.monotonic()
-
-                # Run actual filtering
-                from retro_refiner.filter import (  # pylint: disable=import-outside-toplevel
-                    filter_network_roms, filter_roms_from_files,
-                )
-                from retro_refiner.mame import filter_mame_network_roms  # pylint: disable=import-outside-toplevel
-                from retro_refiner.teknoparrot import filter_teknoparrot_network_roms  # pylint: disable=import-outside-toplevel
-
-                selected_urls = urls
-                selected_local = list(local_files)
-                filter_breakdown = {}
-                result = None
-                sel = config.selection
-
-                # --- Filter network URLs ---
-                if urls:
-                    try:
-                        if system in ('mame', 'fbneo', 'fba', 'arcade'):
-                            from retro_refiner.mame import (  # pylint: disable=import-outside-toplevel
-                                download_mame_data, parse_catver_ini, parse_mame_dat,
-                            )
-                            dat_dir = Path(config.advanced.dat_dir or './dat_files')
-                            dat_dir.mkdir(parents=True, exist_ok=True)
-                            self._push_event('log', {'text': '  Downloading MAME data...\n'})
-                            catver_path, dat_path = download_mame_data(
-                                dat_dir, version=config.advanced.mame_version
-                            )
-                            if catver_path and dat_path:
-                                categories = parse_catver_ini(str(catver_path))
-                                games = parse_mame_dat(str(dat_path))
-                                selected_urls, _info = filter_mame_network_roms(
-                                    urls,
-                                    categories=categories,
-                                    games=games,
-                                    include_patterns=sel.include_patterns or None,
-                                    exclude_patterns=sel.exclude_patterns or None,
-                                    include_adult=not config.advanced.no_adult,
-                                    url_sizes=all_sizes,
-                                    verbose=sel.verbose,
-                                    no_filter=sel.all_roms,
-                                    english_only=sel.english_only,
-                                )
-                                filter_breakdown = _info.get('filter_breakdown', {}) if isinstance(_info, dict) else {}
-                        elif system == 'teknoparrot':
-                            tp_exclude = None
-                            if config.advanced.tp_exclude_platforms:
-                                tp_exclude = {p.strip() for p in config.advanced.tp_exclude_platforms.split(',')}
-                            tp_include = None
-                            if config.advanced.tp_include_platforms:
-                                tp_include = {p.strip() for p in config.advanced.tp_include_platforms.split(',')}
-                            selected_urls, _info = filter_teknoparrot_network_roms(
-                                urls,
-                                include_platforms=tp_include,
-                                exclude_platforms=tp_exclude,
-                                region_priority=sel.region_priority,
-                                keep_all_versions=config.advanced.tp_all_versions,
-                                include_patterns=sel.include_patterns or None,
-                                exclude_patterns=sel.exclude_patterns or None,
-                                url_sizes=all_sizes,
-                                verbose=sel.verbose,
-                                no_filter=sel.all_roms,
-                                english_only=sel.english_only,
-                            )
-                            filter_breakdown = _info.get('filter_breakdown', {}) if isinstance(_info, dict) else {}
-                        else:
-                            # Console system — load DATs for better filtering
-                            dat_entries = None
-                            if not config.advanced.no_dat:
-                                from retro_refiner.dat import (  # pylint: disable=import-outside-toplevel
-                                    download_libretro_dat, load_all_system_dats,
-                                )
-                                dat_dir = Path(config.advanced.dat_dir or './dat_files')
-                                dat_dir.mkdir(parents=True, exist_ok=True)
-                                dat_path = download_libretro_dat(system, dat_dir)
-                                if dat_path:
-                                    dat_entries = load_all_system_dats(system, dat_dir)
-                                    if dat_entries:
-                                        self._push_event('log', {
-                                            'text': f'  Loaded {len(dat_entries)} DAT entries\n',
-                                        })
-
-                            result = filter_network_roms(
-                                system, urls, config,
-                                url_sizes=all_sizes,
-                                dat_entries=dat_entries,
-                            )
-                            selected_urls = result.selected if result.selected else urls
-                            filter_breakdown = result.stats.filter_breakdown if result.stats else {}
-                    except Exception as exc:
-                        self._push_event('log', {
-                            'text': f'  Filter error: {exc}\n',
-                            'className': 'log-error',
-                        })
-
-                # --- Filter local files ---
-                if local_files:
-                    try:
-                        region_list = sel.region_priority or None
-                        kr = sel.keep_regions
-                        keep_list = ([r.strip() for r in kr.split(',')
-                                      if r.strip()] if kr else None)
-                        inc_pats = sel.include_patterns or None
-                        exc_pats = sel.exclude_patterns or None
-                        yf = sel.year_from
-                        yt = sel.year_to
-                        local_roms, local_info = filter_roms_from_files(
-                            local_files,
-                            dest_dir=config.destination or '.',
-                            system=system,
-                            dry_run=True,
-                            include_patterns=inc_pats,
-                            exclude_patterns=exc_pats,
-                            exclude_protos=sel.exclude_protos,
-                            include_betas=sel.include_betas,
-                            include_unlicensed=sel.include_unlicensed,
-                            region_priority=region_list,
-                            keep_regions=keep_list,
-                            year_from=int(yf) if yf else None,
-                            year_to=int(yt) if yt else None,
-                            no_filter=sel.all_roms,
-                            best_version=sel.best_version,
-                            english_only=sel.english_only,
-                        )
-                        name_to_path = {Path(f).name: Path(f)
-                                        for f in local_files}
-                        selected_local = [
-                            name_to_path[rom.filename]
-                            for rom in local_roms
-                            if rom.filename in name_to_path
-                        ]
-                        local_size = local_info.get('selected_size', 0)
-                    except Exception as exc:
-                        self._push_event('log', {
-                            'text': f'  Local filter error: {exc}\n',
-                            'className': 'log-error',
-                        })
-                        selected_local = list(local_files)
-                        local_size = sum(
-                            Path(f).stat().st_size
-                            for f in local_files if Path(f).exists())
-
-                # --- Combine results ---
-                net_selected = len(selected_urls)
-                local_selected = len(selected_local)
-                selected_count = net_selected + local_selected
-                excluded_count = source_count - selected_count
-                net_size = sum(all_sizes.get(u, 0) for u in selected_urls)
-                local_sel_size = (local_size if local_files
-                                  else 0)
-                selected_size = net_size + local_sel_size
-                total_selected += selected_count
-                total_excluded += excluded_count
-                total_size += selected_size
-                total_source += source_count
-
-                self._push_event('card', {
-                    'system': system,
-                    'state': 'complete',
-                    'selected_count': selected_count,
-                    'excluded_count': excluded_count,
-                    'selected_size': selected_size,
-                    'source_count': source_count,
-                    'source_size': sys_size,
-                    'filter_breakdown': filter_breakdown,
-                })
-
-                # Emit system-complete for log renderer
-                elapsed_ms = int((time.monotonic() - t_start) * 1000)
-                excluded_roms = []
-                if result and hasattr(result, 'excluded'):
-                    for exc in result.excluded[:500]:
-                        excluded_roms.append({
-                            'name': exc.filename,
-                            'reason': exc.reason,
-                        })
-                self._push_event('system-complete', {
-                    'system': system,
-                    'display_name': display_name,
-                    'selected': selected_count,
-                    'excluded': excluded_count,
-                    'total': source_count,
-                    'size': format_size(selected_size),
-                    'breakdown': filter_breakdown,
-                    'elapsed_ms': elapsed_ms,
-                    'excluded_roms': excluded_roms,
-                })
-
-                # Store selected URLs/files for commit mode
-                if system in self._last_results:
-                    self._last_results[system]['selected_urls'] = selected_urls
-                    self._last_results[system]['selected_local'] = [
-                        str(f) for f in selected_local]
+                counts = self._filter_system(
+                    system, all_urls.get(system, []),
+                    local_systems.get(system, []),
+                    config, all_sizes, format_size)
+                total_selected += counts[0]
+                total_excluded += counts[1]
+                total_size += counts[2]
+                total_source += counts[3]
 
             # ----- Budget filters: --limit, --top, --size -----
             if self._running:
@@ -794,115 +494,9 @@ class Api:
                 'commit': commit,
             })
 
-            # Fanfare for log renderer
-            total_systems = len(all_systems)
-            elapsed_secs = time.monotonic() - run_start
-            mins, secs = divmod(int(elapsed_secs), 60)
-            elapsed_str = f'{mins}m {secs:02d}s' if mins else f'{secs}s'
-
-            # Compute fanfare tidbits from ROM content
-            from retro_refiner.filter import parse_rom_filename  # pylint: disable=import-outside-toplevel
-            from retro_refiner.network import get_filename_from_url  # pylint: disable=import-outside-toplevel
-            tidbits = []
-            all_roms = []
-            for sys_data in self._last_results.values():
-                for url in sys_data.get('selected_urls', []):
-                    fname = get_filename_from_url(url)
-                    try:
-                        all_roms.append(parse_rom_filename(fname))
-                    except Exception:  # pylint: disable=broad-except
-                        pass
-                for fpath in sys_data.get('selected_local', []):
-                    try:
-                        all_roms.append(
-                            parse_rom_filename(Path(fpath).name))
-                    except Exception:  # pylint: disable=broad-except
-                        pass
-
-            if all_roms:
-                # 1. Top franchise — most common base_title prefix
-                from collections import Counter  # pylint: disable=import-outside-toplevel
-                titles = [r.base_title for r in all_roms if r.base_title]
-                # Group by first significant word(s) for series detection
-                series = Counter()
-                for t in titles:
-                    words = t.split()
-                    # Use first 1-2 words as series key
-                    key = words[0] if words else t
-                    # Merge numbered sequels: "Mario 2" -> "Mario"
-                    if len(words) > 1 and not words[1].isdigit():
-                        key = ' '.join(words[:2])
-                    series[key] += 1
-                top_series = series.most_common(1)
-                if top_series and top_series[0][1] > 1:
-                    tidbits.append(
-                        f"\u2655 Top series: {top_series[0][0]} "
-                        f"({top_series[0][1]} titles)")
-
-                # 2. Region breakdown — top 3 regions
-                regions = Counter(
-                    r.region for r in all_roms if r.region)
-                top_regions = regions.most_common(3)
-                if top_regions:
-                    parts = [f"{reg} ({cnt})" for reg, cnt in top_regions]
-                    tidbits.append(
-                        f"\u2691 Regions: {', '.join(parts)}")
-
-                # 3. Year range
-                years = [r.year for r in all_roms if r.year > 0]
-                if years:
-                    oldest = min(years)
-                    newest = max(years)
-                    if oldest == newest:
-                        tidbits.append(f"\u2605 All from {oldest}")
-                    else:
-                        tidbits.append(
-                            f"\u2605 Spanning {oldest}\u2013{newest}")
-
-                # 4. Peak decade
-                if len(years) > 5:
-                    decades = Counter(
-                        (y // 10) * 10 for y in years)
-                    peak = decades.most_common(1)[0]
-                    tidbits.append(
-                        f"\u266B Peak decade: {peak[0]}s "
-                        f"({peak[1]} titles)")
-
-                # 5. Translations
-                translations = sum(
-                    1 for r in all_roms if r.is_translation)
-                if translations:
-                    tidbits.append(
-                        f"\u2694 Fan translations: {translations}")
-
-                # 6. Multi-disc games
-                multi_disc = sum(
-                    1 for r in all_roms if r.disc_number > 1)
-                if multi_disc:
-                    tidbits.append(
-                        f"\u25CE Multi-disc: {multi_disc} additional discs")
-
-                # 7. Unique titles
-                unique_titles = len(set(
-                    r.base_title for r in all_roms if r.base_title))
-                if unique_titles and unique_titles != len(all_roms):
-                    tidbits.append(
-                        f"\u25A3 Unique titles: {unique_titles:,}")
-
-                # 8. Collection size
-                if total_selected > 0:
-                    avg = total_size // total_selected
-                    tidbits.append(
-                        f"\u2394 Avg ROM size: {format_size(avg)}")
-
-            self._push_event('fanfare', {
-                'systems': total_systems,
-                'selected': total_selected,
-                'excluded': total_excluded,
-                'total_size': format_size(total_size),
-                'elapsed': elapsed_str,
-                'tidbits': tidbits,
-            })
+            self._compute_fanfare(
+                config, total_selected, total_excluded,
+                total_size, run_start, all_systems, format_size)
 
             label = 'Commit' if commit else 'Preview'
             self._push_event('status', {
@@ -922,6 +516,485 @@ class Api:
             })
         finally:
             self._running = False
+
+    # ------------------------------------------------------------------
+    # Extracted phases called by _do_run
+    # ------------------------------------------------------------------
+
+    def _validate_sources(self, config, is_url, validate_source):
+        """Validate all configured sources. Returns True if all OK."""
+        self._push_event('log', {'text': 'Validating sources...\n'})
+        for src in config.sources:
+            if not self._running:
+                break
+            ok, error = validate_source(src)
+            status = 'OK' if ok else error
+            css = 'log-success' if ok else 'log-error'
+            self._push_event('log', {
+                'text': f'  {urllib.parse.unquote(src)}... {status}\n',
+                'className': css,
+                'url': src if is_url(src) else None,
+            })
+            if not ok:
+                self._push_event('status', {
+                    'state': 'error',
+                    'message': f'Source validation failed: {error}',
+                })
+                return False
+
+        if not self._running:
+            self._push_event('status', {
+                'state': 'cancelled', 'message': 'Cancelled',
+            })
+            return False
+        return True
+
+    def _scan_sources(self, config, local_sources, network_sources,
+                      cache_dir, scan_network_source, scan_local_sources):
+        """Scan network and local sources.
+
+        Returns (all_urls, all_sizes, local_systems, all_systems) tuple
+        or None if cancelled / empty.
+        """
+        all_urls = {}   # system -> [urls]
+        all_sizes = {}  # url -> size
+
+        for net_url in network_sources:
+            if not self._running:
+                break
+            self._push_event('log', {
+                'text': f'\nScanning: {urllib.parse.unquote(net_url)}\n',
+                'className': 'log-info',
+                'url': net_url,
+            })
+
+            systems_filter = config.systems
+            exclude = getattr(self, '_exclude_systems', [])
+            if exclude and systems_filter:
+                systems_filter = [s for s in systems_filter
+                                  if s not in exclude]
+
+            result = scan_network_source(
+                net_url, systems_filter,
+                cache_dir=cache_dir,
+                no_cache=config.advanced.no_cache,
+                scan_workers=config.network.scan_workers,
+                on_progress=lambda evt: self._push_event('progress', {
+                    'phase': evt.phase, 'message': evt.message,
+                    'current': evt.current, 'total': evt.total,
+                }),
+            )
+
+            for system, urls in result.url_dict.items():
+                all_urls.setdefault(system, []).extend(urls)
+            all_sizes.update(result.url_sizes)
+
+        # Scan local sources
+        local_systems = {}
+        if local_sources and self._running:
+            self._push_event('log', {
+                'text': '\nScanning local sources...\n',
+                'className': 'log-info',
+            })
+            ss = config.source_settings or {}
+            for src_path in local_sources:
+                src_key = str(src_path)
+                src_opts = ss.get(src_key, {})
+                recursive = src_opts.get('recursive', False)
+                depth = config.advanced.max_depth or 3
+                result = scan_local_sources(
+                    [src_path],
+                    recursive=recursive,
+                    max_depth=depth,
+                    verbose=config.selection.verbose,
+                    on_progress=lambda evt: self._push_event(
+                        'progress', {
+                            'phase': evt.phase,
+                            'message': evt.message,
+                            'current': evt.current,
+                            'total': evt.total,
+                        }),
+                )
+                for sys_code, files in result.items():
+                    local_systems.setdefault(
+                        sys_code, []).extend(files)
+
+        if not self._running:
+            self._push_event('status', {
+                'state': 'cancelled', 'message': 'Cancelled',
+            })
+            return None
+
+        # Store scan results for the ROM picker (clear prior state)
+        self._last_results = {}
+        self._picker_state = {}
+        self._manual_selections = {}
+        for sys_code in set(all_urls.keys()) | set(local_systems.keys()):
+            self._last_results[sys_code] = {
+                'urls': all_urls.get(sys_code, []),
+                'sizes': {u: all_sizes.get(u, 0)
+                          for u in all_urls.get(sys_code, [])},
+                'local_files': local_systems.get(sys_code, []),
+            }
+
+        # Combine all discovered systems
+        all_systems = set(all_urls.keys()) | set(local_systems.keys())
+        if not all_systems:
+            self._push_event('status', {
+                'state': 'completed',
+                'message': 'No systems found in sources',
+            })
+            return None
+
+        self._push_event('log', {
+            'text': f'\nFound {len(all_systems)} systems\n',
+            'className': 'log-success',
+        })
+
+        return all_urls, all_sizes, local_systems, all_systems
+
+    def _filter_system(self, system, urls, local_files,
+                       config, all_sizes, format_size):
+        """Filter ROMs for a single system.
+
+        Returns (selected_count, excluded_count, selected_size,
+        source_count) tuple.
+        """
+        source_count = len(urls) + len(local_files)
+
+        # Compute sizes
+        net_size = sum(all_sizes.get(u, 0) for u in urls)
+        local_size = 0
+        for filepath in local_files:
+            try:
+                local_size += Path(filepath).stat().st_size
+            except OSError:
+                pass
+        sys_size = net_size + local_size
+
+        display_name = _display_name(system)
+
+        # Push card-start event
+        self._push_event('card', {
+            'system': system,
+            'state': 'filtering',
+            'source_count': source_count,
+            'source_size': sys_size,
+        })
+
+        self._push_event('system-start', {
+            'system': system,
+            'display_name': display_name,
+            'total_roms': source_count,
+        })
+        self._push_event('filter-tick', {
+            'system': system,
+            'selected': 0,
+            'excluded': 0,
+            'processed': 0,
+            'total': source_count,
+            'size_selected': '0 B',
+        })
+
+        self._push_event('log', {
+            'text': f'\n{system.upper()}: '
+                    f'Filtering {source_count} ROMs...\n',
+        })
+        t_start = time.monotonic()
+
+        # Run actual filtering
+        from retro_refiner.filter import (  # pylint: disable=import-outside-toplevel
+            filter_network_roms, filter_roms_from_files,
+        )
+        from retro_refiner.mame import filter_mame_network_roms  # pylint: disable=import-outside-toplevel
+        from retro_refiner.teknoparrot import filter_teknoparrot_network_roms  # pylint: disable=import-outside-toplevel
+
+        selected_urls = urls
+        selected_local = list(local_files)
+        filter_breakdown = {}
+        # NOTE: filter_network_roms returns FilterResult,
+        # but filter_mame_network_roms / filter_teknoparrot_network_roms
+        # return (selected_urls, info_dict) tuples.  The code below
+        # handles both shapes; a future refactor should unify them.
+        result = None
+        sel = config.selection
+
+        # --- Filter network URLs ---
+        if urls:
+            try:
+                if system in ('mame', 'fbneo', 'fba', 'arcade'):
+                    from retro_refiner.mame import (  # pylint: disable=import-outside-toplevel
+                        download_mame_data, parse_catver_ini, parse_mame_dat,
+                    )
+                    dat_dir = Path(config.advanced.dat_dir or './dat_files')
+                    dat_dir.mkdir(parents=True, exist_ok=True)
+                    self._push_event('log', {'text': '  Downloading MAME data...\n'})
+                    catver_path, dat_path = download_mame_data(
+                        dat_dir, version=config.advanced.mame_version
+                    )
+                    if catver_path and dat_path:
+                        categories = parse_catver_ini(str(catver_path))
+                        games = parse_mame_dat(str(dat_path))
+                        selected_urls, _info = filter_mame_network_roms(
+                            urls,
+                            categories=categories,
+                            games=games,
+                            include_patterns=sel.include_patterns or None,
+                            exclude_patterns=sel.exclude_patterns or None,
+                            include_adult=not config.advanced.no_adult,
+                            url_sizes=all_sizes,
+                            verbose=sel.verbose,
+                            no_filter=sel.all_roms,
+                            english_only=sel.english_only,
+                        )
+                        filter_breakdown = _info.get('filter_breakdown', {}) if isinstance(_info, dict) else {}
+                elif system == 'teknoparrot':
+                    tp_exclude = None
+                    if config.advanced.tp_exclude_platforms:
+                        tp_exclude = {p.strip() for p in config.advanced.tp_exclude_platforms.split(',')}
+                    tp_include = None
+                    if config.advanced.tp_include_platforms:
+                        tp_include = {p.strip() for p in config.advanced.tp_include_platforms.split(',')}
+                    selected_urls, _info = filter_teknoparrot_network_roms(
+                        urls,
+                        include_platforms=tp_include,
+                        exclude_platforms=tp_exclude,
+                        region_priority=sel.region_priority,
+                        keep_all_versions=config.advanced.tp_all_versions,
+                        include_patterns=sel.include_patterns or None,
+                        exclude_patterns=sel.exclude_patterns or None,
+                        url_sizes=all_sizes,
+                        verbose=sel.verbose,
+                        no_filter=sel.all_roms,
+                        english_only=sel.english_only,
+                    )
+                    filter_breakdown = _info.get('filter_breakdown', {}) if isinstance(_info, dict) else {}
+                else:
+                    # Console system -- load DATs for better filtering
+                    dat_entries = None
+                    if not config.advanced.no_dat:
+                        from retro_refiner.dat import (  # pylint: disable=import-outside-toplevel
+                            download_libretro_dat, load_all_system_dats,
+                        )
+                        dat_dir = Path(config.advanced.dat_dir or './dat_files')
+                        dat_dir.mkdir(parents=True, exist_ok=True)
+                        dat_path = download_libretro_dat(system, dat_dir)
+                        if dat_path:
+                            dat_entries = load_all_system_dats(system, dat_dir)
+                            if dat_entries:
+                                self._push_event('log', {
+                                    'text': f'  Loaded {len(dat_entries)} DAT entries\n',
+                                })
+
+                    result = filter_network_roms(
+                        system, urls, config,
+                        url_sizes=all_sizes,
+                        dat_entries=dat_entries,
+                    )
+                    selected_urls = result.selected if result.selected else urls
+                    filter_breakdown = result.stats.filter_breakdown if result.stats else {}
+            except Exception as exc:  # pylint: disable=broad-except
+                self._push_event('log', {
+                    'text': f'  Filter error: {exc}\n',
+                    'className': 'log-error',
+                })
+
+        # --- Filter local files ---
+        if local_files:
+            try:
+                region_list = sel.region_priority or None
+                kr = sel.keep_regions
+                keep_list = ([r.strip() for r in kr.split(',')
+                              if r.strip()] if kr else None)
+                inc_pats = sel.include_patterns or None
+                exc_pats = sel.exclude_patterns or None
+                yf = sel.year_from
+                yt = sel.year_to
+                local_roms, local_info = filter_roms_from_files(
+                    local_files,
+                    dest_dir=config.destination or '.',
+                    system=system,
+                    dry_run=True,
+                    include_patterns=inc_pats,
+                    exclude_patterns=exc_pats,
+                    exclude_protos=sel.exclude_protos,
+                    include_betas=sel.include_betas,
+                    include_unlicensed=sel.include_unlicensed,
+                    region_priority=region_list,
+                    keep_regions=keep_list,
+                    year_from=int(yf) if yf else None,
+                    year_to=int(yt) if yt else None,
+                    no_filter=sel.all_roms,
+                    best_version=sel.best_version,
+                    english_only=sel.english_only,
+                )
+                name_to_path = {Path(f).name: Path(f)
+                                for f in local_files}
+                selected_local = [
+                    name_to_path[rom.filename]
+                    for rom in local_roms
+                    if rom.filename in name_to_path
+                ]
+                local_size = local_info.get('selected_size', 0)
+            except Exception as exc:  # pylint: disable=broad-except
+                self._push_event('log', {
+                    'text': f'  Local filter error: {exc}\n',
+                    'className': 'log-error',
+                })
+                selected_local = list(local_files)
+                local_size = sum(
+                    Path(f).stat().st_size
+                    for f in local_files if Path(f).exists())
+
+        # --- Combine results ---
+        net_selected = len(selected_urls)
+        local_selected = len(selected_local)
+        selected_count = net_selected + local_selected
+        excluded_count = source_count - selected_count
+        net_size = sum(all_sizes.get(u, 0) for u in selected_urls)
+        local_sel_size = (local_size if local_files
+                          else 0)
+        selected_size = net_size + local_sel_size
+
+        self._push_event('card', {
+            'system': system,
+            'state': 'complete',
+            'selected_count': selected_count,
+            'excluded_count': excluded_count,
+            'selected_size': selected_size,
+            'source_count': source_count,
+            'source_size': sys_size,
+            'filter_breakdown': filter_breakdown,
+        })
+
+        # Emit system-complete for log renderer
+        elapsed_ms = int((time.monotonic() - t_start) * 1000)
+        excluded_roms = []
+        if result and hasattr(result, 'excluded'):
+            for exc_rom in result.excluded[:500]:
+                excluded_roms.append({
+                    'name': exc_rom.filename,
+                    'reason': exc_rom.reason,
+                })
+        self._push_event('system-complete', {
+            'system': system,
+            'display_name': display_name,
+            'selected': selected_count,
+            'excluded': excluded_count,
+            'total': source_count,
+            'size': format_size(selected_size),
+            'breakdown': filter_breakdown,
+            'elapsed_ms': elapsed_ms,
+            'excluded_roms': excluded_roms,
+        })
+
+        # Store selected URLs/files for commit mode
+        if system in self._last_results:
+            self._last_results[system]['selected_urls'] = selected_urls
+            self._last_results[system]['selected_local'] = [
+                str(f) for f in selected_local]
+
+        return selected_count, excluded_count, selected_size, source_count
+
+    def _compute_fanfare(self, _config, total_selected, total_excluded,
+                         total_size, run_start, all_systems, format_size):
+        """Compute and emit fanfare statistics from the run results."""
+        total_systems = len(all_systems)
+        elapsed_secs = time.monotonic() - run_start
+        mins, secs = divmod(int(elapsed_secs), 60)
+        elapsed_str = f'{mins}m {secs:02d}s' if mins else f'{secs}s'
+
+        from retro_refiner.filter import parse_rom_filename  # pylint: disable=import-outside-toplevel
+        from retro_refiner.network import get_filename_from_url  # pylint: disable=import-outside-toplevel
+        tidbits = []
+        all_roms = []
+        for sys_data in self._last_results.values():
+            for url in sys_data.get('selected_urls', []):
+                fname = get_filename_from_url(url)
+                try:
+                    all_roms.append(parse_rom_filename(fname))
+                except Exception:  # pylint: disable=broad-except
+                    pass
+            for fpath in sys_data.get('selected_local', []):
+                try:
+                    all_roms.append(
+                        parse_rom_filename(Path(fpath).name))
+                except Exception:  # pylint: disable=broad-except
+                    pass
+
+        if all_roms:
+            from collections import Counter  # pylint: disable=import-outside-toplevel
+            titles = [r.base_title for r in all_roms if r.base_title]
+            series = Counter()
+            for t in titles:
+                words = t.split()
+                key = words[0] if words else t
+                if len(words) > 1 and not words[1].isdigit():
+                    key = ' '.join(words[:2])
+                series[key] += 1
+            top_series = series.most_common(1)
+            if top_series and top_series[0][1] > 1:
+                tidbits.append(
+                    f"\u2655 Top series: {top_series[0][0]} "
+                    f"({top_series[0][1]} titles)")
+
+            regions = Counter(
+                r.region for r in all_roms if r.region)
+            top_regions = regions.most_common(3)
+            if top_regions:
+                parts = [f"{reg} ({cnt})" for reg, cnt in top_regions]
+                tidbits.append(
+                    f"\u2691 Regions: {', '.join(parts)}")
+
+            years = [r.year for r in all_roms if r.year > 0]
+            if years:
+                oldest = min(years)
+                newest = max(years)
+                if oldest == newest:
+                    tidbits.append(f"\u2605 All from {oldest}")
+                else:
+                    tidbits.append(
+                        f"\u2605 Spanning {oldest}\u2013{newest}")
+
+            if len(years) > 5:
+                decades = Counter(
+                    (y // 10) * 10 for y in years)
+                peak = decades.most_common(1)[0]
+                tidbits.append(
+                    f"\u266B Peak decade: {peak[0]}s "
+                    f"({peak[1]} titles)")
+
+            translations = sum(
+                1 for r in all_roms if r.is_translation)
+            if translations:
+                tidbits.append(
+                    f"\u2694 Fan translations: {translations}")
+
+            multi_disc = sum(
+                1 for r in all_roms if r.disc_number > 1)
+            if multi_disc:
+                tidbits.append(
+                    f"\u25CE Multi-disc: {multi_disc} additional discs")
+
+            unique_titles = len(set(
+                r.base_title for r in all_roms if r.base_title))
+            if unique_titles and unique_titles != len(all_roms):
+                tidbits.append(
+                    f"\u25A3 Unique titles: {unique_titles:,}")
+
+            if total_selected > 0:
+                avg = total_size // total_selected
+                tidbits.append(
+                    f"\u2394 Avg ROM size: {format_size(avg)}")
+
+        self._push_event('fanfare', {
+            'systems': total_systems,
+            'selected': total_selected,
+            'excluded': total_excluded,
+            'total_size': format_size(total_size),
+            'elapsed': elapsed_str,
+            'tidbits': tidbits,
+        })
 
     def _download_batch(self, downloads, parallel, system):
         """Download files using best available tool with progress events."""
@@ -1460,25 +1533,8 @@ def _float_or_none(value):
 def _parse_size_string(size_str):
     """Parse a size string like '10GB', '500MB' into bytes.
 
-    Returns integer bytes or None if parsing fails.
+    Thin wrapper around ``network.parse_budget_size`` kept for backward
+    compatibility with tests that import from this module.
     """
-    if not size_str:
-        return None
-    size_str = str(size_str).strip().upper()
-    multipliers = {
-        'TB': 1024 ** 4, 'T': 1024 ** 4,
-        'GB': 1024 ** 3, 'G': 1024 ** 3,
-        'MB': 1024 ** 2, 'M': 1024 ** 2,
-        'KB': 1024, 'K': 1024,
-        'B': 1,
-    }
-    for suffix, mult in multipliers.items():
-        if size_str.endswith(suffix):
-            try:
-                return int(float(size_str[:-len(suffix)].strip()) * mult)
-            except ValueError:
-                return None
-    try:
-        return int(float(size_str))
-    except ValueError:
-        return None
+    from retro_refiner.network import parse_budget_size  # pylint: disable=import-outside-toplevel
+    return parse_budget_size(size_str)

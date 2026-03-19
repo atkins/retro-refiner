@@ -107,16 +107,24 @@ def run_headless(args: list):
             all_urls.setdefault(system, []).extend(urls)
         all_sizes.update(result.url_sizes)
 
-    # Scan local sources
+    # Scan local sources (respect per-source settings if available)
     local_systems = {}
     if local_sources:
         print("\nScanning local sources...")
-        local_systems = scan_local_sources(
-            local_sources,
-            recursive=config.advanced.recursive,
-            max_depth=config.advanced.max_depth,
-            verbose=config.selection.verbose,
-        )
+        ss = config.source_settings or {}
+        for src_path in local_sources:
+            src_key = str(src_path)
+            src_opts = ss.get(src_key, {})
+            recursive = src_opts.get('recursive', config.advanced.recursive)
+            depth = config.advanced.max_depth or 3
+            result_local = scan_local_sources(
+                [src_path],
+                recursive=recursive,
+                max_depth=depth,
+                verbose=config.selection.verbose,
+            )
+            for sys_code, files in result_local.items():
+                local_systems.setdefault(sys_code, []).extend(files)
 
     all_systems = set(all_urls.keys()) | set(local_systems.keys())
     if not all_systems:
@@ -320,27 +328,13 @@ def run_headless(args: list):
 
 
 def _parse_size_string(size_str):
-    """Parse a size string like '10GB', '500MB' into bytes."""
-    if not size_str:
-        return None
-    size_str = str(size_str).strip().upper()
-    multipliers = {
-        'TB': 1024 ** 4, 'T': 1024 ** 4,
-        'GB': 1024 ** 3, 'G': 1024 ** 3,
-        'MB': 1024 ** 2, 'M': 1024 ** 2,
-        'KB': 1024, 'K': 1024,
-        'B': 1,
-    }
-    for suffix, mult in multipliers.items():
-        if size_str.endswith(suffix):
-            try:
-                return int(float(size_str[:-len(suffix)].strip()) * mult)
-            except ValueError:
-                return None
-    try:
-        return int(float(size_str))
-    except ValueError:
-        return None
+    """Parse a size string like '10GB', '500MB' into bytes.
+
+    Thin wrapper around ``network.parse_budget_size`` kept for backward
+    compatibility with tests that import from this module.
+    """
+    from retro_refiner.network import parse_budget_size  # pylint: disable=import-outside-toplevel
+    return parse_budget_size(size_str)
 
 
 def _apply_cli_budget_filters(config, system_selected_urls, all_sizes):

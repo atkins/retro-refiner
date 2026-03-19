@@ -321,10 +321,8 @@ def download_additional_dats(system: str, dest_dir: Path,
 # T-En DAT support
 # =============================================================================
 
-def is_ten_source(url: str) -> bool:
-    """Check if a URL is a T-En (translation) collection source."""
-    url_decoded = urllib.request.unquote(url).lower()
-    return '[t-en]' in url_decoded or 't-en collection' in url_decoded
+# is_ten_source lives in network.py — import from there if needed.
+from retro_refiner.network import is_ten_source  # pylint: disable=unused-import  # re-export
 
 
 def fetch_ten_dat_listing() -> Dict[str, str]:
