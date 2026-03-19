@@ -95,6 +95,19 @@ class Api:
         import webbrowser  # pylint: disable=import-outside-toplevel
         webbrowser.open(url)
 
+    def copy_to_clipboard(self, text: str):
+        """Copy text to the system clipboard."""
+        try:
+            import tkinter as tk  # pylint: disable=import-outside-toplevel
+            root = tk.Tk()
+            root.withdraw()
+            root.clipboard_clear()
+            root.clipboard_append(text)
+            root.update()
+            root.destroy()
+        except Exception:  # pylint: disable=broad-except
+            pass
+
     def update_selection(self, selection_json: str):
         """Update selection config from JS."""
         data = json.loads(selection_json)

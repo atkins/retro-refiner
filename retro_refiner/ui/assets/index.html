@@ -1294,7 +1294,9 @@ function clearResults() {
 function copyLog() {
   var log = document.getElementById('view-log');
   var text = log.innerText || log.textContent;
-  if (navigator.clipboard) {
+  if (window.pywebview) {
+    window.pywebview.api.copy_to_clipboard(text);
+  } else if (navigator.clipboard) {
     navigator.clipboard.writeText(text);
   }
 }
