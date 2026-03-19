@@ -262,8 +262,9 @@ class Api:
                 ok, error = validate_source(src)
                 status = 'OK' if ok else error
                 css = 'log-success' if ok else 'log-error'
+                pretty_src = urllib.parse.unquote(src)
                 self._push_event('log', {
-                    'text': f'  {src}... {status}\n',
+                    'text': f'  {pretty_src}... {status}\n',
                     'className': css,
                 })
                 if not ok:
@@ -295,7 +296,7 @@ class Api:
                 if not self._running:
                     break
                 self._push_event('log', {
-                    'text': f'\nScanning: {net_url}\n',
+                    'text': f'\nScanning: {urllib.parse.unquote(net_url)}\n',
                     'className': 'log-info',
                 })
 
