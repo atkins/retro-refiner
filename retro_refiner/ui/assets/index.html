@@ -1230,7 +1230,7 @@ function doStop() {
 /* ===== Log ===== */
 function _linkifyText(text, parent, className) {
   /* Split text on URL patterns and create text nodes + anchor elements */
-  var urlRe = /https?:\/\/[^\s)>\]]+/g;
+  var urlRe = /https?:\/\/[^\s)>\]]+?(?=[.]{2,}|[,;!?)>\]\s]|$)/g;
   var lastIdx = 0;
   var match;
   var hasLinks = false;
