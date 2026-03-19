@@ -279,6 +279,17 @@
     padding: 4px 8px; font-size: 10px; cursor: pointer; white-space: nowrap; font-family: var(--font-ui);
   }
   .browse-btn:hover { background: var(--accent-hover); color: var(--text-primary); }
+  .path-picker {
+    display: flex; align-items: center; gap: 6px; padding: 5px 8px; cursor: pointer;
+    background: var(--bg-input); border: 1px solid var(--border); border-radius: 3px;
+    font-size: 11px; color: var(--text-secondary); min-height: 26px;
+  }
+  .path-picker:hover { border-color: var(--accent); color: var(--text-primary); }
+  .path-picker .path-icon { flex-shrink: 0; font-size: 12px; }
+  .path-picker .path-text { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .path-picker .path-text.has-value { color: var(--text-primary); }
+  .path-picker .path-clear { flex-shrink: 0; font-size: 13px; color: var(--text-muted); padding: 0 2px; }
+  .path-picker .path-clear:hover { color: var(--accent); }
 
   /* Sources */
   .source-list { margin-bottom: 4px; }
@@ -570,10 +581,11 @@
           <button class="source-btn" onclick="addUrl()" title="Add a network URL as a ROM source">+ URL</button>
         </div>
         <div class="field-label">Destination</div>
-        <div class="field-row">
-          <input type="text" id="dest-path" placeholder="Select destination folder..." title="Where filtered ROMs will be transferred">
-          <button class="browse-btn" onclick="browseDest()">Browse</button>
-          <button class="browse-btn" onclick="openDest()">Open</button>
+        <input type="hidden" id="dest-path">
+        <div class="path-picker" onclick="browseDest()" title="Where filtered ROMs will be transferred">
+          <span class="path-icon">\uD83D\uDCC1</span>
+          <span class="path-text" id="dest-path-display">Select destination folder...</span>
+          <span class="path-clear" onclick="event.stopPropagation(); clearPathPicker('dest-path', 'dest-path-display', 'Select destination folder...')">\u00D7</span>
         </div>
         <div class="field-label">Transfer mode</div>
         <select id="opt-transfer" title="How to transfer files to the destination">
@@ -689,14 +701,18 @@
           <label title="Put all ROMs in one folder instead of per-system subfolders"><input type="checkbox" id="opt-flatten"> Flatten output</label>
         </div>
         <div class="field-label">RetroArch playlists dir</div>
-        <div class="flex-row">
-          <input type="text" id="opt-retroarch-playlists" placeholder="Path to RetroArch playlists..." class="flex-1">
-          <button class="browse-btn" onclick="browsePath('opt-retroarch-playlists')">Browse</button>
+        <input type="hidden" id="opt-retroarch-playlists">
+        <div class="path-picker" onclick="browsePathPicker('opt-retroarch-playlists', 'opt-retroarch-playlists-display')" title="Path to RetroArch playlists directory">
+          <span class="path-icon">\uD83D\uDCC1</span>
+          <span class="path-text" id="opt-retroarch-playlists-display">Select folder...</span>
+          <span class="path-clear" onclick="event.stopPropagation(); clearPathPicker('opt-retroarch-playlists', 'opt-retroarch-playlists-display', 'Select folder...')">\u00D7</span>
         </div>
         <div class="field-label">Log directory</div>
-        <div class="flex-row">
-          <input type="text" id="opt-log-dir" placeholder="e.g. ./logs" class="flex-1">
-          <button class="browse-btn" onclick="browsePath('opt-log-dir')">Browse</button>
+        <input type="hidden" id="opt-log-dir">
+        <div class="path-picker" onclick="browsePathPicker('opt-log-dir', 'opt-log-dir-display')" title="Directory for filter log files">
+          <span class="path-icon">\uD83D\uDCC1</span>
+          <span class="path-text" id="opt-log-dir-display">Select folder...</span>
+          <span class="path-clear" onclick="event.stopPropagation(); clearPathPicker('opt-log-dir', 'opt-log-dir-display', 'Select folder...')">\u00D7</span>
         </div>
       </div>
     </div>
@@ -719,9 +735,11 @@
         <div class="field-label">MAME version</div>
         <input type="text" id="opt-mame-version" placeholder="e.g. 0.261" title="Specific MAME version for DAT file downloads">
         <div class="field-label">DAT directory</div>
-        <div class="flex-row">
-          <input type="text" id="opt-dat-dir" placeholder="Default: ./dat_files" class="flex-1">
-          <button class="browse-btn" onclick="browsePath('opt-dat-dir')">Browse</button>
+        <input type="hidden" id="opt-dat-dir">
+        <div class="path-picker" onclick="browsePathPicker('opt-dat-dir', 'opt-dat-dir-display')" title="Directory for DAT metadata files">
+          <span class="path-icon">\uD83D\uDCC1</span>
+          <span class="path-text" id="opt-dat-dir-display">Default: ./dat_files</span>
+          <span class="path-clear" onclick="event.stopPropagation(); clearPathPicker('opt-dat-dir', 'opt-dat-dir-display', 'Default: ./dat_files')">\u00D7</span>
         </div>
         <div class="field-label">Ratings source</div>
         <select id="opt-ratings-source" title="Which rating database to use for Top N filtering">
@@ -948,17 +966,33 @@ function openDest() {
 function browseDest() {
   if (window.pywebview) {
     window.pywebview.api.browse_folder().then(function(path) {
-      if (path) { document.getElementById('dest-path').value = path; }
+      if (path) { setPathPicker('dest-path', 'dest-path-display', path); }
     });
   }
 }
 
-function browsePath(elementId) {
+function browsePathPicker(inputId, displayId) {
   if (window.pywebview) {
     window.pywebview.api.browse_folder().then(function(path) {
-      if (path) { document.getElementById(elementId).value = path; }
+      if (path) { setPathPicker(inputId, displayId, path); }
     });
   }
+}
+
+function setPathPicker(inputId, displayId, path) {
+  document.getElementById(inputId).value = path;
+  var display = document.getElementById(displayId);
+  display.textContent = path;
+  display.classList.add('has-value');
+  display.title = path;
+}
+
+function clearPathPicker(inputId, displayId, placeholder) {
+  document.getElementById(inputId).value = '';
+  var display = document.getElementById(displayId);
+  display.textContent = placeholder;
+  display.classList.remove('has-value');
+  display.title = '';
 }
 
 function saveConfig() {
@@ -1019,7 +1053,7 @@ function restoreUiState(cfg) {
 
   /* Sources & destination */
   if (cfg.sources && cfg.sources.length) { sources = cfg.sources; renderSources(); }
-  if (cfg.destination) document.getElementById('dest-path').value = cfg.destination;
+  if (cfg.destination) setPathPicker('dest-path', 'dest-path-display', cfg.destination);
   if (cfg.systems && cfg.systems.length)
     document.getElementById('opt-systems').value = cfg.systems.join(', ');
 
@@ -1060,8 +1094,8 @@ function restoreUiState(cfg) {
   document.getElementById('opt-gamelists').checked = !!out.gamelist;
   document.getElementById('opt-flatten').checked = !!out.flat;
   document.getElementById('opt-transfer').value = out.transfer_mode || 'move';
-  document.getElementById('opt-retroarch-playlists').value = out.retroarch_playlists || '';
-  document.getElementById('opt-log-dir').value = adv.log_dir || '';
+  if (out.retroarch_playlists) setPathPicker('opt-retroarch-playlists', 'opt-retroarch-playlists-display', out.retroarch_playlists);
+  if (adv.log_dir) setPathPicker('opt-log-dir', 'opt-log-dir-display', adv.log_dir);
 
   /* Advanced */
   document.getElementById('opt-verify-crc').checked = !adv.no_verify;
@@ -1071,7 +1105,7 @@ function restoreUiState(cfg) {
   document.getElementById('opt-recursive').checked = !!adv.recursive;
   document.getElementById('opt-max-depth').value = adv.max_depth || 3;
   document.getElementById('opt-mame-version').value = adv.mame_version || '';
-  document.getElementById('opt-dat-dir').value = adv.dat_dir || '';
+  if (adv.dat_dir) setPathPicker('opt-dat-dir', 'opt-dat-dir-display', adv.dat_dir);
   if (adv.ratings_source) document.getElementById('opt-ratings-source').value = adv.ratings_source;
 
   /* Auth */
