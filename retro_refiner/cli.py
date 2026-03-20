@@ -240,43 +240,77 @@ def run_headless(args: list):
             get_download_tool, download_batch_with_aria2c,
             download_batch_with_curl, DownloadUI,
         )
-        from retro_refiner.transfer import transfer_files  # pylint: disable=import-outside-toplevel
+        from retro_refiner.transfer import (  # pylint: disable=import-outside-toplevel
+            validate_destination, clean_destination,
+        )
 
         dest_dir = (Path(config.destination) if config.destination
                     else get_runtime_path() / 'refined')
-        dest_dir.mkdir(parents=True, exist_ok=True)
+        if config.output.local_file_action != 'remove':
+            dest_dir.mkdir(parents=True, exist_ok=True)
 
         # Check if DownloadUI can be used (requires aria2c + TTY)
         tool = get_download_tool()
         use_interactive = (tool == 'aria2c' and sys.stdout.isatty())
 
-        print(f"\nDownloading to cache and transferring to {dest_dir}...")
+        print(f"\nCommitting to {dest_dir}...")
         for system in sorted(system_selected_urls):
             sys_urls = system_selected_urls[system]
             if not sys_urls:
                 continue
 
+            if config.output.local_file_action == 'remove':
+                continue
+
+            flat = config.output.flat
+            target_dir = dest_dir if flat else dest_dir / system
+            target_dir.mkdir(parents=True, exist_ok=True)
+
+            # Build expected file set with sizes
+            expected = {}
+            for url in sys_urls:
+                fname = _url_to_filename(url)
+                expected[fname] = all_sizes.get(url, 0)
+
+            # Phase 1: Validate destination
+            skip_files = set()
+            if config.output.validate_destination:
+                validation = validate_destination(
+                    dest_dir, system, flat, expected,
+                    crc_check=config.output.crc_validation)
+                skip_files = {fn for fn, st in validation.items()
+                              if st == 'valid'}
+                invalid_files = {fn for fn, st in validation.items()
+                                 if st == 'invalid'}
+                if skip_files:
+                    print(f"  {system.upper()}: {len(skip_files)} "
+                          f"files already in destination, skipping")
+                for fname in invalid_files:
+                    (target_dir / fname).unlink(missing_ok=True)
+
+            # Phase 2: Download directly to destination
             downloads = []
             for url in sys_urls:
-                filename = urllib.parse.unquote(
-                    url.split('?')[0].split('#')[0].split('/')[-1])
-                cp = cache_dir / system / filename
-                cp.parent.mkdir(parents=True, exist_ok=True)
-                if not cp.exists():
-                    downloads.append((url, cp))
+                fname = _url_to_filename(url)
+                if fname in skip_files:
+                    continue
+                dest_path = target_dir / fname
+                tmp_path = target_dir / (fname + '.rrdownload')
+                downloads.append((url, tmp_path, dest_path))
 
             if downloads:
+                # Build batch as (url, tmp_path) for downloaders
+                batch = [(url, tmp) for url, tmp, _ in downloads]
                 if use_interactive:
-                    # Use DownloadUI for interactive progress display
-                    ui = DownloadUI(
+                    ui_dl = DownloadUI(
                         system_name=system,
-                        files=downloads,
+                        files=batch,
                         parallel=config.network.parallel,
                         connections=config.network.connections or 4,
                         resume=config.network.resume_downloads,
                     )
-                    completed = ui.run()
-                    print()  # newline after progress bar
+                    completed = ui_dl.run()
+                    print()
                     print(f"  {system.upper()}: downloaded "
                           f"{len(completed)}/{len(downloads)} files")
                 else:
@@ -284,45 +318,29 @@ def run_headless(args: list):
                           f"{len(downloads)} files...")
                     if tool == 'aria2c':
                         download_batch_with_aria2c(
-                            downloads,
+                            batch,
                             parallel=config.network.parallel)
                     elif tool == 'curl':
                         download_batch_with_curl(
-                            downloads,
+                            batch,
                             parallel=config.network.parallel)
                     else:
-                        import urllib.request as urllib_req  # pylint: disable=import-outside-toplevel
-                        for dl_url, dl_path in downloads:
-                            try:
-                                req = urllib_req.Request(
-                                    dl_url,
-                                    headers={
-                                        'User-Agent': 'Mozilla/5.0'})
-                                with urllib_req.urlopen(
-                                        req, timeout=60) as resp:
-                                    import shutil  # pylint: disable=import-outside-toplevel
-                                    with open(dl_path, 'wb') as f_out:
-                                        shutil.copyfileobj(resp, f_out)
-                            except Exception:  # pylint: disable=broad-except
-                                pass
+                        _download_urllib(batch)
 
-            cached = []
-            for url in sys_urls:
-                filename = urllib.parse.unquote(
-                    url.split('?')[0].split('#')[0].split('/')[-1])
-                cp = cache_dir / system / filename
-                if cp.exists():
-                    cached.append(cp)
+                # Rename completed downloads
+                for _, tmp_path, final_path in downloads:
+                    if tmp_path.exists():
+                        tmp_path.rename(final_path)
 
-            if cached:
-                stats = transfer_files(
-                    cached, dest_dir, system=system,
-                    mode=config.output.local_file_action,
-                    flat=config.output.flat,
-                )
-                print(f"  {system.upper()}: transferred "
-                      f"{stats['transferred']}, skipped "
-                      f"{stats['skipped']}, errors {stats['errors']}")
+            # Phase 3: Clean destination
+            if config.output.clean_destination:
+                keep = set(expected.keys())
+                clean_stats = clean_destination(
+                    dest_dir, system, flat, keep)
+                if clean_stats['removed']:
+                    print(f"  {system.upper()}: cleaned "
+                          f"{clean_stats['removed']} "
+                          f"files from destination")
 
         print("\nCommit complete.")
 
@@ -479,3 +497,24 @@ def _run_cli_dedup(config, system_selected_urls):
     )
 
     run_dedupe_analysis(detected, args, delete=False, confirm=False)
+
+
+def _url_to_filename(url):
+    """Extract filename from URL."""
+    return urllib.parse.unquote(
+        url.split('?')[0].split('#')[0].split('/')[-1])
+
+
+def _download_urllib(batch):
+    """Download files using urllib as fallback."""
+    import urllib.request as urllib_req  # pylint: disable=import-outside-toplevel
+    import shutil  # pylint: disable=import-outside-toplevel
+    for dl_url, dl_path in batch:
+        try:
+            req = urllib_req.Request(
+                dl_url, headers={'User-Agent': 'Mozilla/5.0'})
+            with urllib_req.urlopen(req, timeout=60) as resp:
+                with open(dl_path, 'wb') as f_out:
+                    shutil.copyfileobj(resp, f_out)
+        except Exception:  # pylint: disable=broad-except
+            pass
