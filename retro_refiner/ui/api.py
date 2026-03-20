@@ -390,7 +390,8 @@ class Api:
 
                 dest_dir = (Path(config.destination) if config.destination
                             else get_runtime_path() / 'refined')
-                dest_dir.mkdir(parents=True, exist_ok=True)
+                if config.output.local_file_action != 'remove':
+                    dest_dir.mkdir(parents=True, exist_ok=True)
 
                 for system in sorted(all_systems):
                     if not self._running:
@@ -1037,6 +1038,10 @@ class Api:
                            if manual.get(Path(f).name, True)]
 
         if not selected_urls and not local_files:
+            return
+
+        # Remove mode only affects local files — no destination needed
+        if config.output.local_file_action == 'remove':
             return
 
         flat = config.output.flat
