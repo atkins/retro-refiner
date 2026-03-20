@@ -627,8 +627,20 @@
             <span class="path-text" id="dest-path-display">Select destination folder...</span>
             <span class="path-clear" aria-label="Clear destination" onclick="event.stopPropagation(); clearPathPicker('dest-path', 'dest-path-display', 'Select destination folder...')">&#xD7;</span>
           </div>
+          <div class="dest-options" style="margin-top:6px">
+            <label title="Check files already in the destination by size. Valid files are skipped; partial or corrupted files are re-downloaded or re-copied.">
+              <input type="checkbox" id="opt-validate-dest" checked> Validate existing files
+            </label>
+            <label title="Use CRC32 checksums (from DAT files) for stricter validation. Slower but catches corrupted files that match the expected size." style="margin-left:16px" id="opt-crc-label">
+              <input type="checkbox" id="opt-crc-validation"> CRC
+            </label>
+            <br>
+            <label title="After processing, remove files from the destination that aren't in the selected set. Only affects systems being processed.">
+              <input type="checkbox" id="opt-clean-dest"> Clean destination
+            </label>
+          </div>
         </div>
-        <div class="field-label">File action</div>
+        <div class="field-label">Local file action</div>
         <select id="opt-transfer" onchange="toggleDestForTransferMode(); updateCollectionModeTooltip();">
           <option value="copy" title="Duplicate your selected ROMs into the destination folder. Originals stay untouched. Best for building a curated collection while keeping your full library intact.">Copy</option>
           <option value="move" title="Relocate selected ROMs to the destination folder, removing them from the source. Use when you want to reorganize your library and reclaim source disk space.">Move</option>
@@ -1366,6 +1378,11 @@ function restoreUiState(cfg) {
   document.getElementById('opt-gamelists').checked = !!out.gamelist;
   document.getElementById('opt-flatten').checked = !!out.flat;
   document.getElementById('opt-transfer').value = out.local_file_action || out.transfer_mode || 'copy';
+  document.getElementById('opt-validate-dest').checked = out.validate_destination !== false;
+  document.getElementById('opt-clean-dest').checked = !!out.clean_destination;
+  document.getElementById('opt-crc-validation').checked = !!out.crc_validation;
+  document.getElementById('opt-crc-label').style.display =
+    document.getElementById('opt-validate-dest').checked ? '' : 'none';
   toggleDestForTransferMode();
   if (out.retroarch_playlists) setPathPicker('opt-retroarch-playlists', 'opt-retroarch-playlists-display', out.retroarch_playlists);
   if (adv.log_dir) setPathPicker('opt-log-dir', 'opt-log-dir-display', adv.log_dir);
@@ -1453,6 +1470,9 @@ function gatherUiState() {
     playlists: document.getElementById('opt-playlists').checked,
     gamelists: document.getElementById('opt-gamelists').checked,
     flatten: document.getElementById('opt-flatten').checked,
+    validate_destination: document.getElementById('opt-validate-dest').checked,
+    clean_destination: document.getElementById('opt-clean-dest').checked,
+    crc_validation: document.getElementById('opt-crc-validation').checked,
     local_file_action: document.getElementById('opt-transfer').value,
     retroarch_playlists: document.getElementById('opt-retroarch-playlists').value || '',
     log_dir: document.getElementById('opt-log-dir').value || '',
@@ -2311,6 +2331,11 @@ function savePickerSelections() {
       if (window.pywebview) pushConfigToBackend();
       setTimeout(function() { location.reload(); }, 100);
     }
+  });
+
+  /* Toggle CRC option visibility based on validate checkbox */
+  document.getElementById('opt-validate-dest').addEventListener('change', function() {
+    document.getElementById('opt-crc-label').style.display = this.checked ? '' : 'none';
   });
 
   /* Push UI state to backend before window closes so it can be saved */

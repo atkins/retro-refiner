@@ -226,6 +226,9 @@ class Api:
         out.flat = ui.get('flatten', False)
         out.local_file_action = ui.get('local_file_action',
                                        ui.get('transfer_mode', 'copy'))
+        out.validate_destination = ui.get('validate_destination', True)
+        out.clean_destination = ui.get('clean_destination', False)
+        out.crc_validation = ui.get('crc_validation', False)
         out.retroarch_playlists = ui.get('retroarch_playlists') or None
 
         # Advanced
