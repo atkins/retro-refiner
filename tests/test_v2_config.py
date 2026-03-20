@@ -330,11 +330,11 @@ def test_config_defaults():
                      repr(cfg.network.scan_workers))
 
     # Output
-    if cfg.output.transfer_mode == 'move':
-        results.ok("default transfer_mode is 'move'")
+    if cfg.output.local_file_action == 'copy':
+        results.ok("default local_file_action is 'copy'")
     else:
-        results.fail("default transfer_mode", "'move'",
-                     repr(cfg.output.transfer_mode))
+        results.fail("default local_file_action", "'copy'",
+                     repr(cfg.output.local_file_action))
 
     if cfg.output.flat is False:
         results.ok("default flat is False")

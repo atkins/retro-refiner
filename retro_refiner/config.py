@@ -247,13 +247,16 @@ class NetworkConfig:
 @dataclass
 class OutputConfig:
     """Output and transfer options."""
-    transfer_mode: str = 'move'
+    local_file_action: str = 'copy'
     flat: bool = False
     playlists: bool = False
     gamelist: bool = False
     retroarch_playlists: Optional[str] = None
     prefer_source: Optional[str] = None
     print_roms: bool = False
+    validate_destination: bool = True
+    clean_destination: bool = False
+    crc_validation: bool = False
 
 
 @dataclass
@@ -351,6 +354,14 @@ class Config:
         for key, value in data.items():
             if key in cls.SECTION_TYPES and isinstance(value, dict):
                 section_cls = cls.SECTION_TYPES[key]
+                # Legacy alias: transfer_mode → local_file_action
+                if key == 'output' and 'transfer_mode' in value:
+                    tm = value.pop('transfer_mode')
+                    if 'local_file_action' not in value:
+                        # Map legacy 'delete-dupes' to 'remove'
+                        if tm == 'delete-dupes':
+                            tm = 'remove'
+                        value['local_file_action'] = tm
                 # Only pass keys that are valid fields
                 valid = {k: v for k, v in value.items()
                          if k in {f.name for f in

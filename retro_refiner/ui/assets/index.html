@@ -1365,7 +1365,7 @@ function restoreUiState(cfg) {
   document.getElementById('opt-playlists').checked = !!out.playlists;
   document.getElementById('opt-gamelists').checked = !!out.gamelist;
   document.getElementById('opt-flatten').checked = !!out.flat;
-  document.getElementById('opt-transfer').value = out.transfer_mode || 'move';
+  document.getElementById('opt-transfer').value = out.local_file_action || out.transfer_mode || 'copy';
   toggleDestForTransferMode();
   if (out.retroarch_playlists) setPathPicker('opt-retroarch-playlists', 'opt-retroarch-playlists-display', out.retroarch_playlists);
   if (adv.log_dir) setPathPicker('opt-log-dir', 'opt-log-dir-display', adv.log_dir);
@@ -1453,7 +1453,7 @@ function gatherUiState() {
     playlists: document.getElementById('opt-playlists').checked,
     gamelists: document.getElementById('opt-gamelists').checked,
     flatten: document.getElementById('opt-flatten').checked,
-    transfer_mode: document.getElementById('opt-transfer').value,
+    local_file_action: document.getElementById('opt-transfer').value,
     retroarch_playlists: document.getElementById('opt-retroarch-playlists').value || '',
     log_dir: document.getElementById('opt-log-dir').value || '',
     /* Advanced */

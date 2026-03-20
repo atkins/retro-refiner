@@ -317,7 +317,7 @@ def run_headless(args: list):
             if cached:
                 stats = transfer_files(
                     cached, dest_dir, system=system,
-                    mode=config.output.transfer_mode,
+                    mode=config.output.local_file_action,
                     flat=config.output.flat,
                 )
                 print(f"  {system.upper()}: transferred "

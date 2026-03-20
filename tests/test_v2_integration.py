@@ -47,7 +47,7 @@ def run_tests():
     config.sources = ['https://myrient.erista.me/files/Redump/Sega%20-%20Saturn/']
     config.selection.english_only = True
     config.selection.region_priority = ['USA', 'Japan']
-    config.output.transfer_mode = 'move'
+    config.output.local_file_action = 'move'
     config.theme.accent = '#00ff00'
 
     with tempfile.TemporaryDirectory() as tmp:
@@ -59,7 +59,7 @@ def run_tests():
             loaded.sources == config.sources,
             loaded.selection.english_only is True,
             loaded.selection.region_priority == ['USA', 'Japan'],
-            loaded.output.transfer_mode == 'move',
+            loaded.output.local_file_action == 'move',
             loaded.theme.accent == '#00ff00',
         ]
         if all(checks):

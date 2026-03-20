@@ -224,7 +224,8 @@ class Api:
         out.playlists = ui.get('playlists', False)
         out.gamelist = ui.get('gamelists', False)
         out.flat = ui.get('flatten', False)
-        out.transfer_mode = ui.get('transfer_mode', 'move')
+        out.local_file_action = ui.get('local_file_action',
+                                       ui.get('transfer_mode', 'copy'))
         out.retroarch_playlists = ui.get('retroarch_playlists') or None
 
         # Advanced
@@ -449,7 +450,7 @@ class Api:
                     if cached_files:
                         stats = transfer_files(
                             cached_files, dest_dir, system=system,
-                            mode=config.output.transfer_mode,
+                            mode=config.output.local_file_action,
                             flat=config.output.flat,
                         )
                         self._push_event('log', {
