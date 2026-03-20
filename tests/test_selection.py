@@ -30,9 +30,10 @@ from retro_refiner.filter import (
 )
 from retro_refiner.dat import (
     RomInfo, normalize_title, normalize_title_for_dedupe, get_cached_crc,
+    calculate_crc32,
 )
 from retro_refiner.config import (
-    load_config, apply_config_to_args, DEFAULT_REGION_PRIORITY,
+    load_config, apply_config_to_args, DEFAULT_REGION_PRIORITY, Config,
 )
 from retro_refiner.network import (
     is_url, parse_url, normalize_url, extract_links_from_html,
@@ -42,7 +43,10 @@ from retro_refiner.network import (
 )
 from retro_refiner.systems import load_system_data
 from retro_refiner.downloader import DownloadUI
-from retro_refiner.transfer import generate_m3u_playlist, generate_gamelist_xml
+from retro_refiner.transfer import (
+    generate_m3u_playlist, generate_gamelist_xml,
+    validate_destination, clean_destination,
+)
 from retro_refiner.ratings import (
     combine_ratings, boost_exclusive_ratings,
     resolve_top_n, apply_top_n_filter, apply_size_budget,
@@ -1637,6 +1641,251 @@ def test_playlist_generation():
                 results.fail("gamelist.xml content", "valid XML structure", content[:100])
         else:
             results.fail("gamelist.xml generation", "file created", "file not found")
+
+
+# =============================================================================
+# Validate Destination Tests
+# =============================================================================
+
+def test_validate_destination():
+    """Test validate_destination function."""
+    print("\n" + "="*60)
+    print("VALIDATE DESTINATION TESTS")
+    print("="*60)
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        dest = Path(tmpdir)
+
+        # Create a test file with known content and size
+        test_file = dest / "snes" / "Game A (USA).zip"
+        test_file.parent.mkdir(parents=True, exist_ok=True)
+        test_file.write_bytes(b"hello world test data")
+        file_size = test_file.stat().st_size
+
+        # File exists with correct size -> 'valid'
+        result = validate_destination(
+            dest, "snes", flat=False,
+            expected_files={"Game A (USA).zip": file_size}
+        )
+        if result.get("Game A (USA).zip") == "valid":
+            results.ok("validate_destination: correct size -> valid")
+        else:
+            results.fail("validate_destination: correct size -> valid",
+                         "valid", result.get("Game A (USA).zip"))
+
+        # File exists with wrong size -> 'invalid'
+        result = validate_destination(
+            dest, "snes", flat=False,
+            expected_files={"Game A (USA).zip": file_size + 100}
+        )
+        if result.get("Game A (USA).zip") == "invalid":
+            results.ok("validate_destination: wrong size -> invalid")
+        else:
+            results.fail("validate_destination: wrong size -> invalid",
+                         "invalid", result.get("Game A (USA).zip"))
+
+        # File doesn't exist -> 'missing'
+        result = validate_destination(
+            dest, "snes", flat=False,
+            expected_files={"Nonexistent (USA).zip": 100}
+        )
+        if result.get("Nonexistent (USA).zip") == "missing":
+            results.ok("validate_destination: missing file -> missing")
+        else:
+            results.fail("validate_destination: missing file -> missing",
+                         "missing", result.get("Nonexistent (USA).zip"))
+
+        # CRC check enabled, correct CRC -> 'valid'
+        actual_crc = calculate_crc32(test_file)
+        result = validate_destination(
+            dest, "snes", flat=False,
+            expected_files={"Game A (USA).zip": file_size},
+            crc_check=True,
+            crc_data={"Game A (USA).zip": actual_crc}
+        )
+        if result.get("Game A (USA).zip") == "valid":
+            results.ok("validate_destination: correct CRC -> valid")
+        else:
+            results.fail("validate_destination: correct CRC -> valid",
+                         "valid", result.get("Game A (USA).zip"))
+
+        # CRC check enabled, wrong CRC -> 'invalid'
+        result = validate_destination(
+            dest, "snes", flat=False,
+            expected_files={"Game A (USA).zip": file_size},
+            crc_check=True,
+            crc_data={"Game A (USA).zip": "00000000"}
+        )
+        if result.get("Game A (USA).zip") == "invalid":
+            results.ok("validate_destination: wrong CRC -> invalid")
+        else:
+            results.fail("validate_destination: wrong CRC -> invalid",
+                         "invalid", result.get("Game A (USA).zip"))
+
+        # Empty expected_files -> empty dict
+        result = validate_destination(
+            dest, "snes", flat=False, expected_files={}
+        )
+        if result == {}:
+            results.ok("validate_destination: empty expected_files -> empty dict")
+        else:
+            results.fail("validate_destination: empty expected_files -> empty dict",
+                         {}, result)
+
+        # System subdirectory used when flat=False
+        # File is in dest/snes/, so looking with system="snes" flat=False should find it
+        result = validate_destination(
+            dest, "snes", flat=False,
+            expected_files={"Game A (USA).zip": file_size}
+        )
+        if result.get("Game A (USA).zip") == "valid":
+            results.ok("validate_destination: system subdir (flat=False)")
+        else:
+            results.fail("validate_destination: system subdir (flat=False)",
+                         "valid", result.get("Game A (USA).zip"))
+
+        # Flat mode - file in dest root
+        flat_file = dest / "Flat Game (USA).zip"
+        flat_file.write_bytes(b"flat test data")
+        flat_size = flat_file.stat().st_size
+        result = validate_destination(
+            dest, "snes", flat=True,
+            expected_files={"Flat Game (USA).zip": flat_size}
+        )
+        if result.get("Flat Game (USA).zip") == "valid":
+            results.ok("validate_destination: flat mode")
+        else:
+            results.fail("validate_destination: flat mode",
+                         "valid", result.get("Flat Game (USA).zip"))
+
+
+# =============================================================================
+# Clean Destination Tests
+# =============================================================================
+
+def test_clean_destination():
+    """Test clean_destination function."""
+    print("\n" + "="*60)
+    print("CLEAN DESTINATION TESTS")
+    print("="*60)
+
+    # Remove files not in keep set
+    with tempfile.TemporaryDirectory() as tmpdir:
+        dest = Path(tmpdir)
+        sys_dir = dest / "nes"
+        sys_dir.mkdir()
+        (sys_dir / "Keep (USA).zip").write_bytes(b"keep")
+        (sys_dir / "Remove (USA).zip").write_bytes(b"remove")
+        (sys_dir / "Also Remove (Japan).zip").write_bytes(b"remove2")
+
+        stats = clean_destination(dest, "nes", flat=False,
+                                  keep_files={"Keep (USA).zip"})
+        if stats['removed'] == 2 and (sys_dir / "Keep (USA).zip").exists():
+            results.ok("clean_destination: removes files not in keep set")
+        else:
+            results.fail("clean_destination: removes files not in keep set",
+                         "removed=2, Keep exists", f"removed={stats['removed']}")
+
+    # Keep files that are in keep set
+    with tempfile.TemporaryDirectory() as tmpdir:
+        dest = Path(tmpdir)
+        sys_dir = dest / "nes"
+        sys_dir.mkdir()
+        (sys_dir / "Game A (USA).zip").write_bytes(b"a")
+        (sys_dir / "Game B (USA).zip").write_bytes(b"b")
+
+        stats = clean_destination(dest, "nes", flat=False,
+                                  keep_files={"Game A (USA).zip", "Game B (USA).zip"})
+        kept = (sys_dir / "Game A (USA).zip").exists() and (sys_dir / "Game B (USA).zip").exists()
+        if stats['removed'] == 0 and kept:
+            results.ok("clean_destination: keeps files in keep set")
+        else:
+            results.fail("clean_destination: keeps files in keep set",
+                         "removed=0, all files kept",
+                         f"removed={stats['removed']}, kept={kept}")
+
+    # Empty directory -> no errors, 0 removed
+    with tempfile.TemporaryDirectory() as tmpdir:
+        dest = Path(tmpdir)
+        sys_dir = dest / "nes"
+        sys_dir.mkdir()
+
+        stats = clean_destination(dest, "nes", flat=False, keep_files=set())
+        if stats['removed'] == 0 and stats['errors'] == 0:
+            results.ok("clean_destination: empty directory -> 0 removed, 0 errors")
+        else:
+            results.fail("clean_destination: empty directory -> 0 removed, 0 errors",
+                         "removed=0, errors=0",
+                         f"removed={stats['removed']}, errors={stats['errors']}")
+
+    # Non-existent directory -> returns removed=0, errors=0
+    with tempfile.TemporaryDirectory() as tmpdir:
+        dest = Path(tmpdir)
+        stats = clean_destination(dest, "nonexistent", flat=False, keep_files=set())
+        if stats['removed'] == 0 and stats['errors'] == 0:
+            results.ok("clean_destination: non-existent dir -> 0 removed, 0 errors")
+        else:
+            results.fail("clean_destination: non-existent dir -> 0 removed, 0 errors",
+                         "removed=0, errors=0",
+                         f"removed={stats['removed']}, errors={stats['errors']}")
+
+    # System subdirectory used when flat=False
+    with tempfile.TemporaryDirectory() as tmpdir:
+        dest = Path(tmpdir)
+        sys_dir = dest / "genesis"
+        sys_dir.mkdir()
+        (sys_dir / "Game (USA).zip").write_bytes(b"data")
+        # Also put a file in dest root - should NOT be touched
+        (dest / "Root File.zip").write_bytes(b"root")
+
+        stats = clean_destination(dest, "genesis", flat=False, keep_files=set())
+        if stats['removed'] == 1 and (dest / "Root File.zip").exists():
+            results.ok("clean_destination: system subdir (flat=False)")
+        else:
+            results.fail("clean_destination: system subdir (flat=False)",
+                         "removed=1, root file untouched",
+                         f"removed={stats['removed']}")
+
+
+# =============================================================================
+# Backward Compat Config Loading Tests
+# =============================================================================
+
+def test_backward_compat_config():
+    """Test backward compatibility for config loading."""
+    print("\n" + "="*60)
+    print("BACKWARD COMPAT CONFIG TESTS")
+    print("="*60)
+
+    # transfer_mode key loads as local_file_action
+    cfg = Config.from_dict({
+        'output': {'transfer_mode': 'move'}
+    })
+    if cfg.output.local_file_action == 'move':
+        results.ok("config compat: transfer_mode -> local_file_action")
+    else:
+        results.fail("config compat: transfer_mode -> local_file_action",
+                     "move", cfg.output.local_file_action)
+
+    # transfer_mode: 'delete-dupes' maps to local_file_action: 'remove'
+    cfg = Config.from_dict({
+        'output': {'transfer_mode': 'delete-dupes'}
+    })
+    if cfg.output.local_file_action == 'remove':
+        results.ok("config compat: transfer_mode delete-dupes -> remove")
+    else:
+        results.fail("config compat: transfer_mode delete-dupes -> remove",
+                     "remove", cfg.output.local_file_action)
+
+    # Both local_file_action and transfer_mode -> local_file_action wins
+    cfg = Config.from_dict({
+        'output': {'local_file_action': 'symlink', 'transfer_mode': 'copy'}
+    })
+    if cfg.output.local_file_action == 'symlink':
+        results.ok("config compat: local_file_action wins over transfer_mode")
+    else:
+        results.fail("config compat: local_file_action wins over transfer_mode",
+                     "symlink", cfg.output.local_file_action)
 
 
 # =============================================================================
@@ -3538,6 +3787,9 @@ def main():
     test_dedupe_analysis()
     test_mame_romset_support()
     test_version()
+    test_validate_destination()
+    test_clean_destination()
+    test_backward_compat_config()
 
     # Run integration tests with real files
     source = r"C:\Users\atkin\Downloads\Roms"
