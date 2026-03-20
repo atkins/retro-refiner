@@ -66,6 +66,77 @@ def transfer_files(files: List[Path], dest_dir: Path, mode: str = 'copy',
     return stats
 
 
+def validate_destination(dest_dir: Path, system: Optional[str],
+                         flat: bool, expected_files: Dict[str, int],
+                         crc_check: bool = False,
+                         crc_data: Optional[Dict[str, str]] = None,
+                         on_progress: Optional[Callable] = None  # pylint: disable=unused-argument
+                         ) -> Dict[str, str]:
+    """Validate files already in destination directory.
+
+    Args:
+        dest_dir: Destination directory.
+        system: System code for subdirectory.
+        flat: If True, files are directly in dest_dir.
+        expected_files: Dict of filename -> expected_size.
+        crc_check: If True, also verify CRC32 (requires crc_data).
+        crc_data: Dict of filename -> expected_crc32 hex string.
+        on_progress: Optional progress callback.
+
+    Returns:
+        Dict of filename -> status ('valid', 'invalid', 'missing').
+    """
+    target_dir = dest_dir if (flat or not system) else dest_dir / system
+    result = {}
+    for filename, expected_size in expected_files.items():
+        filepath = target_dir / filename
+        if not filepath.exists():
+            result[filename] = 'missing'
+            continue
+        actual_size = filepath.stat().st_size
+        if actual_size != expected_size:
+            result[filename] = 'invalid'
+            continue
+        if crc_check and crc_data and filename in crc_data:
+            from retro_refiner.dat import calculate_crc32  # pylint: disable=import-outside-toplevel
+            actual_crc = calculate_crc32(filepath)
+            if actual_crc != crc_data[filename]:
+                result[filename] = 'invalid'
+                continue
+        result[filename] = 'valid'
+    return result
+
+
+def clean_destination(dest_dir: Path, system: Optional[str],
+                      flat: bool, keep_files: set,
+                      on_progress: Optional[Callable] = None  # pylint: disable=unused-argument
+                      ) -> Dict[str, int]:
+    """Remove files from destination that aren't in the keep set.
+
+    Args:
+        dest_dir: Destination directory.
+        system: System code for subdirectory.
+        flat: If True, files are directly in dest_dir.
+        keep_files: Set of filenames to keep.
+        on_progress: Optional progress callback.
+
+    Returns:
+        Dict with 'removed' and 'errors' counts.
+    """
+    target_dir = dest_dir if (flat or not system) else dest_dir / system
+    stats = {'removed': 0, 'errors': 0}
+    if not target_dir.exists():
+        return stats
+    for filepath in target_dir.iterdir():
+        if filepath.is_file() and filepath.name not in keep_files:
+            try:
+                filepath.unlink()
+                stats['removed'] += 1
+            except OSError:
+                stats['errors'] += 1
+    return stats
+
+
 # =============================================================================
 # Playlist and gamelist generation
 # =============================================================================
