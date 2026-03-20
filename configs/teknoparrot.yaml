@@ -8,7 +8,7 @@ selection:
   english_only: true
 
 output:
-  transfer_mode: move
+  local_file_action: move
 
 advanced:
   cache_dir: "./cache"

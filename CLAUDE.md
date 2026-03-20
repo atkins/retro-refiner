@@ -61,7 +61,7 @@ retro_refiner/
     mame.py           # MameGameInfo, catver.ini parsing, category filtering, clone selection
     teknoparrot.py    # TeknoParrotGameInfo, version dedup, platform filtering
     downloader.py     # DownloadUI, Aria2cRPC, aria2c/curl/urllib, adaptive auto-tune
-    transfer.py       # Copy/move/symlink/hardlink, playlist gen, gamelist gen
+    transfer.py       # Copy/move/symlink/hardlink/remove, dest validation, dest cleaning, playlist gen, gamelist gen
     ratings.py        # IGDB + LaunchBox rating data, combine/boost ratings
     dedup.py          # Cross-system dedup analysis, exclusion playlist parsing
     models.py         # Shared result types: FilterResult, ProgressEvent, ScanResult, etc.
@@ -91,6 +91,23 @@ New fields:
 - `source_settings: Dict[str, dict]` — per-source recursive scan settings keyed by path
 - Auth credentials are **excluded** from state file persistence for security
 
+`OutputConfig` fields:
+```python
+@dataclass
+class OutputConfig:
+    local_file_action: str = 'copy'    # copy/move/symlink/hardlink/remove
+    flat: bool = False
+    playlists: bool = False
+    gamelist: bool = False
+    retroarch_playlists: Optional[str] = None
+    prefer_source: Optional[str] = None
+    print_roms: bool = False
+    validate_destination: bool = True   # Skip files already in dest
+    clean_destination: bool = False     # Remove unselected files from dest
+    crc_validation: bool = False        # CRC check during validation
+```
+Note: `transfer_mode` was renamed to `local_file_action` — `from_dict()` accepts the legacy key for backward compat.
+
 ```python
 from retro_refiner.config import Config, load_config, save_config
 config = Config()
@@ -119,7 +136,7 @@ data.folder_aliases       # Dict[str, str], megadrive → genesis
 8. Cross-system dedup applied (if priority configured)
 9. Results returned as structured events → GUI renders cards with preview titles
 10. Optional: ROM picker for manual review/edit (changes auto-save with indicator)
-11. Transfer: copy/move/symlink/hardlink/remove via `transfer.transfer_files`
+11. Commit via `_commit_system()` in 4 phases: validate destination (skip existing, optional CRC check) → download remote files to dest (via `.rrdownload` temp files for crash safety) → transfer local files (copy/move/symlink/hardlink/remove) → clean destination (remove unselected files if enabled)
 
 ### `_do_run` Phases (api.py)
 The main run method is split into extracted helper methods:
@@ -129,6 +146,7 @@ The main run method is split into extracted helper methods:
 - `_compute_fanfare()` — ROM content analysis and tidbit generation
 - `_run_dedup()` — cross-system dedup pass
 - `_apply_budget_filters()` — budget/limit/size constraints
+- `_commit_system()` — per-system commit in 4 phases: (1) validate destination (skip files already present, optional CRC check), (2) download remote files directly to destination (uses `.rrdownload` temp files, renamed on completion for crash safety), (3) transfer local files via configured `local_file_action` (copy/move/symlink/hardlink/remove), (4) clean destination (remove unselected files if `clean_destination` enabled)
 
 ### Structured Log Events
 Python emits structured events consumed by JS `LogRenderer`:
@@ -208,7 +226,7 @@ Module-level `_SYSTEM_ABBREVS` frozenset and `_display_name(system)` helper in a
 ## GUI Components
 
 ### Sidebar (index.html)
-- **File Locations** (always visible): sources with drag-and-drop + per-source recursive toggle, destination path picker, file action dropdown (copy/move/remove/hardlink/symlink), system pills with All/None toggle
+- **File Locations** (always visible): sources with drag-and-drop + per-source recursive toggle, destination path picker with validate existing files / CRC validation / clean destination options, local file action dropdown (copy/move/remove/hardlink/symlink), system pills with All/None toggle
 - **Selection** (always visible): "Apply filters" toggle with sub-options (1G1R, English, protos, betas, unlicensed, adult, region priority, patterns, year range)
 - **More Options** (collapsed): Deduplication (ordered priority pills, exclusion playlists), Budget & Limits, Network, Output, Advanced, Auth
 - **Footer**: Save/Load/Defaults buttons
@@ -231,7 +249,7 @@ Handles structured events (system-start, filter-tick, system-complete, fanfare).
 - **New title mapping**: Add to `data/title_mappings.json` (lowercase, no punctuation, Arabic numerals)
 - **New filter pattern**: Add `re.compile()` to `RERELEASE_PATTERNS` or `COMPILATION_PATTERNS` in `filter.py`
 - **New MAME category**: Edit `MAME_INCLUDE_CATEGORIES` / `MAME_EXCLUDE_CATEGORIES` in `mame.py`
-- **New config option**: (1) Add field to `*Config` dataclass in `config.py`, (2) add HTML element in `index.html`, (3) add to `gatherUiState()` JS function, (4) add to `update_config_from_ui()` in `api.py`, (5) add to `restoreUiState()` JS function
+- **New config option**: (1) Add field to `*Config` dataclass in `config.py`, (2) add HTML element in `index.html`, (3) add to `gatherUiState()` JS function, (4) add to `update_config_from_ui()` in `api.py`, (5) add to `restoreUiState()` JS function. Example: `local_file_action` in `OutputConfig` controls how local files are transferred (copy/move/symlink/hardlink/remove).
 - **New GUI section**: Edit `retro_refiner/ui/assets/index.html` (single-file HTML/CSS/JS)
 - **New API method**: Add to `retro_refiner/ui/api.py` (instance methods auto-exposed to JS; static methods are NOT exposed)
 - **Version string**: `__version__` in `retro_refiner/__init__.py`

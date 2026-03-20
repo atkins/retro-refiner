@@ -13,7 +13,7 @@ network:
   scan_workers: 16
 
 output:
-  transfer_mode: move
+  local_file_action: move
 
 advanced:
   cache_dir: "./cache"
