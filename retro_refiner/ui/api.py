@@ -384,7 +384,7 @@ class Api:
             # Commit mode: download and transfer files
             if commit and self._running:
                 from retro_refiner.transfer import (  # pylint: disable=import-outside-toplevel
-                    transfer_files, generate_m3u_playlist,
+                    generate_m3u_playlist,
                     generate_gamelist_xml,
                 )
 
@@ -395,70 +395,7 @@ class Api:
                 for system in sorted(all_systems):
                     if not self._running:
                         break
-                    sys_urls = self._last_results.get(
-                        system, {}).get('selected_urls', [])
-                    if not sys_urls:
-                        continue
-
-                    # Apply manual picker overrides
-                    manual = self._manual_selections.get(system, {})
-                    if manual:
-                        sys_urls = [
-                            u for u in sys_urls
-                            if manual.get(
-                                urllib.parse.unquote(
-                                    u.split('?')[0].split('#')[0]
-                                    .split('/')[-1]),
-                                True)
-                        ]
-                        if not sys_urls:
-                            continue
-
-                    # Build download list for uncached files
-                    downloads = []
-                    for url in sys_urls:
-                        filename = urllib.parse.unquote(
-                            url.split('?')[0].split('#')[0].split('/')[-1])
-                        cache_path = cache_dir / system / filename
-                        cache_path.parent.mkdir(parents=True, exist_ok=True)
-                        if not cache_path.exists():
-                            downloads.append((url, cache_path))
-
-                    if downloads:
-                        self._push_event('log', {
-                            'text': f'  {system.upper()}: downloading '
-                                    f'{len(downloads)} files...\n',
-                        })
-                        # NOTE: DownloadUI requires a TTY for its
-                        # interactive curses/keyboard UI, so it cannot
-                        # run inside the pywebview context.  We use the
-                        # batch download functions and push progress
-                        # events to the JS frontend instead.
-                        self._download_batch(
-                            downloads, config.network.parallel,
-                            system)
-
-                    # Transfer cached files to destination
-                    cached_files = []
-                    for url in sys_urls:
-                        filename = urllib.parse.unquote(
-                            url.split('?')[0].split('#')[0].split('/')[-1])
-                        cache_path = cache_dir / system / filename
-                        if cache_path.exists():
-                            cached_files.append(cache_path)
-
-                    if cached_files:
-                        stats = transfer_files(
-                            cached_files, dest_dir, system=system,
-                            mode=config.output.local_file_action,
-                            flat=config.output.flat,
-                        )
-                        self._push_event('log', {
-                            'text': f'  {system.upper()}: transferred '
-                                    f'{stats["transferred"]}, '
-                                    f'skipped {stats["skipped"]}, '
-                                    f'errors {stats["errors"]}\n',
-                        })
+                    self._commit_system(system, config, dest_dir)
 
                 # Generate playlists if configured
                 if config.output.playlists and self._running:
@@ -1063,6 +1000,130 @@ class Api:
                     f'({total} files, tool={tool or "urllib"}'
                     f'{fail_msg})\n',
         })
+
+    def _url_to_filename(self, url):
+        """Extract filename from URL."""
+        return urllib.parse.unquote(
+            url.split('?')[0].split('#')[0].split('/')[-1])
+
+    def _download_to_destination(self, downloads, parallel, system):
+        """Download files to destination with temp file safety.
+
+        Args:
+            downloads: List of (url, tmp_path, final_path) tuples.
+            parallel: Max parallel downloads.
+            system: System code for logging.
+        """
+        batch = [(url, tmp_path) for url, tmp_path, _ in downloads]
+        self._download_batch(batch, parallel, system)
+
+        # Rename completed downloads from .rrdownload to final name
+        for _url, tmp_path, final_path in downloads:
+            if tmp_path.exists():
+                tmp_path.rename(final_path)
+
+    def _commit_system(self, system, config, dest_dir):
+        """Commit results for a single system."""
+        result = self._last_results.get(system, {})
+        selected_urls = list(result.get('selected_urls', []))
+        local_files = list(result.get('selected_local', []))
+
+        # Apply manual picker overrides
+        manual = self._manual_selections.get(system, {})
+        if manual:
+            selected_urls = [u for u in selected_urls
+                             if manual.get(self._url_to_filename(u), True)]
+            local_files = [f for f in local_files
+                           if manual.get(Path(f).name, True)]
+
+        if not selected_urls and not local_files:
+            return
+
+        flat = config.output.flat
+        target_dir = dest_dir if flat else dest_dir / system
+        target_dir.mkdir(parents=True, exist_ok=True)
+
+        # Build expected file set with sizes
+        expected = {}
+        sizes = result.get('sizes', {})
+        for url in selected_urls:
+            fname = self._url_to_filename(url)
+            expected[fname] = sizes.get(url, 0)
+        for filepath in local_files:
+            p_file = Path(filepath)
+            if p_file.exists():
+                expected[p_file.name] = p_file.stat().st_size
+
+        # Phase 1: Validate destination
+        skip_files = set()
+        if (config.output.validate_destination
+                and config.output.local_file_action != 'remove'):
+            from retro_refiner.transfer import validate_destination  # pylint: disable=import-outside-toplevel
+            validation = validate_destination(
+                dest_dir, system, flat, expected,
+                crc_check=config.output.crc_validation)
+            skip_files = {fn for fn, status in validation.items()
+                          if status == 'valid'}
+            invalid_files = {fn for fn, status in validation.items()
+                             if status == 'invalid'}
+            if skip_files:
+                self._push_event('log', {
+                    'text': f'  {_display_name(system)}: '
+                            f'{len(skip_files)} files already in '
+                            f'destination, skipping\n',
+                })
+            # Delete invalid files so they get re-downloaded/copied
+            for fname in invalid_files:
+                (target_dir / fname).unlink(missing_ok=True)
+
+        # Phase 2: Download remote files directly to destination
+        downloads = []
+        for url in selected_urls:
+            fname = self._url_to_filename(url)
+            if fname in skip_files:
+                continue
+            dest_path = target_dir / fname
+            tmp_path = target_dir / (fname + '.rrdownload')
+            downloads.append((url, tmp_path, dest_path))
+
+        if downloads:
+            self._push_event('log', {
+                'text': f'  {_display_name(system)}: downloading '
+                        f'{len(downloads)} files...\n',
+            })
+            self._download_to_destination(
+                downloads, config.network.parallel, system)
+
+        # Phase 3: Transfer local files
+        if local_files and config.output.local_file_action != 'remove':
+            from retro_refiner.transfer import transfer_files  # pylint: disable=import-outside-toplevel
+            files_to_transfer = [Path(f) for f in local_files
+                                 if Path(f).name not in skip_files]
+            if files_to_transfer:
+                stats = transfer_files(
+                    files_to_transfer, dest_dir, system=system,
+                    mode=config.output.local_file_action,
+                    flat=flat)
+                self._push_event('log', {
+                    'text': f'  {_display_name(system)}: '
+                            f'transferred {stats["transferred"]}, '
+                            f'skipped {stats["skipped"]}, '
+                            f'errors {stats["errors"]}\n',
+                })
+
+        # Phase 4: Clean destination
+        if (config.output.clean_destination
+                and config.output.local_file_action != 'remove'):
+            from retro_refiner.transfer import clean_destination  # pylint: disable=import-outside-toplevel
+            keep = set(expected.keys())
+            clean_stats = clean_destination(
+                dest_dir, system, flat, keep)
+            if clean_stats['removed']:
+                self._push_event('log', {
+                    'text': f'  {_display_name(system)}: '
+                            f'cleaned {clean_stats["removed"]} '
+                            f'files from destination\n',
+                })
 
     def _run_dedup(self, priority_str, all_sizes):
         """Cross-system dedup: keep best version per game title.
