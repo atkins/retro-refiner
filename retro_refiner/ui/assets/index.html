@@ -644,7 +644,7 @@
         <select id="opt-transfer" onchange="toggleDestForTransferMode(); updateCollectionModeTooltip();">
           <option value="copy" title="Duplicate your selected ROMs into the destination folder. Originals stay untouched. Best for building a curated collection while keeping your full library intact.">Copy</option>
           <option value="move" title="Relocate selected ROMs to the destination folder, removing them from the source. Use when you want to reorganize your library and reclaim source disk space.">Move</option>
-          <option value="delete-dupes" title="Remove duplicate and excluded ROMs directly from your source folders. No destination needed. Use to clean up an existing collection in-place.">Remove</option>
+          <option value="remove" title="Remove duplicate and excluded ROMs directly from your source folders. No destination needed. Use to clean up an existing collection in-place.">Remove</option>
           <option value="hardlink" title="Create hard links sharing the same data on disk. Zero extra space used. Deleting one copy doesn't affect the other. Works on NTFS with no special permissions. Both paths must be on the same drive. Best option for most Windows users who want a zero-cost organized collection.">Hardlink</option>
           <option value="symlink" title="Create symbolic links (shortcuts) that point back to the originals. Works across drives, but if the original is deleted the link breaks. On Windows requires admin privileges or Developer Mode enabled (Win 10 1703+).">Symlink</option>
         </select>
@@ -1294,7 +1294,7 @@ function toggleSelectionOpts() {
 function toggleDestForTransferMode() {
   var mode = document.getElementById('opt-transfer').value;
   var destGroup = document.getElementById('dest-group');
-  if (mode === 'delete-dupes') {
+  if (mode === 'remove') {
     destGroup.style.opacity = '0.35';
     destGroup.style.pointerEvents = 'none';
   } else {
@@ -1416,7 +1416,7 @@ function restoreUiState(cfg) {
     renderExclusionPlaylists();
   }
   if (dedup['delete']) {
-    document.getElementById('opt-transfer').value = 'delete-dupes';
+    document.getElementById('opt-transfer').value = 'remove';
   }
   toggleDestForTransferMode();
 
@@ -1494,7 +1494,7 @@ function gatherUiState() {
     /* Dedup */
     dedup_priority: document.getElementById('opt-dedup-priority').value || '',
     dedup_pc_lists: exclusionPlaylists.join(','),
-    dedup_delete: document.getElementById('opt-transfer').value === 'delete-dupes',
+    dedup_delete: document.getElementById('opt-transfer').value === 'remove',
     /* Theme */
     theme: document.getElementById('opt-theme').value,
   };

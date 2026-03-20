@@ -224,8 +224,9 @@ class Api:
         out.playlists = ui.get('playlists', False)
         out.gamelist = ui.get('gamelists', False)
         out.flat = ui.get('flatten', False)
-        out.local_file_action = ui.get('local_file_action',
-                                       ui.get('transfer_mode', 'copy'))
+        lfa = ui.get('local_file_action',
+                     ui.get('transfer_mode', 'copy'))
+        out.local_file_action = 'remove' if lfa == 'delete-dupes' else lfa
         out.validate_destination = ui.get('validate_destination', True)
         out.clean_destination = ui.get('clean_destination', False)
         out.crc_validation = ui.get('crc_validation', False)
