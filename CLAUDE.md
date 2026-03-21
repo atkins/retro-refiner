@@ -22,7 +22,7 @@ python -m retro_refiner --export-config
 
 ### Run tests
 ```bash
-python tests/test_selection.py       # 300 core tests
+python tests/test_selection.py       # 316 core tests
 python tests/test_v2_modules.py      # 80 module tests
 python tests/test_v2_config.py       # 65 config tests
 python tests/test_v2_systems.py      # 19 systems tests
@@ -30,13 +30,21 @@ python tests/test_v2_paths.py        # 3 path tests
 python tests/test_v2_cli.py          # 36 CLI tests
 python tests/test_v2_integration.py  # 5 integration tests
 ```
-Note: `pytest` is not installed. Tests use a custom `TestResult` framework and are run directly. **508 tests total, all passing.**
+Note: `pytest` is not installed. Tests use a custom `TestResult` framework and are run directly. **519 tests total, all passing.**
 
 ### Lint
 ```bash
 python -m pylint retro_refiner/
 ```
 Current score: **10.00/10** — avoid introducing new warnings.
+
+### Title Mapping Analyzer
+```bash
+python tools/analyze_title_mappings.py          # use cached DATs
+python tools/analyze_title_mappings.py --fresh   # force re-download
+python tools/analyze_title_mappings.py --dry-run # report without modifying
+```
+Standalone tool that downloads DATs for all systems, detects missing title mappings via fuzzy matching, validates existing mappings, and writes results. Auto-adds high-confidence mappings (>= 0.93 fuzzy with safety filters), writes candidates to `tools/mapping_review.txt` for review. Categories in `title_mappings.json`: `regional_*` (auto-generated), `translations_*` and franchise names (manual).
 
 ### Build executable
 ```bash
@@ -246,7 +254,7 @@ Handles structured events (system-start, filter-tick, system-complete, fanfare).
 ## Common Modification Points
 
 - **New system**: Add entry to `data/systems.json`
-- **New title mapping**: Add to `data/title_mappings.json` (lowercase, no punctuation, Arabic numerals)
+- **New title mapping**: Add to `data/title_mappings.json` (lowercase, no punctuation, Arabic numerals). Or run `python tools/analyze_title_mappings.py` to auto-detect from DATs. Categories: `regional_*` (auto-generated), `translations_*` and franchise names (manual).
 - **New filter pattern**: Add `re.compile()` to `RERELEASE_PATTERNS` or `COMPILATION_PATTERNS` in `filter.py`
 - **New MAME category**: Edit `MAME_INCLUDE_CATEGORIES` / `MAME_EXCLUDE_CATEGORIES` in `mame.py`
 - **New config option**: (1) Add field to `*Config` dataclass in `config.py`, (2) add HTML element in `index.html`, (3) add to `gatherUiState()` JS function, (4) add to `update_config_from_ui()` in `api.py`, (5) add to `restoreUiState()` JS function. Example: `local_file_action` in `OutputConfig` controls how local files are transferred (copy/move/symlink/hardlink/remove).
@@ -272,9 +280,11 @@ Download parallelism starts conservative for large files (parallel=4, conn=1) an
 
 Tests use a custom `TestResult` framework (not pytest). Run directly: `python tests/test_file.py`
 
+`TestResult` API: `results.ok(name)` and `results.fail(name, expected, actual)`. Global `results` instance (plural). No `assert_equal` or similar — write explicit `if`/`else` checks.
+
 Test files:
-- `tests/test_selection.py` — 300 tests: ROM parsing, selection, filtering, config, playlists, transfers, MAME, TeknoParrot, dedup, ratings
-- `tests/test_v2_*.py` — 208 tests across 6 files covering all v2 modules
+- `tests/test_selection.py` — 316 tests: ROM parsing, selection, filtering, config, playlists, transfers, MAME, TeknoParrot, dedup, ratings
+- `tests/test_v2_*.py` — 203 tests across 5 files covering all v2 modules
 
 All tests import from `retro_refiner.*` package — no monolith imports.
 
