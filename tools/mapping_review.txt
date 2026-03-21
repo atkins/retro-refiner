@@ -1,5 +1,5 @@
 # Title Mapping Review Candidates
-# Generated: 2026-03-20
+# Generated: 2026-03-21
 # size_match = same ROM size, different titles
 # fuzzy = similar title strings
 # Review and add good ones to data/title_mappings.json manually.
@@ -39,12 +39,6 @@
       normalized: nfl madden football
   EN: John Madden Football (USA).bin
       normalized: john madden football
-
-[3do] fuzzy score=0.95
-  JP: Nova-Storm (Japan).bin
-      normalized: nova storm
-  EN: Novastorm (USA).bin
-      normalized: novastorm
 
 [3do] fuzzy score=0.83
   JP: Outer World (Japan).bin
@@ -412,12 +406,6 @@
   EN: Dragon Ball Fusions (Europe) (En,Fr,De,Es,It).3ds
       normalized: dragon ball fusions 3ds
 
-[3ds] fuzzy score=0.99
-  JP: Dragon Ball Z - Extreme Butouden (Japan).3ds
-      normalized: dragon ball z extreme butouden 3ds
-  EN: Dragon Ball Z - Extreme Butoden (Europe) (En,Fr,De,Es,It).3ds
-      normalized: dragon ball z extreme butoden 3ds
-
 [3ds] fuzzy score=0.62
   JP: Dragon Quest Monsters - Joker 3 Professional (Japan).3ds
       normalized: dragon quest monsters joker 3 professional 3ds
@@ -766,18 +754,6 @@
   EN: Survivor Heroes (Europe) (En,Fr,Es,It,Nl,Sv,No,Da,Tr).3ds
       normalized: survivor heroes 3ds
 
-[3ds] fuzzy score=0.94
-  JP: Luigi Mansion (Japan) (Rev 1).3ds
-      normalized: luigi mansion 3ds
-  EN: Luigi's Mansion (Europe) (En,Fr,De,Es,It).3ds
-      normalized: luigi s mansion 3ds
-
-[3ds] fuzzy score=0.95
-  JP: Luigi Mansion 2 (Japan).3ds
-      normalized: luigi mansion 2 3ds
-  EN: Luigi's Mansion 2 (Europe) (En,Fr,De,Es,It,Nl,Pt,Ru).3ds
-      normalized: luigi s mansion 2 3ds
-
 [3ds] fuzzy score=0.68
   JP: Madagascar 3 (Japan).3ds
       normalized: madagascar 3 3ds
@@ -933,12 +909,6 @@
       normalized: monster strike 3ds
   EN: Monster Hunter Stories (Europe) (En,Fr,De,Es,It,Nl).3ds
       normalized: monster hunter stories 3ds
-
-[3ds] fuzzy score=0.95
-  JP: Naruto SD Powerful Shippuden (Japan).3ds
-      normalized: naruto sd powerful shippuden 3ds
-  EN: Naruto Powerful Shippuden (Europe) (En,Fr,De,Es,It).3ds
-      normalized: naruto powerful shippuden 3ds
 
 [3ds] fuzzy score=0.69
   JP: New Love Plus (Japan).3ds
@@ -1390,12 +1360,6 @@
   EN: Yo-Kai Watch (Australia).3ds
       normalized: yo kai watch 3ds
 
-[3ds] fuzzy score=0.94
-  JP: Youkai Watch (Japan).3ds
-      normalized: youkai watch 3ds
-  EN: Yo-Kai Watch (Australia).3ds
-      normalized: yo kai watch 3ds
-
 [3ds] fuzzy score=0.76
   JP: Youkai Watch 2 - Ganso (Japan).3ds
       normalized: youkai watch 2 ganso 3ds
@@ -1725,12 +1689,6 @@
       normalized: capcom vs snk 2
   EN: Capcom vs. SNK (Europe) (Track 3).bin
       normalized: capcom vs snk
-
-[dreamcast] fuzzy score=0.97
-  JP: Chu-Chu Rocket! (Japan) (Track 03).bin
-      normalized: chu chu rocket!
-  EN: ChuChu Rocket! (Europe) (En,Ja,Fr,De,Es) (Track 03).bin
-      normalized: chuchu rocket!
 
 [dreamcast] fuzzy score=0.63
   JP: Cleopatra Fortune (Japan) (Track 03).bin
@@ -4768,12 +4726,6 @@
   EN: Decline (World) (v1.1) (Aftermarket) (Unl).gb
       normalized: decline
 
-[gameboy] fuzzy score=0.97
-  JP: Heiankyou Alien (Japan) (En).gb
-      normalized: heiankyou alien
-  EN: Heiankyo Alien (USA).gb
-      normalized: heiankyo alien
-
 [gameboy] fuzzy score=0.70
   JP: Hong Kong (Japan).gb
       normalized: hong kong
@@ -4870,12 +4822,6 @@
   EN: Pac-Panic (Europe) (SGB Enhanced).gb
       normalized: pac panic
 
-[gameboy] fuzzy score=0.96
-  JP: Konamic Golf (Japan) (En).gb
-      normalized: konamic golf
-  EN: Konami Golf (Europe).gb
-      normalized: konami golf
-
 [gameboy] fuzzy score=0.70
   JP: Krusty World (Japan) (En).gb
       normalized: krusty world
@@ -4954,9 +4900,9 @@
   EN: Monster Max (Europe) (En,Fr,De,Es,It,Nl).gb
       normalized: monster max
 
-[gameboy] fuzzy score=0.78
+[gameboy] fuzzy score=0.75
   JP: Monster Race (Japan) (SGB Enhanced).gb
-      normalized: monster race
+      normalized: monster racer
   EN: Monster Max (Europe) (En,Fr,De,Es,It,Nl).gb
       normalized: monster max
 
@@ -6652,12 +6598,6 @@
   EN: Desert Strike Advance (USA).gba
       normalized: desert strike advance
 
-[gba] fuzzy score=0.94
-  JP: Dokapon Q - Monster Hunter! (Japan).gba
-      normalized: dokapon q monster hunter!
-  EN: Dokapon - Monster Hunter (USA).gba
-      normalized: dokapon monster hunter
-
 [gba] fuzzy score=0.75
   JP: Dragon Ball Z - Bukuu Tougeki (Japan).gba
       normalized: dragon ball z bukuu tougeki
@@ -8074,12 +8014,6 @@
   EN: Super Hang-On (Europe) (En,Ja) (Rev A).md
       normalized: super hang on
 
-[genesis] fuzzy score=0.97
-  JP: Super Volley Ball (Japan).md
-      normalized: super volley ball
-  EN: Super Volleyball (USA).md
-      normalized: super volleyball
-
 [genesis] fuzzy score=0.60
   JP: Surging Aura (Japan).md
       normalized: surging aura
@@ -8182,12 +8116,6 @@
   EN: Asterix (Europe, Brazil) (En,Fr).sms
       normalized: asterix
 
-[mastersystem] fuzzy score=0.96
-  JP: Alex Kidd no Miracle World (Japan).sms
-      normalized: alex kidd no miracle world
-  EN: Alex Kidd in Miracle World (USA, Europe).sms
-      normalized: alex kidd in miracle world
-
 [mastersystem] fuzzy score=0.70
   JP: Astro Flash (Japan) (En).sms
       normalized: astro flash
@@ -8230,12 +8158,6 @@
   EN: Air Rescue (Europe, Brazil) (En).sms
       normalized: air rescue
 
-[mastersystem] fuzzy score=0.97
-  JP: Space Harrier 3D (Japan) (En).sms
-      normalized: space harrier 3d
-  EN: Space Harrier 3-D (USA, Europe, Brazil) (En).sms
-      normalized: space harrier 3 d
-
 [mastersystem] fuzzy score=0.69
   JP: Sports Pad Soccer (Japan) (En).sms
       normalized: sports pad soccer
@@ -8253,18 +8175,6 @@
       normalized: aquattack
   EN: Mac Attack (Europe).rom
       normalized: mac attack
-
-[msx] fuzzy score=0.95
-  JP: Back Gammon (Japan).rom
-      normalized: back gammon
-  EN: Backgammon (Europe).rom
-      normalized: backgammon
-
-[msx] fuzzy score=0.95
-  JP: Back Gammon (Japan) (Alt).rom
-      normalized: back gammon
-  EN: Backgammon (Europe).rom
-      normalized: backgammon
 
 [msx] fuzzy score=0.60
   JP: Becky (Japan).rom
@@ -8758,18 +8668,6 @@
   EN: Treasure of Usas, The (Japan, Europe) (En).rom
       normalized: treasure of usas
 
-[n64] fuzzy score=0.96
-  JP: Air Boarder 64 (Japan).z64
-      normalized: air boarder 64
-  EN: Airboarder 64 (Europe).z64
-      normalized: airboarder 64
-
-[n64] fuzzy score=0.96
-  JP: Air Boarder 64 (Japan).v64
-      normalized: air boarder 64
-  EN: Airboarder 64 (Europe).z64
-      normalized: airboarder 64
-
 [n64] fuzzy score=0.67
   JP: Blastdozer (Japan).z64
       normalized: blastdozer
@@ -9201,12 +9099,6 @@
       normalized: coropata
   EN: Dropcast (Europe) (En,Fr,De,Es).nds
       normalized: dropcast
-
-[nds] fuzzy score=0.97
-  JP: Cosmetick Paradise (Japan).nds
-      normalized: cosmetick paradise
-  EN: Cosmetic Paradise (Europe) (En,Fr,It).nds
-      normalized: cosmetic paradise
 
 [nds] fuzzy score=0.68
   JP: Cosmetick Paradise - Kirei no Mahou (Japan) (NDSi Enhanced).nds
@@ -10840,18 +10732,6 @@
   EN: Rayman DS (Europe) (En,Fr,De,Es,It).nds
       normalized: rayman ds
 
-[nds] fuzzy score=0.94
-  JP: Yoshi Island DS (Japan).nds
-      normalized: yoshi island ds
-  EN: Yoshi's Island DS (Europe) (En,Fr,De,Es,It).nds
-      normalized: yoshi s island ds
-
-[nds] fuzzy score=0.94
-  JP: Yoshi Island DS (Japan) (Wii U Virtual Console).nds
-      normalized: yoshi island ds
-  EN: Yoshi's Island DS (Europe) (En,Fr,De,Es,It).nds
-      normalized: yoshi s island ds
-
 [nds] fuzzy score=0.67
   JP: Ys DS (Japan).nds
       normalized: ys ds
@@ -11800,18 +11680,6 @@
   EN: Castle of Deceit (USA) (Unl).unh
       normalized: castle of deceit unh
 
-[nes] fuzzy score=0.96
-  JP: Castle Quest (Japan).nes
-      normalized: castle quest
-  EN: Castlequest (USA).nes
-      normalized: castlequest
-
-[nes] fuzzy score=0.97
-  JP: Castle Quest (Japan).unh
-      normalized: castle quest unh
-  EN: Castlequest (USA).unh
-      normalized: castlequest unh
-
 [nes] fuzzy score=0.63
   JP: Cat Ninden Teyandee (Japan).unh
       normalized: cat ninden teyandee unh
@@ -12021,6 +11889,12 @@
       normalized: cycle race road man unh
   EN: Life Force - Salamander (Europe).unh
       normalized: life force salamander unh
+
+[nes] fuzzy score=0.64
+  JP: Dai-2-ji Super Robot Taisen (Japan).nes
+      normalized: super robot wars 2
+  EN: Super Cars (USA).nes
+      normalized: super cars
 
 [nes] fuzzy score=0.63
   JP: Daikaijuu Deburas (Japan).unh
@@ -13407,12 +13281,6 @@
       normalized: goal!!
   EN: Goal! (Europe).nes
       normalized: goal!
-
-[nes] fuzzy score=0.95
-  JP: Goal!! (Japan).unh
-      normalized: goal!! unh
-  EN: Goal! (Europe).unh
-      normalized: goal! unh
 
 [nes] fuzzy score=0.74
   JP: Gojira (Japan).unh
@@ -18496,12 +18364,6 @@
   EN: Saint Seiya - The Sanctuary (Europe) (En,Fr,De,Es,It).iso
       normalized: saint seiya the sanctuary
 
-[ps2] fuzzy score=0.98
-  JP: Energy Airforce AimStrike! (Japan).iso
-      normalized: energy airforce aimstrike!
-  EN: Energy Airforce - Aim Strike! (Europe).iso
-      normalized: energy airforce aim strike!
-
 [ps2] fuzzy score=0.64
   JP: Enjoy Golf! (Japan).iso
       normalized: enjoy golf!
@@ -20074,12 +19936,6 @@
   EN: Nickelodeon The SpongeBob SquarePants Movie (Europe) (Fr,Nl).iso
       normalized: nickelodeon the spongebob squarepants movie
 
-[ps2] fuzzy score=0.99
-  JP: Nightmare of Druaga, The - Fushigi no Dungeon (Japan).iso
-      normalized: nightmare of druaga fushigi no dungeon
-  EN: Nightmare of Druaga, The - Fushigino Dungeon (USA).iso
-      normalized: nightmare of druaga fushigino dungeon
-
 [ps2] fuzzy score=0.63
   JP: Nights into Dreams... (Japan).iso
       normalized: nights into dreams
@@ -21118,12 +20974,6 @@
   EN: Tour de France, Le (Europe) (En,Fr,De,Es,It).bin
       normalized: tour de france le
 
-[ps2] fuzzy score=0.98
-  JP: Thunder Strike - Operation Phoenix (Japan).iso
-      normalized: thunder strike operation phoenix
-  EN: Thunderstrike - Operation Phoenix (USA) (v1.00).iso
-      normalized: thunderstrike operation phoenix
-
 [ps2] fuzzy score=0.60
   JP: ToHeart (Japan).iso
       normalized: toheart
@@ -21490,30 +21340,6 @@
   EN: Xenosaga Episode I - Der Wille zur Macht (USA).iso
       normalized: xenosaga episode 1 der wille zur macht
 
-[ps2] fuzzy score=0.99
-  JP: Xenosaga Episode II - Jenseits von Gut und Bose (Japan) (Disc 1) (Premium Box).iso
-      normalized: xenosaga episode 2 jenseits von gut und bose
-  EN: Xenosaga Episode II - Jenseits von Gut und Boese (Europe) (En,Fr,De) (Disc 1).iso
-      normalized: xenosaga episode 2 jenseits von gut und boese
-
-[ps2] fuzzy score=0.99
-  JP: Xenosaga Episode II - Jenseits von Gut und Bose (Japan) (Disc 2) (Premium Box).iso
-      normalized: xenosaga episode 2 jenseits von gut und bose
-  EN: Xenosaga Episode II - Jenseits von Gut und Boese (Europe) (En,Fr,De) (Disc 1).iso
-      normalized: xenosaga episode 2 jenseits von gut und boese
-
-[ps2] fuzzy score=0.99
-  JP: Xenosaga Episode II - Jenseits von Gut und Bose (Japan, Asia) (Disc 1).iso
-      normalized: xenosaga episode 2 jenseits von gut und bose
-  EN: Xenosaga Episode II - Jenseits von Gut und Boese (Europe) (En,Fr,De) (Disc 1).iso
-      normalized: xenosaga episode 2 jenseits von gut und boese
-
-[ps2] fuzzy score=0.99
-  JP: Xenosaga Episode II - Jenseits von Gut und Bose (Japan, Asia) (Disc 2).iso
-      normalized: xenosaga episode 2 jenseits von gut und bose
-  EN: Xenosaga Episode II - Jenseits von Gut und Boese (Europe) (En,Fr,De) (Disc 1).iso
-      normalized: xenosaga episode 2 jenseits von gut und boese
-
 [ps2] fuzzy score=0.66
   JP: Yanya! Caballista featuring Gawoo (Japan).bin
       normalized: yanya! caballista featuring gawoo
@@ -21663,24 +21489,6 @@
       normalized: biohazard operation raccoon city
   EN: Resident Evil - Operation Raccoon City (Europe) (En,Fr,De,Es,It,Nl,Pl,Ru).iso
       normalized: resident evil operation raccoon city
-
-[ps3] fuzzy score=0.98
-  JP: BlazBlue - Centralfiction (Japan).iso
-      normalized: blazblue centralfiction
-  EN: BlazBlue - Central Fiction (Europe) (En,Ja).iso
-      normalized: blazblue central fiction
-
-[ps3] fuzzy score=0.98
-  JP: BlazBlue - Chronophantasma (Japan).iso
-      normalized: blazblue chronophantasma
-  EN: BlazBlue - Chrono Phantasma (USA) (En,Ja,Zh,Ko).iso
-      normalized: blazblue chrono phantasma
-
-[ps3] fuzzy score=0.98
-  JP: BlazBlue - Chronophantasma Extend (Japan).iso
-      normalized: blazblue chronophantasma extend
-  EN: BlazBlue - Chrono Phantasma Extend (Europe) (En,Ja).iso
-      normalized: blazblue chrono phantasma extend
 
 [ps3] fuzzy score=0.68
   JP: Bleach - Soul Ignition (Asia) (En,Zh,Ko).iso
@@ -22089,18 +21897,6 @@
       normalized: one piece kaizoku musou 3
   EN: One Piece - Pirate Warriors 3 (Europe) (En,Fr,De,Es,It).iso
       normalized: one piece pirate warriors 3
-
-[ps3] fuzzy score=0.96
-  JP: One Piece - Unlimited World R (Asia).iso
-      normalized: one piece unlimited world r
-  EN: One Piece - Unlimited World Red (Europe) (En,Fr,De,Es,It).iso
-      normalized: one piece unlimited world red
-
-[ps3] fuzzy score=0.96
-  JP: One Piece - Unlimited World R (Japan).iso
-      normalized: one piece unlimited world r
-  EN: One Piece - Unlimited World Red (Europe) (En,Fr,De,Es,It).iso
-      normalized: one piece unlimited world red
 
 [ps3] fuzzy score=0.74
   JP: PES 2016 - Pro Evolution Soccer - Winning Eleven 2016 (Asia) (En,Zh,Ko).iso
@@ -22744,12 +22540,6 @@
   EN: Gods Eater Burst (Europe).iso
       normalized: gods eater burst
 
-[psp] fuzzy score=0.97
-  JP: God Eater Burst (Japan).iso
-      normalized: god eater burst
-  EN: Gods Eater Burst (Europe).iso
-      normalized: gods eater burst
-
 [psp] fuzzy score=0.71
   JP: God Eater Burst - Append-ban (Japan).iso
       normalized: god eater burst append ban
@@ -23014,12 +22804,6 @@
   EN: Namco Museum Battle Collection (Europe) (En,Fr,De,Es,It).iso
       normalized: namco museum battle collection
 
-[psp] fuzzy score=0.98
-  JP: Naruto Shippuuden - Kizuna Drive (Japan, Asia).iso
-      normalized: naruto shippuuden kizuna drive
-  EN: Naruto Shippuden - Kizuna Drive (Europe) (En,Fr,De,Es,It).iso
-      normalized: naruto shippuden kizuna drive
-
 [psp] fuzzy score=0.76
   JP: Naruto Shippuuden - Narutimate Accel 3 (Japan, Korea).iso
       normalized: naruto shippuuden narutimate accel 3
@@ -23187,12 +22971,6 @@
       normalized: ridge racers
   EN: Ridge Racer (Europe, Australia) (En,Fr,De,Es,It).iso
       normalized: ridge racer
-
-[psp] fuzzy score=0.96
-  JP: Ridge Racers 2 (Japan, Asia).iso
-      normalized: ridge racers 2
-  EN: Ridge Racer 2 (Europe, Australia) (En,Fr,De,Es,It).iso
-      normalized: ridge racer 2
 
 [psp] fuzzy score=0.60
   JP: Rockman Dash - Hagane no Boukenshin (Japan).iso
@@ -23806,12 +23584,6 @@
   EN: Ayrton Senna Kart Duel 2 (Europe) (Track 1).bin
       normalized: ayrton senna kart duel 2
 
-[psx] fuzzy score=0.98
-  JP: Ayrton Senna KartDuel 2 (Japan) (Track 1).bin
-      normalized: ayrton senna kartduel 2
-  EN: Ayrton Senna Kart Duel 2 (Europe) (Track 1).bin
-      normalized: ayrton senna kart duel 2
-
 [psx] fuzzy score=0.62
   JP: Azito 2 (Japan).bin
       normalized: azito 2
@@ -23872,29 +23644,11 @@
   EN: Bass Landing (USA).bin
       normalized: bass landing
 
-[psx] fuzzy score=0.94
-  JP: Battle Arena Nitoushinden (Japan) (Track 01).bin
-      normalized: battle arena nitoushinden
-  EN: Battle Arena Toshinden (Europe) (Track 01).bin
-      normalized: battle arena toshinden
-
-[psx] fuzzy score=0.98
-  JP: Battle Arena Toushinden 2 (Japan) (Track 01).bin
-      normalized: battle arena toushinden 2
-  EN: Battle Arena Toshinden 2 (Europe) (Track 01).bin
-      normalized: battle arena toshinden 2
-
 [psx] fuzzy score=0.89
   JP: Battle Arena Toushinden 2 Plus (Japan) (Track 01).bin
       normalized: battle arena toushinden 2 plus
   EN: Battle Arena Toshinden 2 (Europe) (Track 01).bin
       normalized: battle arena toshinden 2
-
-[psx] fuzzy score=0.98
-  JP: Battle Arena Toushinden 3 (Japan) (Track 1).bin
-      normalized: battle arena toushinden 3
-  EN: Battle Arena Toshinden 3 (Europe) (Track 1).bin
-      normalized: battle arena toshinden 3
 
 [psx] fuzzy score=0.67
   JP: Battle Bonby (Japan).bin
@@ -23937,18 +23691,6 @@
       normalized: battleround usa
   EN: Battle Stations (Europe) (En,Fr,De).bin
       normalized: battle stations
-
-[psx] fuzzy score=0.95
-  JP: Beat Mania (Japan) (Disc 1) (Arcade).bin
-      normalized: beat mania
-  EN: Beatmania (Europe).bin
-      normalized: beatmania
-
-[psx] fuzzy score=0.95
-  JP: Beat Mania (Japan) (Disc 2) (Append).bin
-      normalized: beat mania
-  EN: Beatmania (Europe).bin
-      normalized: beatmania
 
 [psx] fuzzy score=0.62
   JP: Beat Mania - The Sound of Tokyo (Japan).bin
@@ -24105,12 +23847,6 @@
       normalized: boxer s road
   EN: Hooters - Road Trip (USA).bin
       normalized: hooters road trip
-
-[psx] fuzzy score=0.93
-  JP: Brave Fencer Musashiden (Japan, Asia) (Track 1).bin
-      normalized: brave fencer musashiden
-  EN: Brave Fencer Musashi (USA) (Track 1).bin
-      normalized: brave fencer musashi
 
 [psx] fuzzy score=0.75
   JP: Brave Prove (Japan).bin
@@ -24507,6 +24243,12 @@
       normalized: dx monopoly
   EN: Monopoly (Europe) (En,Fr,De,Es,Nl) (Track 1).bin
       normalized: monopoly
+
+[psx] fuzzy score=0.65
+  JP: Dai-2-ji Super Robot Taisen (Japan) (Track 1).bin
+      normalized: super robot wars 2
+  EN: Shadow Gunner - The Robot Wars (Europe) (En,Fr,De,Es,It) (Track 1).bin
+      normalized: shadow gunner the robot wars
 
 [psx] fuzzy score=0.65
   JP: Dai-3-ji Super Robot Taisen (Japan) (Track 1).bin
@@ -25036,18 +24778,6 @@
   EN: GP Challenge (Europe) (En,Fr,De,It) (Track 1).bin
       normalized: gp challenge
 
-[psx] fuzzy score=0.96
-  JP: DigimonWorld (Japan).bin
-      normalized: digimonworld
-  EN: Digimon World (Europe).bin
-      normalized: digimon world
-
-[psx] fuzzy score=0.96
-  JP: DigimonWorld (Japan) (Rev 1).bin
-      normalized: digimonworld
-  EN: Digimon World (Europe).bin
-      normalized: digimon world
-
 [psx] fuzzy score=0.79
   JP: DigimonWorld - Digital Card Arena (Japan).bin
       normalized: digimonworld digital card arena
@@ -25059,12 +24789,6 @@
       normalized: digimonworld digital card battle
   EN: Digimon - Digital Card Battle (USA).bin
       normalized: digimon digital card battle
-
-[psx] fuzzy score=0.97
-  JP: DigimonWorld 2 (Japan).bin
-      normalized: digimonworld 2
-  EN: Digimon World 2 (USA).bin
-      normalized: digimon world 2
 
 [psx] fuzzy score=0.71
   JP: Dioramos (Japan).bin
@@ -25428,7 +25152,7 @@
 
 [psx] fuzzy score=0.93
   JP: Final Fantasy IV (Japan).bin
-      normalized: final fantasy 4
+      normalized: final fantasy 2
   EN: Final Fantasy VI (Europe, Australia).bin
       normalized: final fantasy 3
 
@@ -25960,9 +25684,9 @@
   EN: Super Pang Collection (Europe) (Track 01).bin
       normalized: super pang collection
 
-[psx] fuzzy score=0.74
+[psx] fuzzy score=0.71
   JP: Hyper 3D Pinball (Japan) (Track 1).bin
-      normalized: hyper 3d pinball
+      normalized: hyper 3 d pinball
   EN: Pro-Pinball (USA) (Track 01).bin
       normalized: pro pinball
 
@@ -26073,12 +25797,6 @@
       normalized: jet moto 98
   EN: Jet Moto 2 (USA) (Track 01).bin
       normalized: jet moto 2
-
-[psx] fuzzy score=0.93
-  JP: JetMoto (Japan) (Track 01).bin
-      normalized: jetmoto
-  EN: Jet Moto (USA) (Track 01).bin
-      normalized: jet moto
 
 [psx] fuzzy score=0.64
   JP: Jigsaw World (Japan).bin
@@ -26871,12 +26589,6 @@
       normalized: monster punish
   EN: Monster Trucks (Europe).bin
       normalized: monster trucks
-
-[psx] fuzzy score=0.96
-  JP: Monster Race (Japan).bin
-      normalized: monster race
-  EN: Monster Racer (Europe) (En,Fr,De,Es,It,Pt) (Track 1).bin
-      normalized: monster racer
 
 [psx] fuzzy score=0.75
   JP: Moon - Remix RPG Adventure (Japan).bin
@@ -27832,9 +27544,9 @@
   EN: RC Revenge (Europe) (En,Fr,De,Es) (Track 1).bin
       normalized: rc revenge
 
-[psx] fuzzy score=0.77
+[psx] fuzzy score=0.81
   JP: SeaBass Fishing (Japan) (Track 01).bin
-      normalized: seabass fishing
+      normalized: sea bass fishing
   EN: Big Bass Fishing (Europe) (En,Fr,De,Es,It) (Track 1).bin
       normalized: big bass fishing
 
@@ -28623,12 +28335,6 @@
       normalized: u s navy fighters
   EN: Star Fighter (USA) (Track 1).bin
       normalized: star fighter
-
-[psx] fuzzy score=0.94
-  JP: UFC - Ultimate Fighting Championship (Japan).bin
-      normalized: ufc ultimate fighting championship
-  EN: Ultimate Fighting Championship (Europe).bin
-      normalized: ultimate fighting championship
 
 [psx] fuzzy score=0.67
   JP: Ultima Underworld - The Stygian Abyss (Japan) (Track 1).bin
@@ -29452,12 +29158,6 @@
   EN: Virtua Fighter CG Portrait Collection (Europe) (Track 1).bin
       normalized: virtua fighter cg portrait collection
 
-[saturn] fuzzy score=0.97
-  JP: Hyper 3D Pinball (Japan) (Track 1).bin
-      normalized: hyper 3d pinball
-  EN: Hyper 3-D Pinball (USA) (Track 1).bin
-      normalized: hyper 3 d pinball
-
 [saturn] fuzzy score=0.88
   JP: Johnny Bazooka (Japan) (Track 01).bin
       normalized: johnny bazooka
@@ -29625,12 +29325,6 @@
       normalized: saturn bomberman fight!!
   EN: Saturn Bomberman (Europe) (Track 01).bin
       normalized: saturn bomberman
-
-[saturn] fuzzy score=0.97
-  JP: SeaBass Fishing (Japan) (Track 01).bin
-      normalized: seabass fishing
-  EN: Sea Bass Fishing (Europe) (En,Fr,De) (Track 1).bin
-      normalized: sea bass fishing
 
 [saturn] fuzzy score=0.91
   JP: SeaBass Fishing 2 (Japan) (Track 1).bin
@@ -30118,12 +29812,6 @@
   EN: Battle Frenzy (USA) (Unl) (Track 01).bin
       normalized: battle frenzy
 
-[segacd] fuzzy score=0.97
-  JP: Black Hole Assault (Japan) (Track 01).bin
-      normalized: black hole assault
-  EN: Blackhole Assault (Europe) (Track 01).bin
-      normalized: blackhole assault
-
 [segacd] fuzzy score=0.63
   JP: Devastator (Japan) (Track 01).bin
       normalized: devastator
@@ -30154,23 +29842,11 @@
   EN: Night Trap (Europe) (Disc 1) (Track 1).bin
       normalized: night trap
 
-[segacd] fuzzy score=0.95
-  JP: PopfulMail (Japan) (Track 1).bin
-      normalized: popfulmail
-  EN: Popful Mail (USA) (RE) (Track 1).bin
-      normalized: popful mail
-
 [segacd] fuzzy score=0.61
   JP: Rise of the Dragon - A Blade Hunter Mystery (Japan) (Track 1).bin
       normalized: rise of the dragon a blade hunter mystery
   EN: Rise of the Dragon (USA) (Track 1).bin
       normalized: rise of the dragon
-
-[segacd] fuzzy score=0.99
-  JP: Sega Classic Arcade Collection - Limited Edition (Japan) (Track 01).bin
-      normalized: sega classic arcade collection limited edition
-  EN: Sega Classics Arcade Collection - Limited Edition (Europe) (Rev A) (Alt) (Track 01).bin
-      normalized: sega classics arcade collection limited edition
 
 [segacd] fuzzy score=0.70
   JP: Shadow of the Beast II - Juushin no Jubaku (Japan) (Track 01).bin
@@ -30309,12 +29985,6 @@
       normalized: alice no paint adventure
   EN: Harley's Humongous Adventure (Europe).sfc
       normalized: harley s humongous adventure
-
-[snes] fuzzy score=0.97
-  JP: Aliens vs. Predator (Japan).sfc
-      normalized: aliens vs predator
-  EN: Alien vs Predator (Europe).sfc
-      normalized: alien vs predator
 
 [snes] fuzzy score=0.69
   JP: Amazing Tennis (Japan) (En).sfc
@@ -30556,12 +30226,6 @@
   EN: World League Soccer (USA).sfc
       normalized: world league soccer
 
-[snes] fuzzy score=0.61
-  JP: Dossun! Ganseki Battle (Japan).sfc
-      normalized: dossun! ganseki battle
-  EN: Ogre Battle - The March of the Black Queen (USA).sfc
-      normalized: ogre battle
-
 [snes] fuzzy score=0.64
   JP: Dr. Mario (Japan) (En) (NP).sfc
       normalized: dr mario
@@ -30665,24 +30329,6 @@
       normalized: sporting news baseball
 
 [snes] fuzzy score=0.93
-  JP: Final Fantasy IV (Japan).sfc
-      normalized: final fantasy 4
-  EN: Final Fantasy II (USA).sfc
-      normalized: final fantasy 2
-
-[snes] fuzzy score=0.93
-  JP: Final Fantasy IV (Japan) (Rev 1).sfc
-      normalized: final fantasy 4
-  EN: Final Fantasy II (USA).sfc
-      normalized: final fantasy 2
-
-[snes] fuzzy score=0.93
-  JP: Final Fantasy IV (Japan) (Rev 1) (Virtual Console).sfc
-      normalized: final fantasy 4
-  EN: Final Fantasy II (USA).sfc
-      normalized: final fantasy 2
-
-[snes] fuzzy score=0.93
   JP: Final Fantasy V (Japan).sfc
       normalized: final fantasy 5
   EN: Final Fantasy II (USA).sfc
@@ -30765,24 +30411,6 @@
       normalized: gourmet sentai barayarou
   EN: Gourmet Warriors (Europe) (Piko Interactive).sfc
       normalized: gourmet warriors
-
-[snes] fuzzy score=0.80
-  JP: Great Battle III, The (Japan).sfc
-      normalized: great battle 3
-  EN: Ogre Battle - The March of the Black Queen (USA).sfc
-      normalized: ogre battle
-
-[snes] fuzzy score=0.80
-  JP: Great Battle IV, The (Japan).sfc
-      normalized: great battle 4
-  EN: Ogre Battle - The March of the Black Queen (USA).sfc
-      normalized: ogre battle
-
-[snes] fuzzy score=0.80
-  JP: Great Battle V, The (Japan).sfc
-      normalized: great battle 5
-  EN: Ogre Battle - The March of the Black Queen (USA).sfc
-      normalized: ogre battle
 
 [snes] fuzzy score=0.62
   JP: Hagane (Japan).sfc
@@ -30915,12 +30543,6 @@
       normalized: krusty world
   EN: King Arthur's World (Europe).sfc
       normalized: king arthur s world
-
-[snes] fuzzy score=0.64
-  JP: Last Battle, The (Japan).sfc
-      normalized: last battle
-  EN: Ogre Battle - The March of the Black Queen (USA).sfc
-      normalized: ogre battle
 
 [snes] fuzzy score=0.62
   JP: Leading Company (Japan).sfc
@@ -32554,12 +32176,6 @@
   EN: Soldier Blade (USA).pce
       normalized: soldier blade
 
-[tg16] fuzzy score=0.97
-  JP: Super Volley Ball (Japan).pce
-      normalized: super volley ball
-  EN: Super Volleyball (USA).pce
-      normalized: super volleyball
-
 [tg16] fuzzy score=0.62
   JP: Tatsujin (Japan).pce
       normalized: tatsujin
@@ -33528,7 +33144,7 @@
 
 [wonderswan-color] fuzzy score=0.61
   JP: Final Fantasy IV (Japan).wsc
-      normalized: final fantasy 4
+      normalized: final fantasy 2
   EN: Pastel Fantasy Deluxe (World) (WonderWitch) (Unl).wsc
       normalized: pastel fantasy deluxe
 
@@ -33952,12 +33568,6 @@
   EN: Dance Dance Revolution (USA).iso
       normalized: dance dance revolution
 
-[xbox360] fuzzy score=0.95
-  JP: Kengou Zero (Japan).iso
-      normalized: kengou zero
-  EN: Kengo Zero (Europe).iso
-      normalized: kengo zero
-
 [xbox360] fuzzy score=0.88
   JP: Metal Gear Solid - HD Edition (Japan).iso
       normalized: metal gear solid hd edition
@@ -33993,12 +33603,6 @@
       normalized: oneechanbara z kagura
   EN: Onechanbara - Bikini Samurai Squad (USA, Europe) (En,Fr).iso
       normalized: onechanbara bikini samurai squad
-
-[xbox360] fuzzy score=0.97
-  JP: Otomedius Excellent! (Japan).iso
-      normalized: otomedius excellent!
-  EN: Otomedius Excellent (USA).iso
-      normalized: otomedius excellent
 
 [xbox360] fuzzy score=0.62
   JP: Phantom Breaker (Japan).iso

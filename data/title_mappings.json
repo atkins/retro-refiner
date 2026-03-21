@@ -2,7 +2,7 @@
   "_meta": {
     "description": "Title mappings for regional game name normalization",
     "format": "normalized_japanese_or_regional_title -> normalized_english_title",
-    "updated": "2026-03-20",
+    "updated": "2026-03-21",
     "note": "All titles are lowercased, punctuation removed, roman numerals converted to arabic"
   },
   "bomberman": {
@@ -415,6 +415,16 @@
     "puyo puyo 2": "puyo puyo tsuu",
     "puyo puyo da featuring ellena system": "puyo puyo da"
   },
+  "regional_3do": {
+    "nova storm": "novastorm"
+  },
+  "regional_3ds": {
+    "dragon ball z extreme butouden 3ds": "dragon ball z extreme butoden 3ds",
+    "luigi mansion 2 3ds": "luigi s mansion 2 3ds",
+    "luigi mansion 3ds": "luigi s mansion 3ds",
+    "naruto sd powerful shippuden 3ds": "naruto powerful shippuden 3ds",
+    "youkai watch 3ds": "yo kai watch 3ds"
+  },
   "regional_amiga": {
     "advanced dungeons & dragons eye of the beholder 2 legende von darkmoon a legend series fantasy role playing saga vol 2": "advanced dungeons & dragons eye of the beholder 2 the legend of darkmoon a legend series fantasy role playing saga vol 2",
     "bodo illgner s super soccer": "gazza s super soccer",
@@ -435,6 +445,9 @@
     "championship soccer ~ soccer": "championship soccer",
     "dan kitchen s tomcat the f 14 fighter simulator": "tomcat the f 14 fighter simulator",
     "street racer ~ speedway 2": "street racer speedway 2"
+  },
+  "regional_dreamcast": {
+    "chu chu rocket!": "chuchu rocket!"
   },
   "regional_europe": {
     "arthur and the minimoys": "arthur and the invisibles",
@@ -462,6 +475,10 @@
     "tiny toon adventures buster s bad dream": "tiny toon adventures scary dreams",
     "warioware inc minigame mania": "warioware inc mega microgame$!",
     "yoshi s universal gravitation": "yoshi topsy turvy"
+  },
+  "regional_gameboy": {
+    "heiankyou alien": "heiankyo alien",
+    "konamic golf": "konami golf"
   },
   "regional_gamegear": {
     "ax battler golden axe densetsu": "ax battler a legend of golden axe",
@@ -497,6 +514,7 @@
     "breath of fire 2 shimei no ko": "breath of fire 2",
     "card e reader": "e reader",
     "disney sports american football": "disney sports football",
+    "dokapon q monster hunter!": "dokapon monster hunter",
     "dragon ball advance adventure": "dragon ball advanced adventure",
     "dragon ball z the legacy of goku 2 international": "dragon ball z the legacy of goku 2",
     "f zero falcon densetsu": "f zero gp legend",
@@ -572,19 +590,26 @@
     "spider man vs the kingpin": "spider man",
     "splatterhouse part 2": "splatterhouse 2",
     "splatterhouse part 3": "splatterhouse 3",
+    "super volley ball": "super volleyball",
     "tecmo world cup 92": "tecmo world cup",
     "thunder force 2 md": "thunder force 2",
     "toki no keishousha phantasy star 3": "phantasy star 3",
     "wonder boy 5 monster world 3": "wonder boy in monster world"
   },
   "regional_mastersystem": {
+    "alex kidd no miracle world": "alex kidd in miracle world",
     "fantasy zone 2 opa opa no namida": "fantasy zone 2",
     "final bubble bobble": "bubble bobble",
     "lord of sword": "lord of the sword",
+    "space harrier 3d": "space harrier 3 d",
     "super wonder boy monster world": "wonder boy in monster land",
     "teddy boy blues": "teddy boy"
   },
+  "regional_msx": {
+    "back gammon": "backgammon"
+  },
   "regional_n64": {
+    "air boarder 64": "airboarder 64",
     "banjo to kazooie no daibouken": "banjo kazooie",
     "daffy duck starring as duck dodgers": "duck dodgers starring daffy duck",
     "fifa 64": "fifa soccer 64",
@@ -598,14 +623,21 @@
     "twisted edge snowboarding": "twisted edge extreme snowboarding",
     "yoshi story": "yoshi s story"
   },
+  "regional_nds": {
+    "cosmetick paradise": "cosmetic paradise",
+    "yoshi island ds": "yoshi s island ds"
+  },
   "regional_nes": {
     "adventure island classic": "adventure island",
     "adventure island part 2": "adventure island 2",
     "bard s tale tales of the unknown": "bard s tale",
     "bubble bobble 2": "bubble bobble part 2",
     "bugs bunny blowout": "bugs bunny birthday blowout",
+    "castle quest": "castlequest",
+    "castle quest unh": "castlequest unh",
     "dragon quest 2 akuryou no kamigami": "dragon quest 2",
     "flintstones the surprise at dinosaur peak!": "flintstones the surprise at dinosaur peak",
+    "goal!! unh": "goal! unh",
     "ikari 3": "ikari 3 the rescue",
     "joe & mac caveman ninja": "joe & mac",
     "might and magic book one secret of the inner sanctum": "might & magic secret of the inner sanctum",
@@ -619,11 +651,49 @@
     "ultima kyoufu no exodus": "ultima exodus",
     "yoshi no cookie": "yoshi s cookie"
   },
+  "regional_ps2": {
+    "energy airforce aimstrike!": "energy airforce aim strike!",
+    "nightmare of druaga fushigi no dungeon": "nightmare of druaga fushigino dungeon",
+    "thunder strike operation phoenix": "thunderstrike operation phoenix",
+    "xenosaga episode 2 jenseits von gut und bose": "xenosaga episode 2 jenseits von gut und boese"
+  },
+  "regional_ps3": {
+    "blazblue centralfiction": "blazblue central fiction",
+    "blazblue chronophantasma": "blazblue chrono phantasma",
+    "blazblue chronophantasma extend": "blazblue chrono phantasma extend",
+    "one piece unlimited world r": "one piece unlimited world red"
+  },
+  "regional_psp": {
+    "god eater burst": "gods eater burst",
+    "naruto shippuuden kizuna drive": "naruto shippuden kizuna drive",
+    "ridge racers 2": "ridge racer 2"
+  },
+  "regional_psx": {
+    "ayrton senna kartduel 2": "ayrton senna kart duel 2",
+    "battle arena nitoushinden": "battle arena toshinden",
+    "battle arena toushinden 2": "battle arena toshinden 2",
+    "battle arena toushinden 3": "battle arena toshinden 3",
+    "beat mania": "beatmania",
+    "brave fencer musashiden": "brave fencer musashi",
+    "digimonworld": "digimon world",
+    "digimonworld 2": "digimon world 2",
+    "jetmoto": "jet moto",
+    "monster race": "monster racer",
+    "ufc ultimate fighting championship": "ultimate fighting championship"
+  },
   "regional_saturn": {
-    "break point": "break point tennis"
+    "break point": "break point tennis",
+    "hyper 3d pinball": "hyper 3 d pinball",
+    "seabass fishing": "sea bass fishing"
+  },
+  "regional_segacd": {
+    "black hole assault": "blackhole assault",
+    "popfulmail": "popful mail",
+    "sega classic arcade collection limited edition": "sega classics arcade collection limited edition"
   },
   "regional_snes": {
     "alfred chicken": "super alfred chicken",
+    "aliens vs predator": "alien vs predator",
     "cacoma knight": "cacoma knight in bizyland",
     "dokuritsu sensou liberty or death": "liberty or death",
     "donald duck no maui mallard": "donald in maui mallard",
@@ -678,6 +748,10 @@
     "pro tennis world court": "world court tennis",
     "r type 1": "r type",
     "time cruise 2": "time cruise"
+  },
+  "regional_xbox360": {
+    "kengou zero": "kengo zero",
+    "otomedius excellent!": "otomedius excellent"
   },
   "sd_gundam": {
     "sd gundam gachapon senshi 2 capsule senki": "sd gundam gachapon soldier 2 capsule war",

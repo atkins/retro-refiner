@@ -14,6 +14,7 @@ Usage:
 import argparse
 import json
 import os
+import re
 import sys
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -30,10 +31,8 @@ from retro_refiner.dat import (  # noqa: E402
     download_libretro_dat,
     download_ten_dat,
     fetch_ten_dat_listing,
-    load_title_mappings,
     normalize_title,
     parse_dat_file,
-    reset_title_mappings_cache,
 )
 from retro_refiner.filter import parse_rom_filename  # noqa: E402
 from retro_refiner.systems import load_system_data  # noqa: E402
@@ -409,6 +408,87 @@ def find_fuzzy_mappings(
     return candidates
 
 
+# --- Fuzzy auto-add filtering ---
+
+# Suffixes that indicate a different version/edition, not a regional rename
+_VERSION_SUFFIXES = re.compile(
+    r'\b(ex|dx|plus|turbo|advance|special|g|deluxe|kai|remix)\s*$',
+    re.IGNORECASE,
+)
+
+
+def is_safe_fuzzy_mapping(candidate: MappingCandidate) -> bool:
+    """Check if a fuzzy match is safe to auto-add.
+
+    Returns True if the candidate passes all safety checks.
+    Filters out: different sequel numbers, different series (e.g. Mega Man
+    vs Mega Man X), version suffixes (EX/DX/G/Plus), and word-swap
+    false positives (e.g. green vs red).
+    """
+    jp = candidate.variant
+    en = candidate.canonical
+
+    # Must be >= 0.93 similarity
+    if candidate.score < 0.93:
+        return False
+
+    # Different numbers = likely different game/sequel
+    jp_nums = re.findall(r'\d+', jp)
+    en_nums = re.findall(r'\d+', en)
+    if jp_nums != en_nums:
+        return False
+
+    # One title has a version suffix the other doesn't
+    jp_has_suffix = bool(_VERSION_SUFFIXES.search(jp))
+    en_has_suffix = bool(_VERSION_SUFFIXES.search(en))
+    if jp_has_suffix != en_has_suffix:
+        return False
+
+    # Version/edition words anywhere in one title but not the other
+    jp_words_set = set(jp.split())
+    en_words_set = set(en.split())
+    edition_words = {'ex', 'dx', 'ni', 'x'}
+    jp_only = jp_words_set - en_words_set
+    en_only = en_words_set - jp_words_set
+    if jp_only & edition_words or en_only & edition_words:
+        return False
+
+    # Check for letter+number vs bare number tokens (e.g. "3" vs "x3")
+    # which indicate different series (Mega Man 3 vs Mega Man X3)
+    for jp_w, en_w in zip(sorted(jp_only), sorted(en_only)):
+        if (re.fullmatch(r'\d+', jp_w) and re.fullmatch(r'[a-z]+\d+', en_w)):
+            return False
+        if (re.fullmatch(r'[a-z]+\d+', jp_w) and re.fullmatch(r'\d+', en_w)):
+            return False
+
+    # Plural-only differences where the base might be different games
+    # e.g. "ridge racers" vs "ridge racer"
+    if (len(jp_words_set) == len(en_words_set)
+            and len(jp_words_set) <= 3):
+        # Short titles with only an 's' suffix difference are risky
+        for jp_w in jp_words_set - en_words_set:
+            for en_w in en_words_set - jp_words_set:
+                if (jp_w == en_w + 's' or en_w == jp_w + 's'):
+                    if len(jp_words_set) <= 2:
+                        return False
+
+    # Word count differs by more than 1 = too different
+    jp_words = jp.split()
+    en_words = en.split()
+    if abs(len(jp_words) - len(en_words)) > 1:
+        return False
+
+    # If same word count, check that differing words are similar
+    # (catches "green" vs "red", "squarepants" vs "squigglepants")
+    if len(jp_words) == len(en_words) and len(jp_words) > 1:
+        diffs = [(j, e) for j, e in zip(jp_words, en_words) if j != e]
+        for j_word, e_word in diffs:
+            if SequenceMatcher(None, j_word, e_word).ratio() < 0.5:
+                return False
+
+    return True
+
+
 # --- Validation of existing mappings ---
 
 def validate_existing_mappings(
@@ -598,15 +678,18 @@ def generate_tests(
         seen.add(key)
         var_esc = candidate.variant_name.replace("'", "\\'")
         can_esc = candidate.canonical_name.replace("'", "\\'")
+        test_name = f"{var_esc} -> {can_esc}"
         lines.append(f"    # {system}: {candidate.method}")
-        lines.append("    result.assert_equal(")
         lines.append(
-            f"        normalize_title(parse_rom_filename("
-            f"'{var_esc}.zip').base_title),")
+            f"    jp = normalize_title(parse_rom_filename("
+            f"'{var_esc}.zip').base_title)")
         lines.append(
-            f"        normalize_title(parse_rom_filename("
-            f"'{can_esc}.zip').base_title),")
-        lines.append(f"        '{var_esc} should map to {can_esc}')")
+            f"    en = normalize_title(parse_rom_filename("
+            f"'{can_esc}.zip').base_title)")
+        lines.append(f"    if jp == en:")
+        lines.append(f"        results.ok('{test_name}')")
+        lines.append(f"    else:")
+        lines.append(f"        results.fail('{test_name}', en, jp)")
         lines.append("")
         count += 1
 
@@ -686,12 +769,15 @@ def main() -> None:
         for mapping in size_maps:
             all_review.append((system, mapping))
 
-        # Method 3: Fuzzy matching (review only)
+        # Method 3: Fuzzy matching
         already_found = {m.variant for s, m in all_mappings if s == system}
         already_found |= {m.variant for s, m in all_review if s == system}
         fuzzy = find_fuzzy_mappings(entries, already_found)
         for mapping in fuzzy:
-            all_review.append((system, mapping))
+            if is_safe_fuzzy_mapping(mapping):
+                all_mappings.append((system, mapping))
+            else:
+                all_review.append((system, mapping))
 
     # Deduplicate auto-add mappings
     seen_variants: Set[str] = set()
@@ -703,11 +789,13 @@ def main() -> None:
     all_mappings = deduped
 
     ten_count = sum(1 for _, m in all_mappings if m.method == 'ten_crossref')
+    fuzzy_add = sum(1 for _, m in all_mappings if m.method == 'fuzzy')
     size_count = sum(1 for _, m in all_review if m.method == 'size_match')
-    fuzzy_count = sum(1 for _, m in all_review if m.method == 'fuzzy')
+    fuzzy_review = sum(1 for _, m in all_review if m.method == 'fuzzy')
     print(f"Method 1 (T-En cross-ref): {ten_count} auto-add")
     print(f"Method 2 (size match):     {size_count} for review")
-    print(f"Method 3 (fuzzy):          {fuzzy_count} for review\n")
+    print(f"Method 3 (fuzzy auto-add): {fuzzy_add} auto-add")
+    print(f"Method 3 (fuzzy review):   {fuzzy_review} for review\n")
 
     # 6. Validate existing mappings
     orphaned, redundant, bad_canonical = validate_existing_mappings(
@@ -735,15 +823,21 @@ def main() -> None:
     # 8. Write review file (size-match + fuzzy candidates)
     write_review_file(all_review)
 
-    # 9. Generate regression tests
-    reset_title_mappings_cache()
-    current_mappings = load_title_mappings()
-    actually_added = [
+    # 9. Generate regression tests for mappings confirmed in JSON
+    mappings_path = project_root / 'data' / 'title_mappings.json'
+    with open(mappings_path, 'r', encoding='utf-8') as fh:
+        current_data = json.load(fh)
+    current_flat: Dict[str, str] = {}
+    for cat, cat_entries in current_data.items():
+        if cat.startswith('_') or not isinstance(cat_entries, dict):
+            continue
+        current_flat.update(cat_entries)
+    verified = [
         (s, m) for s, m in all_mappings
-        if m.variant in current_mappings
-        and current_mappings[m.variant] == m.canonical
+        if m.variant in current_flat
+        and current_flat[m.variant] == m.canonical
     ]
-    test_count = generate_tests(actually_added)
+    test_count = generate_tests(verified)
 
     # 10. Summary
     print(f"\nResults:")
