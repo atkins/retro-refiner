@@ -167,7 +167,7 @@ def scan_network_source_urls(
         _indent: str = "",
         _url_sizes: Dict[str, int] = None,
 ) -> Tuple[Dict[str, List[str]], Dict[str, int]]:
-    """Scan a network source and collect ROM URLs (without downloading).
+    """Scan a network source and collect ROMs (without downloading).
 
     Returns tuple of (dict of system -> list of URLs, dict of URL -> size).
     """
@@ -311,7 +311,7 @@ def scan_network_source_urls(
                     total_size = sum(s for _, s in sub_files_with_sizes)
                     size_info = f" ({format_size(total_size)})" if total_size > 0 else ""
                     _log(f"{_indent}    {folder_name} ({system}): "
-                         f"{len(sub_rom_urls)} ROM URLs{size_info}",
+                         f"{len(sub_rom_urls)} ROMs{size_info}",
                          on_progress)
                     detected[system].extend(sub_rom_urls)
                     for rom_url, size in sub_files_with_sizes:
@@ -340,7 +340,7 @@ def scan_network_source_urls(
                                 size_info = (f" ({format_size(nested_size)})"
                                              if nested_size > 0 else "")
                                 _log(f"{_indent}      Found {len(nested_roms)} "
-                                     f"ROM URLs in {nested_name}{size_info}",
+                                     f"ROMs in {nested_name}{size_info}",
                                      on_progress)
                                 detected[system].extend(nested_roms)
                                 for rom_url, size in nested_files:
@@ -446,7 +446,7 @@ def scan_network_source_urls(
 
                 if total_roms > 0:
                     size_info = f" ({format_size(total_size)})" if total_size > 0 else ""
-                    _log(f"{_indent}  Found {total_roms} ROM URLs{size_info}",
+                    _log(f"{_indent}  Found {total_roms} ROMs{size_info}",
                          on_progress)
 
             else:
@@ -479,7 +479,7 @@ def scan_network_source(url: str, systems: List[str] = None,
                         auth_header: str = None, scan_workers: int = 16,
                         cache_dir: Path = None, no_cache: bool = False,
                         on_progress: Callable = None) -> ScanResult:
-    """Scan a network source for ROM URLs.
+    """Scan a network source for ROMs.
 
     Returns structured ScanResult instead of printing to stdout.
     Uses scan cache if available and fresh.

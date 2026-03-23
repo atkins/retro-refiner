@@ -18,7 +18,8 @@ from retro_refiner.systems import load_system_data
 _UI_STATE_FILENAME = '.retro-refiner-state.yaml'
 
 _SYSTEM_ABBREVS = frozenset(
-    ('snes', 'nes', 'gba', 'gbc', 'n64', 'psx', 'ps2', 'ps3', 'psp'))
+    ('snes', 'nes', 'gba', 'gbc', 'n64', 'psx', 'ps2', 'ps3', 'psp',
+     '3do', 'dsi', 'fds', 'msx', 'msx2', 'n64dd', 'sgx'))
 
 
 def _display_name(system: str) -> str:
@@ -958,6 +959,8 @@ class Api:
             'breakdown': filter_breakdown,
             'elapsed_ms': elapsed_ms,
             'excluded_roms': excluded_roms,
+            'total_excluded_roms': len(result.excluded)
+            if result and hasattr(result, 'excluded') else 0,
             'verbose_stats': verbose_stats,
         })
 
@@ -1005,7 +1008,8 @@ class Api:
                 pass
 
         regions = dict(Counter(r.region for r in parsed if r.region))
-        years_list = [r.year for r in parsed if r.year > 0]
+        years_list = [r.year for r in parsed
+                      if 1970 <= r.year <= 2030]
         years = dict(Counter(years_list))
         peak_year = Counter(years_list).most_common(1)[0][0] if years_list else 0
         year_range = ([min(years_list), max(years_list)]
@@ -1019,10 +1023,14 @@ class Api:
         if sizes_list:
             sorted_sizes = sorted(
                 ((r.filename, file_sizes.get(r.filename, 0))
-                 for r in parsed),
+                 for r in parsed if file_sizes.get(r.filename, 0) > 0),
                 key=lambda x: x[1])
-            smallest = sorted_sizes[0]
-            largest = sorted_sizes[-1]
+            if sorted_sizes:
+                smallest = sorted_sizes[0]
+                largest = sorted_sizes[-1]
+            else:
+                smallest = ('', 0)
+                largest = ('', 0)
             avg_size = sum(sizes_list) // max(len(sizes_list), 1)
             median_size = int(median(sizes_list))
         else:
@@ -1081,7 +1089,8 @@ class Api:
                 1 for r in parsed if r.disc_number > 1),
             'languages': dict(languages),
             'revision_counts': dict(Counter(
-                r.revision for r in parsed if r.revision > 0)),
+                r.revision for r in parsed
+                if 0 < r.revision < 20)),
         }
 
     def _compute_fanfare(self, _config, total_selected, total_excluded,
@@ -1137,8 +1146,10 @@ class Api:
             for t in titles:
                 words = t.split()
                 key = words[0] if words else t
-                if len(words) > 1 and not words[1].isdigit():
-                    key = ' '.join(words[:2])
+                for i in range(1, min(3, len(words))):
+                    if words[i].isdigit():
+                        break
+                    key = ' '.join(words[:i+1])
                 series[key] += 1
             top_series = series.most_common(3)
             top_series_list = [
@@ -1169,7 +1180,7 @@ class Api:
                     tidbits.append(
                         f"\u2605 Spanning {oldest}\u2013{newest}")
 
-            if len(years) > 5:
+            if len(years) > 50:
                 decades = Counter(
                     (y // 10) * 10 for y in years)
                 decades_dict = dict(decades)

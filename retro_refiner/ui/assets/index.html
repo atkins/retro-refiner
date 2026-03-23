@@ -2001,7 +2001,7 @@ var LogRenderer = {
       if (vs.sizes && vs.sizes.avg > 0) {
         var szText = 'size: avg ' + self._formatSize(vs.sizes.avg) +
           ' \u00B7 median ' + self._formatSize(vs.sizes.median);
-        if (vs.sizes.largest && vs.sizes.smallest) {
+        if (vs.sizes.largest && vs.sizes.smallest && vs.sizes.smallest[1] > 0) {
           szText += ' \u00B7 range ' + self._formatSize(vs.sizes.smallest[1]) + '\u2013' + self._formatSize(vs.sizes.largest[1]);
         }
         addTreeLine(container, szText);
@@ -2036,7 +2036,11 @@ var LogRenderer = {
     if (data.excluded_roms && data.excluded_roms.length > 0) {
       var toggleEl = document.createElement('div');
       toggleEl.className = 'log-audit-toggle';
-      toggleEl.textContent = '  \u2502  [+] ' + data.excluded_roms.length.toLocaleString() + ' excluded ROMs';
+      var excCount = data.total_excluded_roms || data.excluded_roms.length;
+      var excLabel = excCount > data.excluded_roms.length
+        ? excCount.toLocaleString() + ' excluded ROMs (showing ' + data.excluded_roms.length + ')'
+        : excCount.toLocaleString() + ' excluded ROMs';
+      toggleEl.textContent = '  \u2502  [+] ' + excLabel;
       container.appendChild(toggleEl);
       var auditList = document.createElement('div');
       auditList.className = 'log-audit-list';
@@ -2054,8 +2058,7 @@ var LogRenderer = {
         }
         var isExp = auditList.classList.contains('expanded');
         auditList.classList.toggle('expanded');
-        toggleEl.textContent = '  \u2502  [' + (isExp ? '+' : '-') + '] ' +
-          data.excluded_roms.length.toLocaleString() + ' excluded ROMs';
+        toggleEl.textContent = '  \u2502  [' + (isExp ? '+' : '-') + '] ' + excLabel;
       });
       container.appendChild(auditList);
     }

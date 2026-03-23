@@ -649,18 +649,19 @@ def filter_network_roms(system, urls, config, url_sizes=None,
                 selected_urls = []
 
     # Track post-selection exclusions (1G1R duplicates, english-only)
-    selected_url_set = set(selected_urls)
-    for rom in all_roms:
-        url = url_map.get(rom.filename)
-        if url and url not in selected_url_set:
-            if sel.english_only and not rom.is_english:
-                reason = 'non-english'
-            else:
-                reason = 'duplicate version'
-            breakdown[reason] += 1
-            excluded_list.append(ExcludedRom(
-                filename=rom.filename, reason=reason,
-                size=size_map.get(rom.filename, 0)))
+    if not no_filter and sel.best_version:
+        selected_url_set = set(selected_urls)
+        for rom in all_roms:
+            url = url_map.get(rom.filename)
+            if url and url not in selected_url_set:
+                if sel.english_only and not rom.is_english:
+                    reason = 'non-english'
+                else:
+                    reason = 'duplicate version'
+                breakdown[reason] += 1
+                excluded_list.append(ExcludedRom(
+                    filename=rom.filename, reason=reason,
+                    size=size_map.get(rom.filename, 0)))
 
     # Count DAT matches
     dat_matched = sum(1 for rom in all_roms
