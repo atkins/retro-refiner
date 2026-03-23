@@ -795,7 +795,6 @@
       </div>
       <div class="section-body hidden">
         <div class="check-grid">
-          <label title="Verify ROM integrity using CRC checksums from DAT files"><input type="checkbox" id="opt-verify-crc" checked> Verify CRC</label>
           <label title="Don't download or use DAT files for metadata"><input type="checkbox" id="opt-no-dat"> Skip DAT files</label>
           <label title="Skip CHD (Compressed Hunks of Data) disc images"><input type="checkbox" id="opt-no-chd"> Skip CHD images</label>
           <label title="Force fresh scans, ignoring cached results"><input type="checkbox" id="opt-no-cache"> Disable cache</label>
@@ -1402,7 +1401,7 @@ function restoreUiState(cfg) {
   if (adv.log_dir) setPathPicker('opt-log-dir', 'opt-log-dir-display', adv.log_dir);
 
   /* Advanced */
-  document.getElementById('opt-verify-crc').checked = !adv.no_verify;
+  /* opt-verify-crc removed — no_verify only used by CLI */
   document.getElementById('opt-no-dat').checked = !!adv.no_dat;
   document.getElementById('opt-no-chd').checked = !!adv.no_chd;
   document.getElementById('opt-no-cache').checked = !!adv.no_cache;
@@ -1491,7 +1490,7 @@ function gatherUiState() {
     retroarch_playlists: document.getElementById('opt-retroarch-playlists').value || '',
     log_dir: document.getElementById('opt-log-dir').value || '',
     /* Advanced */
-    no_verify: !document.getElementById('opt-verify-crc').checked,
+    /* no_verify: CLI-only, not in GUI */
     no_dat: document.getElementById('opt-no-dat').checked,
     no_chd: document.getElementById('opt-no-chd').checked,
     no_cache: document.getElementById('opt-no-cache').checked,
