@@ -365,21 +365,26 @@ def extract_file_sizes_from_html(html: str) -> Dict[str, int]:
         return sizes
 
     # Pattern 3: Generic table format with size in separate cell
-    table_row_pattern = re.compile(
-        r'<tr[^>]*>.*?<a\s+href=["\']?([^"\'<>\s]+)["\']?[^>]*>([^<]+)</a>.*?'
-        r'<td[^>]*>\s*([\d.]+\s*[KMGT]i?B?|\d+)\s*</td>.*?</tr>',
-        re.IGNORECASE | re.DOTALL
-    )
+    # Only attempt on pages that have table rows (skip large non-table pages)
+    if '<tr' in html[:50000]:
+        table_row_pattern = re.compile(
+            r'<tr[^>]*>.*?<a\s+href=["\']?([^"\'<>\s]+)["\']?[^>]*>([^<]+)</a>.*?'
+            r'<td[^>]*>\s*([\d.]+\s*[KMGT]i?B?|\d+)\s*</td>.*?</tr>',
+            re.IGNORECASE | re.DOTALL
+        )
 
-    for match in table_row_pattern.finditer(html):
-        href = match.group(1)
-        filename = match.group(2).strip()
-        size_str = match.group(3).strip()
-        size = parse_size_string(size_str)
-        if size > 0:
-            clean_href = urllib.request.unquote(href.split('?')[0].split('#')[0])
-            sizes[clean_href] = size
-            sizes[filename] = size
+        # Limit to first 200KB to avoid catastrophic backtracking
+        search_html = html[:200000] if len(html) > 200000 else html
+        for match in table_row_pattern.finditer(search_html):
+            href = match.group(1)
+            filename = match.group(2).strip()
+            size_str = match.group(3).strip()
+            size = parse_size_string(size_str)
+            if size > 0:
+                clean_href = urllib.request.unquote(
+                    href.split('?')[0].split('#')[0])
+                sizes[clean_href] = size
+                sizes[filename] = size
 
     # Pattern 4: Pre/listing block with sizes (FTP-style)
     pre_sections = re.findall(
