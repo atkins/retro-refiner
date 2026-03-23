@@ -952,15 +952,19 @@ function showView(view) {
   document.getElementById('tab-log').classList.remove('active');
   document.getElementById('tab-results').classList.remove('active');
 
+  var copyBtn = document.querySelector('.bottom-bar .bottom-btn:nth-child(2)');
   if (view === 'log') {
     document.getElementById('view-log').classList.remove('view-hidden');
     document.getElementById('tab-log').classList.add('active');
+    if (copyBtn) copyBtn.style.display = '';
   } else if (view === 'results') {
     document.getElementById('view-results').classList.remove('view-hidden');
     document.getElementById('tab-results').classList.add('active');
+    if (copyBtn) copyBtn.style.display = 'none';
   } else if (view === 'picker') {
     document.getElementById('view-picker').classList.remove('view-hidden');
     document.getElementById('tab-results').classList.add('active');
+    if (copyBtn) copyBtn.style.display = 'none';
   }
 }
 
