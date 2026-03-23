@@ -560,17 +560,29 @@ class Api:
                     'phase': evt.phase, 'message': evt.message,
                     'current': evt.current, 'total': evt.total,
                 })
-                # Log to the log view at ~10% intervals
-                if (evt.total > 0 and evt.current > state['last_logged']
-                        and (evt.current == evt.total
-                             or evt.current - state['last_logged']
-                             >= max(evt.total // 10, 1))):
+                # Log scan messages and progress milestones
+                if evt.message and evt.total == 0:
+                    # Non-progress messages (e.g. "Found X ROM files")
+                    self._push_event('log', {
+                        'text': f'  {evt.message}\n',
+                        'className': 'log-muted',
+                    })
+                elif (evt.total > 0 and evt.current > state['last_logged']
+                      and (evt.current == evt.total
+                           or evt.current - state['last_logged']
+                           >= max(evt.total // 10, 1))):
                     state['last_logged'] = evt.current
                     self._push_event('log', {
                         'text': (f'  Scanning: {evt.current}'
                                  f'/{evt.total} system folders\n'),
                         'className': 'log-muted',
                     })
+
+            self._push_event('log', {
+                'text': f'  Recursive: {net_recursive}, '
+                        f'depth: {net_depth}\n',
+                'className': 'log-muted',
+            })
 
             result = scan_network_source(
                 net_url, systems_filter,
