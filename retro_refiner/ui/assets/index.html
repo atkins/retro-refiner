@@ -341,6 +341,26 @@
   .check-grid label { color: var(--text-secondary); display: flex; align-items: center; gap: 4px; cursor: pointer; }
   .check-grid label:hover { color: var(--text-primary); }
   .check-grid input[type="checkbox"] { accent-color: var(--accent); }
+
+  /* Toggle switches */
+  .toggle-row { display: flex; align-items: center; justify-content: space-between; padding: 3px 0; font-size: 11px; }
+  .toggle-row label { cursor: pointer; flex: 1; color: var(--text-secondary); }
+  .toggle-row label:hover { color: var(--text-primary); }
+  .toggle-row.sub { padding-left: 14px; }
+  .toggle-row.sub label { color: var(--text-muted); }
+  .toggle-row.sub label:hover { color: var(--text-primary); }
+  .toggle-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 12px; }
+  .toggle-grid .toggle-row { padding: 2px 0; }
+  .toggle-grid .toggle-row label { font-size: 10px; color: var(--text-muted); }
+  .toggle-switch { position: relative; width: 30px; height: 16px; flex-shrink: 0; cursor: pointer; display: inline-block; }
+  .toggle-switch input { opacity: 0; width: 0; height: 0; position: absolute; }
+  .toggle-slider { position: absolute; inset: 0; background: var(--border); border-radius: 8px; transition: 0.2s; }
+  .toggle-slider:before { content: ''; position: absolute; width: 12px; height: 12px; left: 2px; bottom: 2px; background: var(--text-muted); border-radius: 50%; transition: 0.2s; }
+  .toggle-switch input:checked + .toggle-slider { background: var(--accent); }
+  .toggle-switch input:checked + .toggle-slider:before { transform: translateX(14px); background: var(--bg-primary); }
+  .toggle-switch.sm { width: 24px; height: 13px; }
+  .toggle-switch.sm .toggle-slider:before { width: 9px; height: 9px; }
+  .toggle-switch.sm input:checked + .toggle-slider:before { transform: translateX(11px); }
   .sub-options { margin-left: 8px; padding-left: 10px; border-left: 2px solid var(--accent); margin-top: 6px; transition: opacity 0.2s ease, border-color 0.2s ease; }
   .sub-options.disabled { opacity: 0.35; pointer-events: none; border-color: var(--border-subtle); }
   .more-options-toggle {
@@ -632,16 +652,18 @@
             <span class="path-clear" aria-label="Clear destination" onclick="event.stopPropagation(); clearPathPicker('dest-path', 'dest-path-display', 'Select destination folder...')">&#xD7;</span>
           </div>
           <div class="dest-options" style="margin-top:6px">
-            <label title="Check files already in the destination by size. Valid files are skipped; partial or corrupted files are re-downloaded or re-copied.">
-              <input type="checkbox" id="opt-validate-dest" checked> Validate existing files
-            </label>
-            <label title="Use CRC32 checksums (from DAT files) for stricter validation. Slower but catches corrupted files that match the expected size." style="margin-left:16px" id="opt-crc-label">
-              <input type="checkbox" id="opt-crc-validation"> CRC
-            </label>
-            <br>
-            <label title="After processing, remove files from the destination that aren't in the selected set. Only affects systems being processed.">
-              <input type="checkbox" id="opt-clean-dest"> Clean destination
-            </label>
+            <div class="toggle-row">
+              <label title="Check files already in the destination by size. Valid files are skipped; partial or corrupted files are re-downloaded or re-copied.">Validate existing files</label>
+              <div class="toggle-switch sm" onclick="this.querySelector('input').click()"><input type="checkbox" id="opt-validate-dest" checked><span class="toggle-slider"></span></div>
+            </div>
+            <div class="toggle-row sub" id="opt-crc-label">
+              <label title="Use CRC32 checksums (from DAT files) for stricter validation. Slower but catches corrupted files that match the expected size.">CRC validation</label>
+              <div class="toggle-switch sm" onclick="this.querySelector('input').click()"><input type="checkbox" id="opt-crc-validation"><span class="toggle-slider"></span></div>
+            </div>
+            <div class="toggle-row">
+              <label title="After processing, remove files from the destination that aren't in the selected set. Only affects systems being processed.">Clean destination</label>
+              <div class="toggle-switch sm" onclick="this.querySelector('input').click()"><input type="checkbox" id="opt-clean-dest"><span class="toggle-slider"></span></div>
+            </div>
           </div>
         </div>
         <div id="local-file-action-group">
@@ -669,17 +691,36 @@
         <span class="arrow">&#9662;</span> SELECTION
       </div>
       <div class="section-body">
-        <div class="check-grid">
-          <label title="Enable filtering — uncheck to pass through every file from sources"><input type="checkbox" id="opt-all-roms" onchange="toggleSelectionOpts()"> Apply filters</label>
+        <div class="toggle-row">
+          <label title="Enable filtering — turn off to pass through every file from sources">Apply filters</label>
+          <div class="toggle-switch" onclick="this.querySelector('input').click()"><input type="checkbox" id="opt-all-roms" onchange="toggleSelectionOpts()"><span class="toggle-slider"></span></div>
         </div>
         <div id="selection-filter-opts" class="sub-options disabled">
-          <div class="check-grid">
-            <label title="1G1R: select one best ROM per game based on region and revision"><input type="checkbox" id="opt-best-version"> 1 Game 1 Rom</label>
-            <label title="Only keep ROMs with English language support"><input type="checkbox" id="opt-english"> English only</label>
-            <label title="Include prototype and pre-release ROMs"><input type="checkbox" id="opt-protos"> Include prototypes</label>
-            <label title="Include beta versions"><input type="checkbox" id="opt-betas"> Include betas</label>
-            <label title="Include unlicensed and unofficial ROMs"><input type="checkbox" id="opt-no-unlicensed"> Include unlicensed</label>
-            <label title="Include adult/mature-rated games"><input type="checkbox" id="opt-no-adult"> Include adult</label>
+          <div class="toggle-row sub">
+            <label title="1G1R: select one best ROM per game based on region and revision">1 Game 1 ROM</label>
+            <div class="toggle-switch" onclick="this.querySelector('input').click()"><input type="checkbox" id="opt-best-version"><span class="toggle-slider"></span></div>
+          </div>
+          <div class="toggle-row sub">
+            <label title="Only keep ROMs with English language support">English only</label>
+            <div class="toggle-switch" onclick="this.querySelector('input').click()"><input type="checkbox" id="opt-english"><span class="toggle-slider"></span></div>
+          </div>
+          <div class="toggle-grid" style="padding-left:14px;margin-top:2px">
+            <div class="toggle-row">
+              <label title="Include prototype and pre-release ROMs">Prototypes</label>
+              <div class="toggle-switch sm" onclick="this.querySelector('input').click()"><input type="checkbox" id="opt-protos"><span class="toggle-slider"></span></div>
+            </div>
+            <div class="toggle-row">
+              <label title="Include beta versions">Betas</label>
+              <div class="toggle-switch sm" onclick="this.querySelector('input').click()"><input type="checkbox" id="opt-betas"><span class="toggle-slider"></span></div>
+            </div>
+            <div class="toggle-row">
+              <label title="Include unlicensed and unofficial ROMs">Unlicensed</label>
+              <div class="toggle-switch sm" onclick="this.querySelector('input').click()"><input type="checkbox" id="opt-no-unlicensed"><span class="toggle-slider"></span></div>
+            </div>
+            <div class="toggle-row">
+              <label title="Include adult/mature-rated games (MAME only)">Adult</label>
+              <div class="toggle-switch sm" onclick="this.querySelector('input').click()"><input type="checkbox" id="opt-no-adult"><span class="toggle-slider"></span></div>
+            </div>
           </div>
           <div class="field-label">Region priority</div>
           <input type="text" id="opt-region-priority" placeholder="USA, World, Europe, Australia..." title="Order of preference when choosing between regional versions">
@@ -735,8 +776,9 @@
         <input type="number" id="opt-limit" placeholder="e.g. 100" min="0" title="Hard cap on number of ROMs per system">
         <div class="field-label">Size budget</div>
         <input type="text" id="opt-size" placeholder="e.g. 50GB" title="Maximum total download size (e.g. 10GB, 500MB)">
-        <div class="check-grid mt-sm">
-          <label title="Include games without rating data when using Top N"><input type="checkbox" id="opt-include-unrated"> Include unrated</label>
+        <div class="toggle-row" style="margin-top:4px">
+          <label title="Include games without rating data when using Top N">Include unrated</label>
+          <div class="toggle-switch sm" onclick="this.querySelector('input').click()"><input type="checkbox" id="opt-include-unrated"><span class="toggle-slider"></span></div>
         </div>
         <div class="field-label">Platform exclusive rating boost</div>
         <input type="number" id="opt-prefer-exclusives" placeholder="e.g. 1.5" step="0.1" min="0" title="Multiply ratings of platform-exclusive games by this factor (e.g. 1.5 = 50% boost)">
@@ -753,9 +795,13 @@
         <input type="number" id="opt-parallel" min="1" max="32" value="4" title="Number of simultaneous file downloads">
         <div class="field-label">Scan workers</div>
         <input type="number" id="opt-scan-workers" min="1" max="64" value="16" title="Number of parallel threads for scanning source URLs">
-        <div class="check-grid mt-sm">
-          <label title="Resume partially downloaded files instead of restarting"><input type="checkbox" id="opt-resume-downloads"> Resume downloads</label>
-          <label title="Automatically adjust download parallelism based on connection stability"><input type="checkbox" id="opt-auto-tune" checked> Auto-tune speed</label>
+        <div class="toggle-row" style="margin-top:4px">
+          <label title="Resume partially downloaded files instead of restarting">Resume downloads</label>
+          <div class="toggle-switch sm" onclick="this.querySelector('input').click()"><input type="checkbox" id="opt-resume-downloads"><span class="toggle-slider"></span></div>
+        </div>
+        <div class="toggle-row">
+          <label title="Automatically adjust download parallelism based on connection stability">Auto-tune speed</label>
+          <div class="toggle-switch sm" onclick="this.querySelector('input').click()"><input type="checkbox" id="opt-auto-tune" checked><span class="toggle-slider"></span></div>
         </div>
       </div>
     </div>
@@ -766,9 +812,13 @@
         <span class="arrow">&#9656;</span> OUTPUT
       </div>
       <div class="section-body hidden">
-        <div class="check-grid">
-          <label title="Generate M3U playlists for multi-disc games (e.g. Final Fantasy VII Disc 1-3 → one .m3u file)"><input type="checkbox" id="opt-playlists"> Create multi-disc M3U</label>
-          <label title="Put all ROMs in one folder instead of per-system subfolders"><input type="checkbox" id="opt-flatten"> Flatten output</label>
+        <div class="toggle-row">
+          <label title="Generate M3U playlists for multi-disc games (e.g. Final Fantasy VII Disc 1-3 → one .m3u file)">Create multi-disc M3U</label>
+          <div class="toggle-switch sm" onclick="this.querySelector('input').click()"><input type="checkbox" id="opt-playlists"><span class="toggle-slider"></span></div>
+        </div>
+        <div class="toggle-row">
+          <label title="Put all ROMs in one folder instead of per-system subfolders">Flatten output</label>
+          <div class="toggle-switch sm" onclick="this.querySelector('input').click()"><input type="checkbox" id="opt-flatten"><span class="toggle-slider"></span></div>
         </div>
         <div class="field-label">EmulationStation gamelists dir</div>
         <input type="hidden" id="opt-gamelists">
@@ -800,10 +850,19 @@
         <span class="arrow">&#9656;</span> ADVANCED
       </div>
       <div class="section-body hidden">
-        <div class="check-grid">
-          <label title="Don't download or use DAT files for metadata"><input type="checkbox" id="opt-no-dat"> Skip DAT files</label>
-          <label title="Skip CHD (Compressed Hunks of Data) disc images"><input type="checkbox" id="opt-no-chd"> Skip CHD images</label>
-          <label title="Force fresh scans, ignoring cached results"><input type="checkbox" id="opt-no-cache"> Disable cache</label>
+        <div class="toggle-grid">
+          <div class="toggle-row">
+            <label title="Don't download or use DAT files for metadata">Skip DATs</label>
+            <div class="toggle-switch sm" onclick="this.querySelector('input').click()"><input type="checkbox" id="opt-no-dat"><span class="toggle-slider"></span></div>
+          </div>
+          <div class="toggle-row">
+            <label title="Skip CHD (Compressed Hunks of Data) disc images">Skip CHD</label>
+            <div class="toggle-switch sm" onclick="this.querySelector('input').click()"><input type="checkbox" id="opt-no-chd"><span class="toggle-slider"></span></div>
+          </div>
+          <div class="toggle-row">
+            <label title="Force fresh scans, ignoring cached results">No cache</label>
+            <div class="toggle-switch sm" onclick="this.querySelector('input').click()"><input type="checkbox" id="opt-no-cache"><span class="toggle-slider"></span></div>
+          </div>
         </div>
         <div class="field-label">Recursive scan depth</div>
         <input type="number" id="opt-max-depth" min="1" max="10" value="3" title="How many levels deep to scan for sources with recursive enabled">
@@ -1151,7 +1210,7 @@ function renderSystemPills() {
   /* Show "Include adult" only when arcade systems are active */
   var arcadeSystems = ['mame', 'fbneo', 'fba', 'arcade'];
   var hasArcade = arcadeSystems.some(function(s) { return systemPillState[s]; });
-  document.getElementById('opt-no-adult').parentElement.style.display = hasArcade ? '' : 'none';
+  document.getElementById('opt-no-adult').closest('.toggle-row').style.display = hasArcade ? '' : 'none';
 }
 
 function toggleAllPills(state) {
