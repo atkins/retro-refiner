@@ -1707,7 +1707,6 @@ class Api:
             # Poll for progress
             last_completed = 0
             dl_t0 = time.monotonic()
-            total_bytes = 0
             while self._running:
                 if proc.poll() is not None:
                     break
@@ -1729,19 +1728,11 @@ class Api:
                     eta = self._eta_str(
                         elapsed, completed, total)
                     speed_str = format_size(speed) + '/s'
-                    # Sum downloaded bytes from active tasks
-                    active_info = rpc.get_active()
-                    cur_bytes = sum(
-                        int(a.get('completedLength', 0))
-                        for a in active_info)
-                    dl_bytes = (total_bytes + cur_bytes
-                                if active_info else total_bytes)
-                    if completed > 0 and not active_info:
-                        total_bytes = dl_bytes
+                    elapsed_s = self._elapsed_str(elapsed)
                     msg = (f'{self._step_prefix(3)}'
                            f'{display}: {completed}/{total} '
                            f'\u2502 {speed_str} '
-                           f'\u2502 {format_size(dl_bytes)}'
+                           f'\u2502 {elapsed_s}'
                            f'{eta}')
                     self._push_event('progress', {
                         'phase': 'download',
