@@ -756,6 +756,9 @@ def load_scan_cache(cache_dir: Path,
             return None
         url_dict = entry.get('urls', {})
         url_sizes = entry.get('sizes', {})
+        # Don't serve empty cached results — likely a failed scan
+        if not any(url_dict.values()):
+            return None
         return url_dict, url_sizes
     except (json.JSONDecodeError, IOError, KeyError):
         return None
@@ -776,6 +779,9 @@ def save_scan_cache(cache_dir: Path, url: str,
     now = time.time()
     cache = {k: v for k, v in cache.items()
              if now - v.get('timestamp', 0) < SCAN_CACHE_MAX_AGE}
+    # Don't cache empty results — likely a failed or cancelled scan
+    if not any(url_dict.values()):
+        return
     cache[url] = {
         'timestamp': now,
         'urls': url_dict,
