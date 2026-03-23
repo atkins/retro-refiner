@@ -17,6 +17,8 @@ from retro_refiner.systems import load_system_data
 
 _UI_STATE_FILENAME = '.retro-refiner-state.yaml'
 
+_RE_LANG = re.compile(r'\(([A-Z][a-z](?:,[A-Z][a-z])*)\)')
+
 _SYSTEM_ABBREVS = frozenset(
     ('snes', 'nes', 'gba', 'gbc', 'n64', 'psx', 'ps2', 'ps3', 'psp',
      '3do', '3ds', 'dsi', 'fds', 'msx', 'msx2', 'n64dd', 'ngp', 'ngpc',
@@ -1080,8 +1082,7 @@ class Api:
         })
 
         # Store breakdown for fanfare aggregation
-        if hasattr(self, '_run_breakdowns'):
-            self._run_breakdowns[system] = filter_breakdown
+        self._run_breakdowns[system] = filter_breakdown
 
         # Store selected URLs/files for commit mode
         if system in self._last_results:
@@ -1098,7 +1099,6 @@ class Api:
         from retro_refiner.filter import parse_rom_filename  # pylint: disable=import-outside-toplevel
         from retro_refiner.network import get_filename_from_url  # pylint: disable=import-outside-toplevel
 
-        re_lang = re.compile(r'\(([A-Z][a-z](?:,[A-Z][a-z])*)\)')
         parsed = []
         file_sizes = {}  # filename -> size
 
@@ -1178,7 +1178,7 @@ class Api:
         # Language extraction from filenames
         languages = Counter()
         for rom in parsed:
-            lang_match = re_lang.search(rom.filename)
+            lang_match = _RE_LANG.search(rom.filename)
             if lang_match:
                 for lang in lang_match.group(1).split(','):
                     languages[lang] += 1
@@ -1224,8 +1224,7 @@ class Api:
         log_dir.mkdir(parents=True, exist_ok=True)
         timestamp = datetime.now().strftime('%Y-%m-%d_%H%M%S')
         elapsed_secs = time.monotonic() - run_start
-        mins, secs = divmod(int(elapsed_secs), 60)
-        elapsed_str = f'{mins}m {secs:02d}s' if mins else f'{secs}s'
+        elapsed_str = self._elapsed_str(elapsed_secs)
         mode = 'commit' if commit else 'preview'
 
         # --- 1. Run summary log ---
@@ -1279,7 +1278,7 @@ class Api:
             f.write(f"{'=' * 60}\n")
             f.write("Filter Impact (all systems)\n")
             f.write(f"{'=' * 60}\n\n")
-            breakdowns = getattr(self, '_run_breakdowns', {})
+            breakdowns = self._run_breakdowns
             impact = {}
             for bd in breakdowns.values():
                 for reason, count in bd.items():
@@ -1378,7 +1377,7 @@ class Api:
             f.write(f"{'=' * 60}\n")
             f.write(f"Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
             f.write(f"Mode: {mode}\n\n")
-            for line in getattr(self, '_log_buffer', []):
+            for line in self._log_buffer:
                 f.write(line)
 
         self._push_event('log', {
@@ -1392,8 +1391,7 @@ class Api:
         """Compute and emit fanfare statistics from the run results."""
         total_systems = len(all_systems)
         elapsed_secs = time.monotonic() - run_start
-        mins, secs = divmod(int(elapsed_secs), 60)
-        elapsed_str = f'{mins}m {secs:02d}s' if mins else f'{secs}s'
+        elapsed_str = self._elapsed_str(elapsed_secs)
 
         from retro_refiner.filter import parse_rom_filename  # pylint: disable=import-outside-toplevel
         from retro_refiner.network import get_filename_from_url  # pylint: disable=import-outside-toplevel
@@ -1548,7 +1546,7 @@ class Api:
 
         # Filter impact: aggregate breakdowns across all systems
         filter_impact = {}
-        breakdowns = getattr(self, '_run_breakdowns', {})
+        breakdowns = self._run_breakdowns
         for breakdown in breakdowns.values():
             for reason, count in breakdown.items():
                 filter_impact[reason] = (
@@ -1567,7 +1565,7 @@ class Api:
             'space_saved': format_size(space_saved),
             'space_saved_bytes': space_saved,
             'top_series': top_series_list,
-            'decades': decades_dict,
+            'decade_breakdown': decades_dict,
             'system_rankings': system_rankings,
             'filter_impact': filter_impact_sorted,
             'notable_finds': notable_finds,
@@ -2309,7 +2307,8 @@ class Api:
     def _push_event(self, event_type: str, data: dict):
         """Push an event to the JavaScript frontend."""
         # Buffer log messages for file output
-        if event_type == 'log' and hasattr(self, '_log_buffer'):
+        if (event_type == 'log' and self._log_buffer is not None
+                and self._config.advanced.log_dir):
             text = data.get('text', '')
             if text:
                 self._log_buffer.append(text)

@@ -1922,13 +1922,6 @@ var LogRenderer = {
     }
   },
 
-  _formatSize: function(bytes) {
-    if (bytes == null || bytes < 0) return '0 B';
-    if (bytes < 1024) return bytes + ' B';
-    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
-    if (bytes < 1024 * 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
-    return (bytes / (1024 * 1024 * 1024)).toFixed(1) + ' GB';
-  },
 
   renderScanSummary: function(data) {
     var logView = document.getElementById('view-log');
@@ -2083,17 +2076,17 @@ var LogRenderer = {
         addTreeLine(container, yearText);
       }
       if (vs.sizes && vs.sizes.avg > 0) {
-        var szText = 'size: avg ' + self._formatSize(vs.sizes.avg) +
-          ' \u00B7 median ' + self._formatSize(vs.sizes.median);
+        var szText = 'size: avg ' + formatSize(vs.sizes.avg) +
+          ' \u00B7 median ' + formatSize(vs.sizes.median);
         if (vs.sizes.largest && vs.sizes.smallest && vs.sizes.smallest[1] > 0) {
-          szText += ' \u00B7 range ' + self._formatSize(vs.sizes.smallest[1]) + '\u2013' + self._formatSize(vs.sizes.largest[1]);
+          szText += ' \u00B7 range ' + formatSize(vs.sizes.smallest[1]) + '\u2013' + formatSize(vs.sizes.largest[1]);
         }
         addTreeLine(container, szText);
         if (vs.sizes.largest && vs.sizes.largest[1] > 0) {
-          addTreeLine(container, 'largest: ' + vs.sizes.largest[0] + ' (' + self._formatSize(vs.sizes.largest[1]) + ')');
+          addTreeLine(container, 'largest: ' + vs.sizes.largest[0] + ' (' + formatSize(vs.sizes.largest[1]) + ')');
         }
         if (vs.sizes.smallest && vs.sizes.smallest[1] > 0) {
-          addTreeLine(container, 'smallest: ' + vs.sizes.smallest[0] + ' (' + self._formatSize(vs.sizes.smallest[1]) + ')');
+          addTreeLine(container, 'smallest: ' + vs.sizes.smallest[0] + ' (' + formatSize(vs.sizes.smallest[1]) + ')');
         }
       }
       if (vs.translation_count && vs.translation_count > 0) {
@@ -2107,11 +2100,6 @@ var LogRenderer = {
         addTreeLine(container, 'revisions selected: ' + revParts.join(', '));
       }
     }
-    if (data.dat_matched) {
-      addTreeLine(container, 'DAT matched: ' + data.dat_matched.matched + '/' + data.dat_matched.total +
-        ' (' + data.dat_matched.pct + '%)');
-    }
-
     var sumLine = document.createElement('div');
     sumLine.className = 'summary-line';
     sumLine.textContent = '  \u2514\u2500 ' + summaryText;
@@ -2235,7 +2223,7 @@ var LogRenderer = {
       data.system_rankings.slice(0, 5).forEach(function(sys) {
         var sysLine = document.createElement('div');
         sysLine.className = 'log-fanfare-section';
-        sysLine.textContent = '          ' + sys.system + ': ' + LogRenderer._formatSize(sys.size) + ' (' + sys.selected + ' ROMs)';
+        sysLine.textContent = '          ' + sys.system + ': ' + formatSize(sys.size) + ' (' + sys.selected + ' ROMs)';
         container.appendChild(sysLine);
       });
     }
@@ -2260,11 +2248,11 @@ var LogRenderer = {
       var nf = data.notable_finds;
       var nfLines = [];
       if (nf.rare_regions) nfLines.push('\uD83C\uDF0D Rare regions: ' + nf.rare_regions.join(', '));
-      if (nf.largest_rom && nf.largest_rom[1] > 0) nfLines.push('\uD83D\uDCC0 Largest ROM: ' + nf.largest_rom[0] + ' (' + LogRenderer._formatSize(nf.largest_rom[1]) + ')');
-      if (nf.smallest_rom && nf.smallest_rom[1] > 0) nfLines.push('\uD83D\uDD2C Smallest ROM: ' + nf.smallest_rom[0] + ' (' + LogRenderer._formatSize(nf.smallest_rom[1]) + ')');
-      nfLines.forEach(function(nf) {
+      if (nf.largest_rom && nf.largest_rom[1] > 0) nfLines.push('\uD83D\uDCC0 Largest ROM: ' + nf.largest_rom[0] + ' (' + formatSize(nf.largest_rom[1]) + ')');
+      if (nf.smallest_rom && nf.smallest_rom[1] > 0) nfLines.push('\uD83D\uDD2C Smallest ROM: ' + nf.smallest_rom[0] + ' (' + formatSize(nf.smallest_rom[1]) + ')');
+      nfLines.forEach(function(line) {
         var nfEl = document.createElement('div');
-        nfEl.textContent = '        ' + nf;
+        nfEl.textContent = '        ' + line;
         container.appendChild(nfEl);
       });
     }
