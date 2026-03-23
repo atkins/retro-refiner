@@ -93,6 +93,10 @@ def validate_destination(dest_dir: Path, system: Optional[str],
         if not filepath.exists():
             result[filename] = 'missing'
             continue
+        if expected_size == 0:
+            # Unknown size — file exists, assume valid
+            result[filename] = 'valid'
+            continue
         actual_size = filepath.stat().st_size
         if actual_size != expected_size:
             result[filename] = 'invalid'

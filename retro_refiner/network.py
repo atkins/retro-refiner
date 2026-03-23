@@ -812,4 +812,7 @@ def save_scan_cache(cache_dir: Path, url: str,
                 pass
             raise
     except IOError:
-        pass
+        try:
+            os.unlink(tmp_path)
+        except (OSError, UnboundLocalError):
+            pass

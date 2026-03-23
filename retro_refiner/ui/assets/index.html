@@ -1342,6 +1342,7 @@ function loadDefaults() {
 
 function cleanData() {
   if (!window.pywebview) return;
+  if (!confirm('This will delete scan cache, DAT files, CRC cache, and saved state. Continue?')) return;
   window.pywebview.api.clean_data().then(function(json) {
     var result = JSON.parse(json);
     if (result && result.deleted && result.deleted.length > 0) {
@@ -1768,7 +1769,7 @@ function createFilteringCard(system, sourceCount, sourceSize) {
   card.id = 'card-' + system;
   card.innerHTML =
     '<div class="card-header">' +
-      '<span class="card-system">' + system.toUpperCase() + '</span>' +
+      '<span class="card-system">' + escapeHtml(system.toUpperCase()) + '</span>' +
       '<span class="card-size">' + formatSize(sourceSize) + '</span>' +
     '</div>' +
     '<div class="card-filtering-msg">' +
@@ -1921,7 +1922,6 @@ var LogRenderer = {
       });
     }
   },
-
 
   renderScanSummary: function(data) {
     var logView = document.getElementById('view-log');
@@ -2376,7 +2376,7 @@ function renderPicker(title) {
   container.innerHTML =
     '<div class="picker-toolbar">' +
       '<button class="picker-back" onclick="closePicker()">&larr; Back</button>' +
-      '<span style="flex:1;text-align:center"><span class="picker-title">' + title + '</span> <span class="picker-stats" id="picker-stats"></span><span class="picker-saved" id="picker-saved-indicator"></span></span>' +
+      '<span style="flex:1;text-align:center"><span class="picker-title">' + escapeHtml(title) + '</span> <span class="picker-stats" id="picker-stats"></span><span class="picker-saved" id="picker-saved-indicator"></span></span>' +
       '<button class="picker-toggle" onclick="pickerInvert()">Invert</button>' +
       '<button class="picker-toggle" onclick="pickerReset()">Reset</button>' +
       '<button class="picker-toggle active" id="picker-excl-toggle" onclick="toggleExcluded()">Hide excluded</button>' +
@@ -2475,11 +2475,11 @@ function updatePickerTable() {
     var statusClass = rom.status === 'selected' ? 'selected' : 'excluded';
     html += '<tr class="' + rowClass + '">' +
       '<td><input type="checkbox"' + checked + ' onchange="pickerToggleRow(\'' + escapeHtml(rom.filename).replace(/'/g, "&#39;") + '\',this.checked)"></td>' +
-      (hasSystem ? '<td>' + (rom.system || '').toUpperCase() + '</td>' : '') +
+      (hasSystem ? '<td>' + escapeHtml((rom.system || '').toUpperCase()) + '</td>' : '') +
       '<td class="rom-fname">' + escapeHtml(rom.filename) + '</td>' +
       '<td class="rom-size-cell">' + formatSize(rom.size) + '</td>' +
       '<td class="rom-region-cell">' + escapeHtml(rom.region || '') + '</td>' +
-      '<td class="rom-status-cell ' + statusClass + '">' + rom.status + '</td>' +
+      '<td class="rom-status-cell ' + statusClass + '">' + escapeHtml(rom.status) + '</td>' +
       '<td class="rom-reason-cell">' + escapeHtml(rom.reason || '') + '</td>' +
     '</tr>';
   });

@@ -99,7 +99,7 @@ class Api:
         dat_dir = Path(self._config.advanced.dat_dir or './dat_files')
         if not dat_dir.is_absolute():
             dat_dir = runtime / dat_dir
-        if dat_dir.exists():
+        if dat_dir.exists() and any(dat_dir.glob('*.dat')):
             shutil.rmtree(dat_dir)
             deleted.append(f'{dat_dir.name}/ (DAT files)')
 
@@ -221,7 +221,10 @@ class Api:
                         creationflags=_sp.CREATE_NO_WINDOW,
                     )
                 finally:
-                    os.unlink(tmp)
+                    try:
+                        os.unlink(tmp)
+                    except OSError:
+                        pass
             elif _sys.platform == 'darwin':
                 _sp.run(['pbcopy'], input=text.encode('utf-8'),
                         timeout=10, check=True)
@@ -342,6 +345,8 @@ class Api:
         if self._running:
             return
         self._running = True
+        total_steps = 2
+        self._step_prefix = lambda n: f'[{n}/{total_steps}] '
         thread = threading.Thread(target=self._do_run, args=(False,), daemon=True)
         thread.start()
 
@@ -350,6 +355,8 @@ class Api:
         if self._running:
             return
         self._running = True
+        total_steps = 3
+        self._step_prefix = lambda n: f'[{n}/{total_steps}] '
         thread = threading.Thread(target=self._do_run, args=(True,), daemon=True)
         thread.start()
 
@@ -377,10 +384,8 @@ class Api:
 
             self._run_breakdowns = {}
             self._log_buffer = []
-            total_steps = 3 if commit else 2
-            self._step_prefix = lambda n: f'[{n}/{total_steps}] '
 
-            config = self._config
+            config = Config.from_dict(self._config.to_dict())
 
             # Import core modules
             from retro_refiner.network import (  # pylint: disable=import-outside-toplevel
@@ -663,7 +668,7 @@ class Api:
 
             _scan_state = {'last_logged': 0, 't0': time.monotonic()}
 
-            def _on_scan_progress(evt, state=_scan_state):
+            def _on_scan_progress(evt, state=_scan_state):  # pylint: disable=dangerous-default-value
                 msg = evt.message or ''
                 # Enrich progress events with timing
                 if evt.total > 0 and evt.current > 0:
@@ -1652,10 +1657,13 @@ class Api:
                                    display, format_size):
         """Download with aria2c RPC for real-time progress."""
         import subprocess as _sp  # pylint: disable=import-outside-toplevel
+        import sys  # pylint: disable=import-outside-toplevel
         import tempfile as _tmp  # pylint: disable=import-outside-toplevel
         from retro_refiner.downloader import (  # pylint: disable=import-outside-toplevel
-            Aria2cRPC, _SUBPROCESS_NO_WINDOW,
+            Aria2cRPC,
         )
+        _no_window = ({"creationflags": _sp.CREATE_NO_WINDOW}
+                      if sys.platform == 'win32' else {})
 
         total = len(downloads)
 
@@ -1670,7 +1678,8 @@ class Api:
                 tmp.write(f"  dir={dest_path.parent}\n")
                 tmp.write(f"  out={dest_path.name}\n")
 
-        rpc_port = 6800
+        import random  # pylint: disable=import-outside-toplevel
+        rpc_port = random.randint(16000, 32000)
         rpc_secret = 'retro'
         cmd = [
             'aria2c', '--enable-rpc',
@@ -1692,7 +1701,7 @@ class Api:
         try:
             proc = _sp.Popen(  # pylint: disable=consider-using-with
                 cmd, stdout=_sp.DEVNULL, stderr=_sp.DEVNULL,
-                **_SUBPROCESS_NO_WINDOW)
+                **_no_window)
 
             rpc = Aria2cRPC(port=rpc_port, secret=rpc_secret)
 
@@ -1744,8 +1753,12 @@ class Api:
 
                 time.sleep(0.5)
 
-        except Exception:  # pylint: disable=broad-except
-            pass
+        except Exception as exc:  # pylint: disable=broad-except
+            self._push_event('log', {
+                'text': f'  {display}: aria2c error: {exc}, '
+                        f'falling back to direct download\n',
+                'className': 'log-warning',
+            })
         finally:
             if proc and proc.poll() is None:
                 proc.terminate()
@@ -2318,8 +2331,7 @@ class Api:
                 f'window.handlePythonEvent({payload})'
             )
 
-    @staticmethod
-    def open_folder(path: str):
+    def open_folder(self, path: str):
         """Open a folder in the system file explorer."""
         import subprocess  # pylint: disable=import-outside-toplevel
         import sys as _sys  # pylint: disable=import-outside-toplevel
