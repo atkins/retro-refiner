@@ -1545,17 +1545,20 @@ class Api:
     def _download_batch(self, downloads, parallel, system):
         """Download files using best available tool with progress events."""
         from retro_refiner.downloader import (  # pylint: disable=import-outside-toplevel
-            get_download_tool, download_batch_with_aria2c,
-            download_batch_with_curl,
+            get_download_tool, download_batch_with_curl,
         )
+        from retro_refiner.network import format_size  # pylint: disable=import-outside-toplevel
 
         total = len(downloads)
         tool = get_download_tool()
         fail_count = 0
         display = _display_name(system)
 
-        if tool in ('aria2c', 'curl'):
-            # Chunk downloads for progress reporting
+        if tool == 'aria2c':
+            fail_count = self._download_with_aria2c_rpc(
+                downloads, parallel, display, format_size)
+        elif tool == 'curl':
+            # Chunk curl for progress updates
             chunk_size = max(parallel, 4)
             for start in range(0, total, chunk_size):
                 if not self._running:
@@ -1564,20 +1567,14 @@ class Api:
                 done = min(start + len(chunk), total)
                 self._push_event('progress', {
                     'phase': 'download',
-                    'message': f'{display}: downloading '
-                               f'{done}/{total}',
-                    'current': done,
-                    'total': total,
+                    'message': f'{display}: {done}/{total}',
+                    'current': done, 'total': total,
                 })
-                if tool == 'aria2c':
-                    download_batch_with_aria2c(
-                        chunk, parallel=parallel)
-                else:
-                    download_batch_with_curl(
-                        chunk, parallel=parallel)
-                # Count failures in this chunk
+                download_batch_with_curl(
+                    chunk, parallel=parallel)
                 for _url, dl_path in chunk:
-                    if not dl_path.exists() or dl_path.stat().st_size == 0:
+                    if (not dl_path.exists()
+                            or dl_path.stat().st_size == 0):
                         fail_count += 1
         else:
             # urllib fallback with per-file progress
@@ -1589,8 +1586,7 @@ class Api:
                 self._push_event('progress', {
                     'phase': 'download',
                     'message': f'{display}: {idx}/{total}',
-                    'current': idx,
-                    'total': total,
+                    'current': idx, 'total': total,
                 })
                 try:
                     req = urllib_req.Request(
@@ -1612,6 +1608,115 @@ class Api:
             'text': f'  {display}: downloaded {total - fail_count}'
                     f'/{total} files\n',
         })
+
+    def _download_with_aria2c_rpc(self, downloads, parallel,
+                                   display, format_size):
+        """Download with aria2c RPC for real-time progress."""
+        import subprocess as _sp  # pylint: disable=import-outside-toplevel
+        import tempfile as _tmp  # pylint: disable=import-outside-toplevel
+        from retro_refiner.downloader import (  # pylint: disable=import-outside-toplevel
+            Aria2cRPC, _SUBPROCESS_NO_WINDOW,
+        )
+
+        total = len(downloads)
+
+        # Write aria2c input file
+        with _tmp.NamedTemporaryFile(
+                mode='w', suffix='.txt', delete=False,
+                encoding='utf-8') as tmp:
+            input_file = tmp.name
+            for url, dest_path in downloads:
+                dest_path.parent.mkdir(parents=True, exist_ok=True)
+                tmp.write(f"{url}\n")
+                tmp.write(f"  dir={dest_path.parent}\n")
+                tmp.write(f"  out={dest_path.name}\n")
+
+        rpc_port = 6800
+        rpc_secret = 'retro'
+        cmd = [
+            'aria2c', '--enable-rpc',
+            f'--rpc-listen-port={rpc_port}',
+            f'--rpc-secret={rpc_secret}',
+            '--rpc-listen-all=false',
+            '-q', '--console-log-level=error',
+            '-j', str(parallel),
+            '-x', str(min(parallel, 8)),
+            '-s', str(min(parallel, 8)),
+            '--connect-timeout=30', '--timeout=60',
+            '--max-tries=3', '--retry-wait=5',
+            '--file-allocation=none',
+            '-i', input_file,
+        ]
+
+        fail_count = 0
+        proc = None
+        try:
+            proc = _sp.Popen(  # pylint: disable=consider-using-with
+                cmd, stdout=_sp.DEVNULL, stderr=_sp.DEVNULL,
+                **_SUBPROCESS_NO_WINDOW)
+
+            rpc = Aria2cRPC(port=rpc_port, secret=rpc_secret)
+
+            # Wait for RPC to become available
+            for _ in range(30):
+                if rpc.get_global_stat() is not None:
+                    break
+                time.sleep(0.1)
+
+            # Poll for progress
+            last_completed = 0
+            while self._running:
+                if proc.poll() is not None:
+                    break
+
+                stat = rpc.get_global_stat()
+                if not stat:
+                    time.sleep(0.3)
+                    continue
+
+                active = int(stat.get('numActive', 0))
+                waiting = int(stat.get('numWaiting', 0))
+                stopped = int(stat.get('numStopped', 0))
+                speed = int(stat.get('downloadSpeed', 0))
+                completed = stopped
+
+                if completed != last_completed or active > 0:
+                    last_completed = completed
+                    speed_str = format_size(speed) + '/s'
+                    msg = (f'{display}: {completed}/{total} '
+                           f'({active} active, {speed_str})')
+                    self._push_event('progress', {
+                        'phase': 'download',
+                        'message': msg,
+                        'current': completed,
+                        'total': total,
+                    })
+
+                if active == 0 and waiting == 0:
+                    break
+
+                time.sleep(0.5)
+
+        except Exception:  # pylint: disable=broad-except
+            pass
+        finally:
+            if proc and proc.poll() is None:
+                proc.terminate()
+                try:
+                    proc.wait(timeout=5)
+                except _sp.TimeoutExpired:
+                    proc.kill()
+            try:
+                Path(input_file).unlink()
+            except OSError:
+                pass
+
+        # Count failures
+        for _url, dl_path in downloads:
+            if not dl_path.exists() or dl_path.stat().st_size == 0:
+                fail_count += 1
+
+        return fail_count
 
     def _url_to_filename(self, url):
         """Extract filename from URL."""
