@@ -240,7 +240,7 @@ class Api:
         # Output
         out = self._config.output
         out.playlists = ui.get('playlists', False)
-        out.gamelist = ui.get('gamelists', False)
+        out.gamelist = ui.get('gamelists') or None
         out.flat = ui.get('flatten', False)
         lfa = ui.get('local_file_action',
                      ui.get('transfer_mode', 'copy'))
@@ -438,18 +438,25 @@ class Api:
                                 generate_m3u_playlist(
                                     system, rom_files, sys_dir)
 
-                if config.output.gamelist and self._running:
+                gl_dir = config.output.gamelist
+                if gl_dir and self._running:
+                    gl_path = Path(gl_dir)
+                    gl_path.mkdir(parents=True, exist_ok=True)
                     self._push_event('log', {
-                        'text': 'Generating gamelists...\n',
+                        'text': f'Generating EmulationStation gamelists '
+                                f'in {gl_dir}...\n',
                     })
                     for system in sorted(all_systems):
                         sys_dir = (dest_dir / system
                                    if not config.output.flat else dest_dir)
                         if sys_dir.exists():
-                            rom_files = list(sys_dir.iterdir())
+                            rom_files = [f for f in sys_dir.iterdir()
+                                         if f.is_file()]
                             if rom_files:
+                                out_dir = gl_path / system
+                                out_dir.mkdir(parents=True, exist_ok=True)
                                 generate_gamelist_xml(
-                                    system, rom_files, sys_dir)
+                                    system, rom_files, out_dir)
 
                 ra_dir = config.output.retroarch_playlists
                 if ra_dir and self._running:

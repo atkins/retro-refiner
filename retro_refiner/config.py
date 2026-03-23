@@ -250,7 +250,7 @@ class OutputConfig:
     local_file_action: str = 'copy'
     flat: bool = False
     playlists: bool = False
-    gamelist: bool = False
+    gamelist: Optional[str] = None
     retroarch_playlists: Optional[str] = None
     prefer_source: Optional[str] = None
     print_roms: bool = False
@@ -362,6 +362,11 @@ class Config:
                         if tm == 'delete-dupes':
                             tm = 'remove'
                         value['local_file_action'] = tm
+                # Legacy: gamelist was bool, now Optional[str]
+                if key == 'output' and 'gamelist' in value:
+                    gl = value['gamelist']
+                    if isinstance(gl, bool):
+                        value['gamelist'] = None
                 # Only pass keys that are valid fields
                 valid = {k: v for k, v in value.items()
                          if k in {f.name for f in

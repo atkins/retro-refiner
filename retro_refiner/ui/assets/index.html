@@ -768,12 +768,18 @@
       <div class="section-body hidden">
         <div class="check-grid">
           <label title="Generate M3U playlists for multi-disc games (e.g. Final Fantasy VII Disc 1-3 → one .m3u file)"><input type="checkbox" id="opt-playlists"> Create multi-disc M3U</label>
-          <label title="Generate EmulationStation gamelist.xml files"><input type="checkbox" id="opt-gamelists"> Gamelists</label>
           <label title="Put all ROMs in one folder instead of per-system subfolders"><input type="checkbox" id="opt-flatten"> Flatten output</label>
+        </div>
+        <div class="field-label">EmulationStation gamelists dir</div>
+        <input type="hidden" id="opt-gamelists">
+        <div class="path-picker" onclick="browsePathPicker('opt-gamelists', 'opt-gamelists-display')" title="Generate gamelist.xml files in this directory (one per system)">
+          <span class="path-icon">&#x1F4C1;</span>
+          <span class="path-text" id="opt-gamelists-display">Select folder...</span>
+          <span class="path-clear" aria-label="Clear gamelists path" onclick="event.stopPropagation(); clearPathPicker('opt-gamelists', 'opt-gamelists-display', 'Select folder...')">&#xD7;</span>
         </div>
         <div class="field-label">RetroArch playlists dir</div>
         <input type="hidden" id="opt-retroarch-playlists">
-        <div class="path-picker" onclick="browsePathPicker('opt-retroarch-playlists', 'opt-retroarch-playlists-display')" title="Path to RetroArch playlists directory">
+        <div class="path-picker" onclick="browsePathPicker('opt-retroarch-playlists', 'opt-retroarch-playlists-display')" title="Generate .lpl playlist files in this directory (one per system)">
           <span class="path-icon">&#x1F4C1;</span>
           <span class="path-text" id="opt-retroarch-playlists-display">Select folder...</span>
           <span class="path-clear" aria-label="Clear playlists path" onclick="event.stopPropagation(); clearPathPicker('opt-retroarch-playlists', 'opt-retroarch-playlists-display', 'Select folder...')">&#xD7;</span>
@@ -1388,7 +1394,7 @@ function restoreUiState(cfg) {
 
   /* Output */
   document.getElementById('opt-playlists').checked = !!out.playlists;
-  document.getElementById('opt-gamelists').checked = !!out.gamelist;
+  if (out.gamelist) setPathPicker('opt-gamelists', 'opt-gamelists-display', out.gamelist);
   document.getElementById('opt-flatten').checked = !!out.flat;
   document.getElementById('opt-transfer').value = out.local_file_action || out.transfer_mode || 'copy';
   document.getElementById('opt-validate-dest').checked = out.validate_destination !== false;
@@ -1481,7 +1487,7 @@ function gatherUiState() {
     auto_tune: document.getElementById('opt-auto-tune').checked,
     /* Output */
     playlists: document.getElementById('opt-playlists').checked,
-    gamelists: document.getElementById('opt-gamelists').checked,
+    gamelists: document.getElementById('opt-gamelists').value || '',
     flatten: document.getElementById('opt-flatten').checked,
     validate_destination: document.getElementById('opt-validate-dest').checked,
     clean_destination: document.getElementById('opt-clean-dest').checked,
