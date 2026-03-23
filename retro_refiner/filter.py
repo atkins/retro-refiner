@@ -20,7 +20,7 @@ from retro_refiner.dat import (
     load_crc_cache,
     save_crc_cache,
 )
-from retro_refiner.models import FilterResult, FilterStats
+from retro_refiner.models import ExcludedRom, FilterResult, FilterStats
 from retro_refiner.network import format_size, get_filename_from_url
 
 
@@ -517,6 +517,8 @@ def filter_network_roms(system, urls, config, url_sizes=None,
     url_map: Dict[str, str] = {}
     size_map: Dict[str, int] = {}
     total_source_size = 0
+    breakdown: Dict[str, int] = defaultdict(int)
+    excluded_list: List[ExcludedRom] = []
 
     for url in urls:
         filename = get_filename_from_url(url)
@@ -524,25 +526,53 @@ def filter_network_roms(system, urls, config, url_sizes=None,
         if not no_filter:
             if (sel.include_patterns
                     and not matches_patterns(filename, sel.include_patterns)):
+                breakdown['include pattern'] += 1
+                excluded_list.append(ExcludedRom(
+                    filename=filename, reason='include pattern',
+                    size=url_sizes.get(url, 0)))
                 continue
             if (sel.exclude_patterns
                     and matches_patterns(filename, sel.exclude_patterns)):
+                breakdown['exclude pattern'] += 1
+                excluded_list.append(ExcludedRom(
+                    filename=filename, reason='exclude pattern',
+                    size=url_sizes.get(url, 0)))
                 continue
 
         rom_info = parse_rom_filename(filename)
 
         if not no_filter:
             if rom_info.is_proto and sel.exclude_protos:
+                breakdown['prototype'] += 1
+                excluded_list.append(ExcludedRom(
+                    filename=filename, reason='prototype',
+                    size=url_sizes.get(url, 0)))
                 continue
             if rom_info.is_beta and not sel.include_betas:
+                breakdown['beta'] += 1
+                excluded_list.append(ExcludedRom(
+                    filename=filename, reason='beta',
+                    size=url_sizes.get(url, 0)))
                 continue
             if rom_info.is_unlicensed and not sel.include_unlicensed:
+                breakdown['unlicensed'] += 1
+                excluded_list.append(ExcludedRom(
+                    filename=filename, reason='unlicensed',
+                    size=url_sizes.get(url, 0)))
                 continue
 
             if rom_info.year > 0:
                 if sel.year_from and rom_info.year < sel.year_from:
+                    breakdown['year range'] += 1
+                    excluded_list.append(ExcludedRom(
+                        filename=filename, reason='year range',
+                        size=url_sizes.get(url, 0)))
                     continue
                 if sel.year_to and rom_info.year > sel.year_to:
+                    breakdown['year range'] += 1
+                    excluded_list.append(ExcludedRom(
+                        filename=filename, reason='year range',
+                        size=url_sizes.get(url, 0)))
                     continue
 
         all_roms.append(rom_info)
@@ -618,6 +648,24 @@ def filter_network_roms(system, urls, config, url_sizes=None,
             else:
                 selected_urls = []
 
+    # Track post-selection exclusions (1G1R duplicates, english-only)
+    selected_url_set = set(selected_urls)
+    for rom in all_roms:
+        url = url_map.get(rom.filename)
+        if url and url not in selected_url_set:
+            if sel.english_only and not rom.is_english:
+                reason = 'non-english'
+            else:
+                reason = 'duplicate version'
+            breakdown[reason] += 1
+            excluded_list.append(ExcludedRom(
+                filename=rom.filename, reason=reason,
+                size=size_map.get(rom.filename, 0)))
+
+    # Count DAT matches
+    dat_matched = sum(1 for rom in all_roms
+                      if Path(rom.filename).stem.lower() in dat_name_lookup)
+
     selected_size = sum(
         size_map.get(get_filename_from_url(u), 0) for u in selected_urls)
 
@@ -627,9 +675,13 @@ def filter_network_roms(system, urls, config, url_sizes=None,
         excluded_count=len(urls) - len(selected_urls),
         source_size=total_source_size,
         selected_size=selected_size,
+        dat_matched=dat_matched,
+        filter_breakdown=dict(breakdown),
     )
 
-    result = FilterResult(system=system, selected=selected_urls, stats=stats)
+    result = FilterResult(
+        system=system, selected=selected_urls,
+        excluded=excluded_list[:500], stats=stats)
     result.size_info = {
         'source_size': total_source_size,
         'selected_size': selected_size,

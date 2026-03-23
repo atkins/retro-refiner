@@ -427,6 +427,10 @@
   .log-view .log-audit-toggle:hover { opacity: 0.8; }
   .log-view .log-audit-list { display: none; white-space: pre; color: var(--text-muted); max-height: 300px; overflow-y: auto; font-size: 10px; padding-left: 2ch; border-left: 1px solid var(--border-subtle); margin-left: 2ch; }
   .log-view .log-audit-list.expanded { display: block; }
+  .log-view .log-verbose-line { color: var(--text-muted); }
+  .log-view .log-scan-summary { white-space: pre; color: var(--text-heading); margin: 0.5em 0; }
+  .log-view .log-fanfare-section { white-space: pre; color: var(--text-muted); margin: 0.2em 0; }
+  .log-view .log-fanfare-section .section-header { color: var(--text-heading); }
 
   /* Results view */
   .results-view { height: 100%; overflow-y: auto; padding: 16px; }
@@ -1133,6 +1137,10 @@ function renderSystemPills() {
   var excluded = systems.filter(function(s) { return !systemPillState[s]; });
   document.getElementById('opt-systems').value = included.length < systems.length ? included.join(',') : '';
   document.getElementById('opt-exclude-systems').value = excluded.length > 0 ? excluded.join(',') : '';
+  /* Show "Include adult" only when arcade systems are active */
+  var arcadeSystems = ['mame', 'fbneo', 'fba', 'arcade'];
+  var hasArcade = arcadeSystems.some(function(s) { return systemPillState[s]; });
+  document.getElementById('opt-no-adult').parentElement.style.display = hasArcade ? '' : 'none';
 }
 
 function toggleAllPills(state) {
@@ -1781,6 +1789,7 @@ var LogRenderer = {
 
   handle: function(event) {
     switch (event.type) {
+      case 'scan-summary':    this.renderScanSummary(event.data); return true;
       case 'system-start':    this.renderSystemStart(event.data); return true;
       case 'filter-tick':     this.renderFilterTick(event.data); return true;
       case 'system-complete': this.renderSystemComplete(event.data); return true;
@@ -1803,6 +1812,64 @@ var LogRenderer = {
         LogRenderer._scrollPending = false;
       });
     }
+  },
+
+  _formatSize: function(bytes) {
+    if (bytes == null || bytes < 0) return '0 B';
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+    if (bytes < 1024 * 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+    return (bytes / (1024 * 1024 * 1024)).toFixed(1) + ' GB';
+  },
+
+  renderScanSummary: function(data) {
+    var logView = document.getElementById('view-log');
+    var container = document.createElement('div');
+    container.className = 'log-scan-summary';
+
+    var bw = 56;
+    var tl = '\u250C', tr = '\u2510', bl = '\u2514', br = '\u2518';
+    var hc = '\u2500', vc = '\u2502';
+
+    function pad(s, w) { s = String(s); return s + ' '.repeat(Math.max(0, w - s.length)); }
+    function padLine(c) { return vc + ' ' + pad(c, bw - 4) + ' ' + vc; }
+
+    var lines = [];
+    lines.push(tl + hc.repeat(bw - 2) + tr);
+
+    var topLine = 'Sources: ' + (data.total_sources || 0) +
+      '  ' + vc + '  Systems: ' + (data.total_systems || 0) +
+      '  ' + vc + '  ROMs: ' + (data.total_roms || 0).toLocaleString();
+    lines.push(padLine(topLine));
+
+    var netCount = data.network_count || 0;
+    var localCount = data.local_count || 0;
+    if (netCount > 0 || localCount > 0) {
+      lines.push(padLine('Network: ' + netCount.toLocaleString() + '  Local: ' + localCount.toLocaleString()));
+    }
+
+    lines.push(bl + hc.repeat(bw - 2) + br);
+
+    var boxEl = document.createElement('div');
+    boxEl.textContent = lines.join('\n');
+    container.appendChild(boxEl);
+
+    if (data.sources && data.sources.length > 0) {
+      var self = this;
+      data.sources.forEach(function(src) {
+        var srcLine = document.createElement('div');
+        srcLine.className = 'log-verbose-line';
+        var text = '  \u251C\u2500 ' + (src.name || src.url || 'source');
+        if (src.systems !== undefined) text += ' \u2502 ' + src.systems + ' systems';
+        if (src.roms !== undefined) text += ' \u2502 ' + src.roms.toLocaleString() + ' ROMs';
+        if (src.cached) text += ' (cached)';
+        srcLine.textContent = text;
+        container.appendChild(srcLine);
+      });
+    }
+
+    logView.appendChild(container);
+    this._scrollLog();
   },
 
   renderSystemStart: function(data) {
@@ -1879,6 +1946,60 @@ var LogRenderer = {
       container.appendChild(bdLine);
     }
 
+    var self = this;
+    function addTreeLine(cont, text) {
+      var el = document.createElement('div');
+      el.className = 'log-verbose-line';
+      el.textContent = '  \u251C\u2500 ' + text;
+      cont.appendChild(el);
+    }
+
+    var vs = data.verbose_stats;
+    if (vs) {
+      if (vs.net_count !== undefined) {
+        addTreeLine(container, 'sources: ' + vs.net_count + ' network + ' + vs.local_count + ' local');
+      }
+      if (vs.regions) {
+        var regParts = Object.entries(vs.regions).sort(function(a, b) { return b[1] - a[1]; }).map(function(r) { return r[0] + ' (' + r[1] + ')'; });
+        addTreeLine(container, 'regions: ' + regParts.join(', '));
+      }
+      if (vs.formats) {
+        var fmtParts = Object.entries(vs.formats).sort(function(a, b) { return b[1] - a[1]; }).map(function(r) { return r[0] + ' (' + r[1] + ')'; });
+        addTreeLine(container, 'formats: ' + fmtParts.join(', '));
+      }
+      if (vs.year_range) {
+        var yearText = 'years: ' + vs.year_range[0] + '\u2013' + vs.year_range[1];
+        if (vs.peak_year) yearText += ' \u00B7 peak: ' + vs.peak_year.year + ' (' + vs.peak_year.count + ' titles)';
+        addTreeLine(container, yearText);
+      }
+      if (vs.sizes) {
+        var szText = 'size: avg ' + self._formatSize(vs.sizes.avg) +
+          ' \u00B7 median ' + self._formatSize(vs.sizes.median) +
+          ' \u00B7 range ' + self._formatSize(vs.sizes.min) + '\u2013' + self._formatSize(vs.sizes.max);
+        addTreeLine(container, szText);
+        if (vs.sizes.largest) {
+          addTreeLine(container, 'largest: ' + vs.sizes.largest.name + ' (' + self._formatSize(vs.sizes.largest.size) + ')');
+        }
+        if (vs.sizes.smallest) {
+          addTreeLine(container, 'smallest: ' + vs.sizes.smallest.name + ' (' + self._formatSize(vs.sizes.smallest.size) + ')');
+        }
+      }
+      if (vs.translation_count && vs.translation_count > 0) {
+        addTreeLine(container, 'fan translations: ' + vs.translation_count);
+      }
+      if (vs.multi_disc_count && vs.multi_disc_count > 0) {
+        addTreeLine(container, 'multi-disc: ' + vs.multi_disc_count);
+      }
+      if (vs.revision_counts && Object.keys(vs.revision_counts).length > 0) {
+        var revParts = Object.entries(vs.revision_counts).map(function(r) { return r[0] + ': ' + r[1]; });
+        addTreeLine(container, 'revisions selected: ' + revParts.join(', '));
+      }
+    }
+    if (data.dat_matched) {
+      addTreeLine(container, 'DAT matched: ' + data.dat_matched.matched + '/' + data.dat_matched.total +
+        ' (' + data.dat_matched.pct + '%)');
+    }
+
     var sumLine = document.createElement('div');
     sumLine.className = 'summary-line';
     sumLine.textContent = '  \u2514\u2500 ' + summaryText;
@@ -1942,8 +2063,22 @@ var LogRenderer = {
       padLine('Systems    ' + pad(data.systems.toLocaleString(), 10) + 'Selected  ' + data.selected.toLocaleString()),
       padLine('Excluded   ' + pad(data.excluded.toLocaleString(), 10) + 'Size      ' + data.total_size),
       padLine('Elapsed    ' + data.elapsed),
-      padLine(''),
     ];
+
+    if (data.throughput) {
+      var thrText = 'Throughput ' + pad(data.throughput + ' ROMs/sec', 10);
+      if (data.space_saved) {
+        thrText = pad(thrText, 24) + 'Saved     ' + data.space_saved.amount;
+        if (data.space_saved.pct) thrText += ' (' + data.space_saved.pct + '% reduction)';
+      }
+      statsArr.push(padLine(thrText));
+    } else if (data.space_saved) {
+      var savedText = 'Saved      ' + data.space_saved.amount;
+      if (data.space_saved.pct) savedText += ' (' + data.space_saved.pct + '% reduction)';
+      statsArr.push(padLine(savedText));
+    }
+
+    statsArr.push(padLine(''));
 
     var sepText = hc.repeat(bw + 4);
     var fullBox = topBar + '\n' + titleLine + '\n' + midBar + '\n' + statsArr.join('\n') + '\n' + botBar;
@@ -1962,6 +2097,62 @@ var LogRenderer = {
       tidbitEl.textContent = '        ' + t;
       container.appendChild(tidbitEl);
     });
+
+    if (data.decade_breakdown) {
+      var decSection = document.createElement('div');
+      decSection.className = 'log-fanfare-section';
+      var decHeader = document.createElement('span');
+      decHeader.className = 'section-header';
+      decHeader.textContent = '        Decades  ';
+      decSection.appendChild(decHeader);
+      var decParts = Object.entries(data.decade_breakdown).sort(function(a, b) { return a[0].localeCompare(b[0]); });
+      var decText = decParts.map(function(d) { return d[0] + ': ' + d[1]; }).join('  ');
+      var decSpan = document.createElement('span');
+      decSpan.textContent = decText;
+      decSection.appendChild(decSpan);
+      container.appendChild(decSection);
+    }
+
+    if (data.system_rankings && data.system_rankings.length > 0) {
+      var sysHeader = document.createElement('div');
+      sysHeader.className = 'log-fanfare-section';
+      var sysHSpan = document.createElement('span');
+      sysHSpan.className = 'section-header';
+      sysHSpan.textContent = '        Top Systems by Size';
+      sysHeader.appendChild(sysHSpan);
+      container.appendChild(sysHeader);
+      data.system_rankings.forEach(function(sys) {
+        var sysLine = document.createElement('div');
+        sysLine.className = 'log-fanfare-section';
+        sysLine.textContent = '          ' + sys.name + ': ' + sys.size + ' (' + sys.count + ' ROMs)';
+        container.appendChild(sysLine);
+      });
+    }
+
+    if (data.filter_impact && data.filter_impact.length > 0) {
+      var filtHeader = document.createElement('div');
+      filtHeader.className = 'log-fanfare-section';
+      var filtHSpan = document.createElement('span');
+      filtHSpan.className = 'section-header';
+      filtHSpan.textContent = '        Filter Impact';
+      filtHeader.appendChild(filtHSpan);
+      container.appendChild(filtHeader);
+      data.filter_impact.forEach(function(f) {
+        var fLine = document.createElement('div');
+        fLine.className = 'log-fanfare-section';
+        fLine.textContent = '          ' + f.name + ': ' + f.removed.toLocaleString() + ' removed';
+        container.appendChild(fLine);
+      });
+    }
+
+    if (data.notable_finds && data.notable_finds.length > 0) {
+      data.notable_finds.forEach(function(nf) {
+        var nfEl = document.createElement('div');
+        nfEl.textContent = '        ' + nf;
+        container.appendChild(nfEl);
+      });
+    }
+
     var sep2 = document.createElement('div');
     sep2.className = 'fanfare-border';
     sep2.textContent = sepText + '\n';

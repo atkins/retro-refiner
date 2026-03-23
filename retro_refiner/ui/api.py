@@ -1,10 +1,13 @@
 """Python API exposed to JavaScript via pywebview."""
 
 import json
+import re
 import threading
 import time
 import urllib.parse
+from collections import Counter
 from pathlib import Path
+from statistics import median
 
 import webview
 
@@ -37,6 +40,7 @@ class Api:
         self._last_results = {}  # system -> {urls, sizes, local_files}
         self._manual_selections = {}  # system -> {filename: bool}
         self._picker_state = {}  # system -> list of rom dicts
+        self._run_breakdowns = {}  # system -> filter_breakdown dict
 
     def set_window(self, window):
         """Store a reference to the pywebview window."""
@@ -307,6 +311,7 @@ class Api:
             })
             run_start = time.monotonic()
 
+            self._run_breakdowns = {}
 
             config = self._config
 
@@ -357,6 +362,7 @@ class Api:
             total_excluded = 0
             total_size = 0
             total_source = 0
+            total_source_size = 0
 
             for system in sorted(all_systems):
                 if not self._running:
@@ -369,6 +375,7 @@ class Api:
                 total_excluded += counts[1]
                 total_size += counts[2]
                 total_source += counts[3]
+                total_source_size += counts[4]
 
             # ----- Budget filters: --limit, --top, --size -----
             if self._running:
@@ -439,7 +446,8 @@ class Api:
 
             self._compute_fanfare(
                 config, total_selected, total_excluded,
-                total_size, run_start, all_systems, format_size)
+                total_size, run_start, all_systems, format_size,
+                total_source_size)
 
             label = 'Commit' if commit else 'Preview'
             self._push_event('status', {
@@ -501,6 +509,7 @@ class Api:
         """
         all_urls = {}   # system -> [urls]
         all_sizes = {}  # url -> size
+        per_source_stats = []
 
         for net_url in network_sources:
             if not self._running:
@@ -517,6 +526,16 @@ class Api:
                 systems_filter = [s for s in systems_filter
                                   if s not in exclude]
 
+            scan_t0 = time.monotonic()
+            used_cache = False
+
+            # Check cache to detect cache hit before scanning
+            if cache_dir and not config.advanced.no_cache:
+                from retro_refiner.scanner import load_scan_cache  # pylint: disable=import-outside-toplevel
+                cached = load_scan_cache(cache_dir, net_url)
+                if cached:
+                    used_cache = True
+
             result = scan_network_source(
                 net_url, systems_filter,
                 cache_dir=cache_dir,
@@ -527,6 +546,19 @@ class Api:
                     'current': evt.current, 'total': evt.total,
                 }),
             )
+
+            src_rom_count = sum(len(u) for u in result.url_dict.values())
+            src_total_size = sum(result.url_sizes.values())
+            per_source_stats.append({
+                'url': net_url,
+                'type': 'network',
+                'systems_found': len(result.url_dict),
+                'rom_count': src_rom_count,
+                'total_size': src_total_size,
+                'cached': used_cache,
+                'elapsed_ms': int(
+                    (time.monotonic() - scan_t0) * 1000),
+            })
 
             for system, urls in result.url_dict.items():
                 all_urls.setdefault(system, []).extend(urls)
@@ -545,6 +577,7 @@ class Api:
                 src_opts = ss.get(src_key, {})
                 recursive = src_opts.get('recursive', False)
                 depth = config.advanced.max_depth or 3
+                scan_t0 = time.monotonic()
                 result = scan_local_sources(
                     [src_path],
                     recursive=recursive,
@@ -558,6 +591,23 @@ class Api:
                             'total': evt.total,
                         }),
                 )
+                src_rom_count = sum(len(f) for f in result.values())
+                src_total_size = 0
+                for files in result.values():
+                    for fpath in files:
+                        try:
+                            src_total_size += Path(fpath).stat().st_size
+                        except OSError:
+                            pass
+                per_source_stats.append({
+                    'path': src_key,
+                    'type': 'local',
+                    'systems_found': len(result),
+                    'rom_count': src_rom_count,
+                    'total_size': src_total_size,
+                    'elapsed_ms': int(
+                        (time.monotonic() - scan_t0) * 1000),
+                })
                 for sys_code, files in result.items():
                     local_systems.setdefault(
                         sys_code, []).extend(files)
@@ -600,6 +650,18 @@ class Api:
             'className': 'log-success',
         })
 
+        network_rom_count = sum(
+            len(urls) for urls in all_urls.values())
+        local_rom_count = sum(
+            len(files) for files in local_systems.values())
+        self._push_event('scan-summary', {
+            'sources': per_source_stats,
+            'total_systems': len(all_systems),
+            'total_roms': network_rom_count + local_rom_count,
+            'network_count': network_rom_count,
+            'local_count': local_rom_count,
+        })
+
         return all_urls, all_sizes, local_systems, all_systems
 
     def _filter_system(self, system, urls, local_files,
@@ -607,7 +669,7 @@ class Api:
         """Filter ROMs for a single system.
 
         Returns (selected_count, excluded_count, selected_size,
-        source_count) tuple.
+        source_count, source_size) tuple.
         """
         source_count = len(urls) + len(local_files)
 
@@ -836,6 +898,9 @@ class Api:
                     'name': exc_rom.filename,
                     'reason': exc_rom.reason,
                 })
+
+        verbose_stats = self._compute_system_stats(
+            selected_urls, selected_local, all_sizes, system)
         self._push_event('system-complete', {
             'system': system,
             'display_name': display_name,
@@ -846,7 +911,12 @@ class Api:
             'breakdown': filter_breakdown,
             'elapsed_ms': elapsed_ms,
             'excluded_roms': excluded_roms,
+            'verbose_stats': verbose_stats,
         })
+
+        # Store breakdown for fanfare aggregation
+        if hasattr(self, '_run_breakdowns'):
+            self._run_breakdowns[system] = filter_breakdown
 
         # Store selected URLs/files for commit mode
         if system in self._last_results:
@@ -854,10 +924,122 @@ class Api:
             self._last_results[system]['selected_local'] = [
                 str(f) for f in selected_local]
 
-        return selected_count, excluded_count, selected_size, source_count
+        return (selected_count, excluded_count, selected_size,
+                source_count, sys_size)
+
+    def _compute_system_stats(self, selected_urls, selected_local,
+                              url_sizes, system):
+        """Compute detailed per-system statistics from selected ROMs."""
+        from retro_refiner.filter import parse_rom_filename  # pylint: disable=import-outside-toplevel
+        from retro_refiner.network import get_filename_from_url  # pylint: disable=import-outside-toplevel
+
+        re_lang = re.compile(r'\(([A-Z][a-z](?:,[A-Z][a-z])*)\)')
+        parsed = []
+        file_sizes = {}  # filename -> size
+
+        for url in selected_urls:
+            fname = get_filename_from_url(url)
+            file_sizes[fname] = url_sizes.get(url, 0)
+            try:
+                parsed.append(parse_rom_filename(fname))
+            except Exception:  # pylint: disable=broad-except
+                pass
+
+        for fpath in selected_local:
+            p_file = Path(fpath)
+            fname = p_file.name
+            try:
+                file_sizes[fname] = p_file.stat().st_size
+            except OSError:
+                file_sizes[fname] = 0
+            try:
+                parsed.append(parse_rom_filename(fname))
+            except Exception:  # pylint: disable=broad-except
+                pass
+
+        regions = dict(Counter(r.region for r in parsed if r.region))
+        years_list = [r.year for r in parsed if r.year > 0]
+        years = dict(Counter(years_list))
+        peak_year = Counter(years_list).most_common(1)[0][0] if years_list else 0
+        year_range = ([min(years_list), max(years_list)]
+                      if years_list else [0, 0])
+        formats = dict(Counter(
+            Path(r.filename).suffix.lower() for r in parsed
+            if Path(r.filename).suffix))
+
+        # Size stats
+        sizes_list = [file_sizes.get(r.filename, 0) for r in parsed]
+        if sizes_list:
+            sorted_sizes = sorted(
+                ((r.filename, file_sizes.get(r.filename, 0))
+                 for r in parsed),
+                key=lambda x: x[1])
+            smallest = sorted_sizes[0]
+            largest = sorted_sizes[-1]
+            avg_size = sum(sizes_list) // max(len(sizes_list), 1)
+            median_size = int(median(sizes_list))
+        else:
+            smallest = ('', 0)
+            largest = ('', 0)
+            avg_size = 0
+            median_size = 0
+
+        # Size histogram
+        histogram = {
+            '< 1 MB': 0, '1-10 MB': 0, '10-100 MB': 0,
+            '100 MB - 1 GB': 0, '> 1 GB': 0,
+        }
+        mb_1 = 1024 * 1024
+        for sz in sizes_list:
+            if sz < mb_1:
+                histogram['< 1 MB'] += 1
+            elif sz < 10 * mb_1:
+                histogram['1-10 MB'] += 1
+            elif sz < 100 * mb_1:
+                histogram['10-100 MB'] += 1
+            elif sz < 1024 * mb_1:
+                histogram['100 MB - 1 GB'] += 1
+            else:
+                histogram['> 1 GB'] += 1
+
+        # Language extraction from filenames
+        languages = Counter()
+        for rom in parsed:
+            lang_match = re_lang.search(rom.filename)
+            if lang_match:
+                for lang in lang_match.group(1).split(','):
+                    languages[lang] += 1
+            elif rom.is_english:
+                languages['En'] += 1
+
+        return {
+            'system': system,
+            'net_count': len(selected_urls),
+            'local_count': len(selected_local),
+            'regions': regions,
+            'years': years,
+            'peak_year': peak_year,
+            'year_range': year_range,
+            'formats': formats,
+            'sizes': {
+                'largest': list(largest),
+                'smallest': list(smallest),
+                'avg': avg_size,
+                'median': median_size,
+                'histogram': histogram,
+            },
+            'translation_count': sum(
+                1 for r in parsed if r.is_translation),
+            'multi_disc_count': sum(
+                1 for r in parsed if r.disc_number > 1),
+            'languages': dict(languages),
+            'revision_counts': dict(Counter(
+                r.revision for r in parsed if r.revision > 0)),
+        }
 
     def _compute_fanfare(self, _config, total_selected, total_excluded,
-                         total_size, run_start, all_systems, format_size):
+                         total_size, run_start, all_systems, format_size,
+                         total_source_size=0):
         """Compute and emit fanfare statistics from the run results."""
         total_systems = len(all_systems)
         elapsed_secs = time.monotonic() - run_start
@@ -868,22 +1050,41 @@ class Api:
         from retro_refiner.network import get_filename_from_url  # pylint: disable=import-outside-toplevel
         tidbits = []
         all_roms = []
-        for sys_data in self._last_results.values():
+        rom_file_sizes = {}  # filename -> size
+        for _sys_code, sys_data in self._last_results.items():
+            sys_sizes = sys_data.get('sizes', {})
             for url in sys_data.get('selected_urls', []):
                 fname = get_filename_from_url(url)
+                rom_file_sizes[fname] = sys_sizes.get(url, 0)
                 try:
                     all_roms.append(parse_rom_filename(fname))
                 except Exception:  # pylint: disable=broad-except
                     pass
             for fpath in sys_data.get('selected_local', []):
+                p_file = Path(fpath)
                 try:
-                    all_roms.append(
-                        parse_rom_filename(Path(fpath).name))
+                    rom_file_sizes[p_file.name] = p_file.stat().st_size
+                except OSError:
+                    rom_file_sizes[p_file.name] = 0
+                try:
+                    all_roms.append(parse_rom_filename(p_file.name))
                 except Exception:  # pylint: disable=broad-except
                     pass
 
+        # Throughput
+        throughput = round(
+            total_selected / max(elapsed_secs, 0.1), 1)
+
+        # Space saved
+        space_saved = max(total_source_size - total_size, 0)
+
+        # Enriched stats computed from all_roms
+        top_series_list = []
+        decades_dict = {}
+        system_rankings = []
+        notable_finds = {}
+
         if all_roms:
-            from collections import Counter  # pylint: disable=import-outside-toplevel
             titles = [r.base_title for r in all_roms if r.base_title]
             series = Counter()
             for t in titles:
@@ -892,11 +1093,16 @@ class Api:
                 if len(words) > 1 and not words[1].isdigit():
                     key = ' '.join(words[:2])
                 series[key] += 1
-            top_series = series.most_common(1)
+            top_series = series.most_common(3)
+            top_series_list = [
+                {'name': s[0], 'count': s[1]}
+                for s in top_series if s[1] > 1]
             if top_series and top_series[0][1] > 1:
+                top3_parts = [
+                    f"{s[0]} ({s[1]})" for s in top_series
+                    if s[1] > 1]
                 tidbits.append(
-                    f"\u2655 Top series: {top_series[0][0]} "
-                    f"({top_series[0][1]} titles)")
+                    f"\u2655 Top series: {', '.join(top3_parts)}")
 
             regions = Counter(
                 r.region for r in all_roms if r.region)
@@ -919,6 +1125,7 @@ class Api:
             if len(years) > 5:
                 decades = Counter(
                     (y // 10) * 10 for y in years)
+                decades_dict = dict(decades)
                 peak = decades.most_common(1)[0]
                 tidbits.append(
                     f"\u266B Peak decade: {peak[0]}s "
@@ -947,6 +1154,57 @@ class Api:
                 tidbits.append(
                     f"\u2394 Avg ROM size: {format_size(avg)}")
 
+            # Notable finds
+            common_regions = {'USA', 'Europe', 'Japan', 'World',
+                              'Unknown'}
+            rare_regions = {
+                r.region for r in all_roms
+                if r.region and r.region not in common_regions}
+            if rare_regions:
+                notable_finds['rare_regions'] = sorted(rare_regions)
+
+            if rom_file_sizes:
+                sorted_by_size = sorted(
+                    rom_file_sizes.items(), key=lambda x: x[1])
+                notable_finds['smallest_rom'] = list(sorted_by_size[0])
+                notable_finds['largest_rom'] = list(sorted_by_size[-1])
+
+        # System rankings: size and selectivity per system
+        for sys_code in sorted(all_systems):
+            sys_data = self._last_results.get(sys_code, {})
+            sel_urls = sys_data.get('selected_urls', [])
+            sel_local = sys_data.get('selected_local', [])
+            all_urls_sys = sys_data.get('urls', [])
+            all_local_sys = sys_data.get('local_files', [])
+            total_sys = len(all_urls_sys) + len(all_local_sys)
+            selected_sys = len(sel_urls) + len(sel_local)
+            sys_sizes = sys_data.get('sizes', {})
+            sys_sel_size = sum(sys_sizes.get(u, 0) for u in sel_urls)
+            for fpath in sel_local:
+                try:
+                    sys_sel_size += Path(fpath).stat().st_size
+                except OSError:
+                    pass
+            selectivity = (round(selected_sys / max(total_sys, 1), 3)
+                           if total_sys else 0)
+            system_rankings.append({
+                'system': sys_code,
+                'selected': selected_sys,
+                'total': total_sys,
+                'size': sys_sel_size,
+                'selectivity': selectivity,
+            })
+
+        # Filter impact: aggregate breakdowns across all systems
+        filter_impact = {}
+        breakdowns = getattr(self, '_run_breakdowns', {})
+        for breakdown in breakdowns.values():
+            for reason, count in breakdown.items():
+                filter_impact[reason] = (
+                    filter_impact.get(reason, 0) + count)
+        filter_impact_sorted = dict(sorted(
+            filter_impact.items(), key=lambda x: x[1], reverse=True))
+
         self._push_event('fanfare', {
             'systems': total_systems,
             'selected': total_selected,
@@ -954,6 +1212,14 @@ class Api:
             'total_size': format_size(total_size),
             'elapsed': elapsed_str,
             'tidbits': tidbits,
+            'throughput': throughput,
+            'space_saved': format_size(space_saved),
+            'space_saved_bytes': space_saved,
+            'top_series': top_series_list,
+            'decades': decades_dict,
+            'system_rankings': system_rankings,
+            'filter_impact': filter_impact_sorted,
+            'notable_finds': notable_finds,
         })
 
     def _download_batch(self, downloads, parallel, system):
