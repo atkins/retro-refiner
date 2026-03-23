@@ -76,6 +76,52 @@ class Api:
         self._config = Config()
         return json.dumps(self._config.to_dict())
 
+    def clean_data(self) -> str:
+        """Delete all cached and generated data files.
+
+        Returns JSON with list of deleted items.
+        """
+        import shutil  # pylint: disable=import-outside-toplevel
+
+        runtime = get_runtime_path()
+        deleted = []
+
+        # Scan cache
+        cache_dir = runtime / 'cache'
+        if cache_dir.exists():
+            shutil.rmtree(cache_dir)
+            deleted.append('cache/ (scan cache)')
+
+        # DAT files
+        dat_dir = Path(self._config.advanced.dat_dir or './dat_files')
+        if not dat_dir.is_absolute():
+            dat_dir = runtime / dat_dir
+        if dat_dir.exists():
+            shutil.rmtree(dat_dir)
+            deleted.append(f'{dat_dir.name}/ (DAT files)')
+
+        # CRC cache
+        crc_cache = runtime / '_crc_cache.json'
+        if crc_cache.exists():
+            crc_cache.unlink()
+            deleted.append('_crc_cache.json (CRC cache)')
+
+        # UI state file
+        state_file = runtime / _UI_STATE_FILENAME
+        if state_file.exists():
+            state_file.unlink()
+            deleted.append(f'{_UI_STATE_FILENAME} (saved state)')
+
+        # Temp download files (.rrdownload)
+        if self._config.destination:
+            dest = Path(self._config.destination)
+            if dest.exists():
+                for tmp in dest.rglob('*.rrdownload'):
+                    tmp.unlink()
+                    deleted.append(f'{tmp.name} (temp download)')
+
+        return json.dumps({'deleted': deleted})
+
     def save_ui_state(self):
         """Auto-save current config to the default UI state file.
 

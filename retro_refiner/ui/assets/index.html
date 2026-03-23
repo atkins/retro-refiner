@@ -910,7 +910,8 @@
     <div class="sidebar-footer">
       <button class="btn-subtle" onclick="saveConfig()" title="Save current settings to a YAML file">Save</button>
       <button class="btn-subtle" onclick="loadConfig()" title="Load settings from a YAML or JSON file">Load</button>
-      <button class="btn-subtle" onclick="loadDefaults()" title="Reset all settings to factory defaults">Defaults</button>
+      <button class="btn-subtle" onclick="loadDefaults()" title="Reset all settings to factory defaults">Reset</button>
+      <button class="btn-subtle" onclick="cleanData()" title="Delete scan cache, DAT files, CRC cache, state file, and temp files">Clean</button>
     </div>
 
   </div>
@@ -1336,6 +1337,19 @@ function loadDefaults() {
   window.pywebview.api.get_default_config().then(function(json) {
     var cfg = JSON.parse(json);
     if (cfg) restoreUiState(cfg);
+  });
+}
+
+function cleanData() {
+  if (!window.pywebview) return;
+  window.pywebview.api.clean_data().then(function(json) {
+    var result = JSON.parse(json);
+    if (result && result.deleted && result.deleted.length > 0) {
+      var msg = 'Cleaned ' + result.deleted.length + ' items:\n\n' + result.deleted.join('\n');
+      alert(msg);
+    } else {
+      alert('Nothing to clean — no cached or generated data found.');
+    }
   });
 }
 
