@@ -644,14 +644,16 @@
             </label>
           </div>
         </div>
-        <div class="field-label">Local file action</div>
-        <select id="opt-transfer" onchange="toggleDestForTransferMode(); updateCollectionModeTooltip();">
-          <option value="copy" title="Duplicate your selected ROMs into the destination folder. Originals stay untouched. Best for building a curated collection while keeping your full library intact.">Copy</option>
-          <option value="move" title="Relocate selected ROMs to the destination folder, removing them from the source. Use when you want to reorganize your library and reclaim source disk space.">Move</option>
-          <option value="remove" title="Remove duplicate and excluded ROMs directly from your source folders. No destination needed. Use to clean up an existing collection in-place.">Remove</option>
-          <option value="hardlink" title="Create hard links sharing the same data on disk. Zero extra space used. Deleting one copy doesn't affect the other. Works on NTFS with no special permissions. Both paths must be on the same drive. Best option for most Windows users who want a zero-cost organized collection.">Hardlink</option>
-          <option value="symlink" title="Create symbolic links (shortcuts) that point back to the originals. Works across drives, but if the original is deleted the link breaks. On Windows requires admin privileges or Developer Mode enabled (Win 10 1703+).">Symlink</option>
-        </select>
+        <div id="local-file-action-group">
+          <div class="field-label">Local file action</div>
+          <select id="opt-transfer" onchange="toggleDestForTransferMode(); updateCollectionModeTooltip();">
+            <option value="copy" title="Duplicate your selected ROMs into the destination folder. Originals stay untouched. Best for building a curated collection while keeping your full library intact.">Copy</option>
+            <option value="move" title="Relocate selected ROMs to the destination folder, removing them from the source. Use when you want to reorganize your library and reclaim source disk space.">Move</option>
+            <option value="remove" title="Remove duplicate and excluded ROMs directly from your source folders. No destination needed. Use to clean up an existing collection in-place.">Remove</option>
+            <option value="hardlink" title="Create hard links sharing the same data on disk. Zero extra space used. Deleting one copy doesn't affect the other. Works on NTFS with no special permissions. Both paths must be on the same drive. Best option for most Windows users who want a zero-cost organized collection.">Hardlink</option>
+            <option value="symlink" title="Create symbolic links (shortcuts) that point back to the originals. Works across drives, but if the original is deleted the link breaks. On Windows requires admin privileges or Developer Mode enabled (Win 10 1703+).">Symlink</option>
+          </select>
+        </div>
         <div class="field-label">Systems <span id="system-pill-count" style="color:var(--text-muted);font-weight:normal"></span> <span id="system-pill-actions" style="display:none;font-weight:normal"><a href="#" onclick="event.preventDefault();toggleAllPills(true)" style="color:var(--accent);font-size:9px">All</a> <a href="#" onclick="event.preventDefault();toggleAllPills(false)" style="color:var(--accent);font-size:9px">None</a></span></div>
         <div class="system-pills" id="system-pills">
           <span class="system-pill-placeholder">Scan sources to discover systems</span>
@@ -986,8 +988,8 @@ function renderSources() {
     try { pathSpan.textContent = decodeURIComponent(src.path); } catch(e) { pathSpan.textContent = src.path; }
     item.appendChild(pathSpan);
 
-    /* Recursive toggle (local sources only) */
-    if (!isUrl) {
+    /* Recursive toggle */
+    {
       var recBtn = document.createElement('span');
       recBtn.className = 'source-recursive' + (src.recursive ? ' active' : '');
       recBtn.textContent = 'R';
@@ -1014,6 +1016,10 @@ function renderSources() {
 
     list.appendChild(item);
   });
+  /* Hide "Local file action" when all sources are URLs */
+  var hasLocal = sources.some(function(s) { return !/^https?:\/\//i.test(s.path); });
+  var lfaGroup = document.getElementById('local-file-action-group');
+  if (lfaGroup) lfaGroup.style.display = hasLocal ? '' : 'none';
 }
 
 function removeSource(index) {
@@ -1076,11 +1082,7 @@ function addUrl() {
       for (var i = 0; i < files.length; i++) {
         var path = files[i].path || files[i].name;
         if (path) {
-          if (/^https?:\/\//i.test(path)) {
-            sources.push({ path: path, recursive: false, depth: 3 });
-          } else {
-            sources.push({ path: path, recursive: false, depth: 3 });
-          }
+          sources.push({ path: path, recursive: false, depth: 3 });
           added = true;
         }
       }

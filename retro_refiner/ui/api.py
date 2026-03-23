@@ -548,8 +548,15 @@ class Api:
                 if cached:
                     used_cache = True
 
+            ss = config.source_settings or {}
+            src_opts = ss.get(net_url, {})
+            net_recursive = src_opts.get('recursive', False)
+            net_depth = config.advanced.max_depth or 3
+
             result = scan_network_source(
                 net_url, systems_filter,
+                recursive=net_recursive,
+                max_depth=net_depth,
                 cache_dir=cache_dir,
                 no_cache=config.advanced.no_cache,
                 scan_workers=config.network.scan_workers,
