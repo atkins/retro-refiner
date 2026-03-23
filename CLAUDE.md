@@ -30,7 +30,7 @@ python tests/test_v2_paths.py        # 3 path tests
 python tests/test_v2_cli.py          # 36 CLI tests
 python tests/test_v2_integration.py  # 5 integration tests
 ```
-Note: `pytest` is not installed. Tests use a custom `TestResult` framework and are run directly. **524 tests total, all passing.**
+Note: `pytest` is not installed. Tests use a custom `TestResult` framework and are run directly. **519 tests total, all passing.**
 
 ### Lint
 ```bash
@@ -88,7 +88,7 @@ retro_refiner/
 ### GUI (pywebview)
 - **Framework:** pywebview — HTML/CSS/JS rendered in system WebView (Edge on Windows, WebKit on macOS)
 - **Layout:** Sidebar (280px) + main panel (Log, Results, Picker views)
-- **Sidebar structure:** File Locations + Selection always visible; Dedup, Budget, Network, Output, Advanced, Auth behind "More Options" expander
+- **Sidebar structure:** File Locations + Selection always visible; Dedup, Budget, Advanced behind "More Options" expander (Network/Output/Auth merged into Advanced)
 - **Communication:** JS calls Python via `window.pywebview.api.method_name()` (returns Promise)
 - **Events:** Python pushes events to JS via `window.evaluate_js()` calling `handlePythonEvent()`
 - **Event routing:** `handlePythonEvent` → `LogRenderer.handle()` for structured log events, falls through to `_handleEventOriginal()` for status/card/log/progress/summary
@@ -110,8 +110,8 @@ class OutputConfig:
     local_file_action: str = 'copy'    # copy/move/symlink/hardlink/remove
     flat: bool = False
     playlists: bool = False
-    gamelist: bool = False
-    retroarch_playlists: Optional[str] = None
+    gamelist: Optional[str] = None      # EmulationStation gamelists dir
+    retroarch_playlists: Optional[str] = None  # RetroArch .lpl playlists dir
     prefer_source: Optional[str] = None
     print_roms: bool = False
     validate_destination: bool = True   # Skip files already in dest
@@ -159,6 +159,10 @@ The main run method is split into extracted helper methods:
 - `_run_dedup()` — cross-system dedup pass
 - `_apply_budget_filters()` — budget/limit/size constraints
 - `_commit_system()` — per-system commit in 4 phases: (1) validate destination (skip files already present, optional CRC check), (2) download remote files directly to destination (uses `.rrdownload` temp files, renamed on completion for crash safety), (3) transfer local files via configured `local_file_action` (copy/move/symlink/hardlink/remove), (4) clean destination (remove unselected files if `clean_destination` enabled)
+- `_compute_system_stats()` — per-system verbose stats (regions, years, sizes, formats, revisions, languages)
+- `_write_run_logs()` — comprehensive log file output (4 file types) when log_dir configured
+- `_download_with_aria2c_rpc()` — aria2c RPC download with real-time progress polling
+- `clean_data()` — delete scan cache, DAT files, CRC cache, state file, temp downloads
 
 ### Structured Log Events
 Python emits structured events consumed by JS `LogRenderer`:
@@ -168,6 +172,7 @@ Python emits structured events consumed by JS `LogRenderer`:
 | `system-start` | System begins filtering | Box-drawing header with system name + ROM count |
 | `filter-tick` | Before filtering | Progress placeholder line |
 | `system-complete` | System done | Breakdown with tree chars, expandable audit trail |
+| `scan-summary` | Scanning done | Box with source/system/ROM totals |
 | `fanfare` | Run complete | Box-drawing summary with ROM content tidbits |
 
 ### Structured Results
@@ -219,9 +224,9 @@ from retro_refiner.network import request_shutdown, check_shutdown, reset_shutdo
 
 ### Clipboard
 Platform-native clipboard APIs (no tkinter):
-- Windows: PowerShell `Get-Clipboard` / `Set-Clipboard`
-- macOS: `pbpaste` / `pbcopy`
-- Linux: `xclip`
+- Windows: PowerShell `Set-Clipboard` via UTF-8 temp file (cp1252 pipe can't handle box-drawing chars)
+- macOS: `pbcopy` with UTF-8 encoding
+- Linux: `xclip -selection clipboard` with UTF-8 encoding
 
 ### Display Names
 Module-level `_SYSTEM_ABBREVS` frozenset and `_display_name(system)` helper in api.py convert system codes to human-readable names (e.g., `snes` → `SNES`, `game-boy-advance` → `Game Boy Advance`).
@@ -238,10 +243,10 @@ Module-level `_SYSTEM_ABBREVS` frozenset and `_display_name(system)` helper in a
 ## GUI Components
 
 ### Sidebar (index.html)
-- **File Locations** (always visible): sources with drag-and-drop + per-source recursive toggle, destination path picker with validate existing files / CRC validation / clean destination options, local file action dropdown (copy/move/remove/hardlink/symlink), system pills with All/None toggle
-- **Selection** (always visible): "Apply filters" toggle with sub-options (1G1R, English, protos, betas, unlicensed, adult, region priority, patterns, year range)
-- **More Options** (collapsed): Deduplication (ordered priority pills, exclusion playlists), Budget & Limits, Network, Output, Advanced, Auth
-- **Footer**: Save/Load/Defaults buttons
+- **File Locations** (always visible): sources with drag-and-drop + per-source recursive toggle (works for both local and network sources), destination path picker with validate/CRC/clean options, local file action dropdown (hidden when all sources are URLs), multi-disc M3U + flatten toggles, system pills with All/None toggle
+- **Selection** (always visible): "Apply filters" toggle with sub-options (1G1R, English, protos, betas, unlicensed, adult — adult hidden when no arcade systems), region priority, patterns, year range. All options use mobile-style toggle switches (hybrid layout: primary full-width, secondary in 2-column grid).
+- **More Options** (collapsed): Deduplication (ordered priority pills, exclusion playlists), Budget & Limits, Advanced (network settings, DAT/CHD/cache toggles, scan depth, MAME version, ratings, EmulationStation/RetroArch/log directories, auth credentials)
+- **Footer**: Save/Load/Reset/Clean buttons
 
 ### Path Pickers
 Clickable path-picker UI component (folder icon, truncated path, tooltip, × clear). Used for destination, RetroArch playlists, log dir, DAT dir. `setPathPicker()` / `clearPathPicker()` / `browsePathPicker()` helpers.
@@ -253,7 +258,14 @@ Toggleable pill UI for system include/exclude and dedup priority ordering. `syst
 Per-system cards with stats, ratio bar, filter breakdown tags, preview titles (top 5 selected ROM names), and "Manage" button. `updateCardComplete()` clears prior content before repopulating (supports dedup updates in-place).
 
 ### Log Renderer (LogRenderer object)
-Handles structured events (system-start, filter-tick, system-complete, fanfare). Plain structured output with colored text, box-drawing headers, tree-char breakdowns, expandable audit trails, and fanfare summary with ROM content tidbits. No animations.
+Handles structured events (system-start, filter-tick, system-complete, scan-summary, fanfare). Verbose per-system stats: filter breakdown, region/format/year distribution, size histogram, largest/smallest ROM, revision counts. Scan summary box with source/system/ROM totals. Fanfare with throughput, space saved, system rankings, filter impact, notable finds, decade breakdown. Copy button (hidden on results/picker tabs) uses UTF-8 temp file on Windows for unicode support. Auto-switches to log tab on run start, results tab 1s after completion.
+
+### Progress Indicators
+Step indicators `[1/3] [2/3] [3/3]` (preview uses `[1/2] [2/2]`) with phase-specific stats:
+- **Scanning**: folders/s, ETA
+- **Filtering**: running totals (selected count, size), elapsed, ETA
+- **Downloading**: aria2c RPC with live speed (MB/s), elapsed, ETA; curl chunked; urllib per-file
+- **Local transfers**: per-file progress via `transfer_files` callback
 
 ## Common Modification Points
 
@@ -280,6 +292,16 @@ Network scan results cached for 24h in `cache/_scan_cache.json`. Keyed by source
 ### Adaptive auto-tune
 Download parallelism starts conservative for large files (parallel=4, conn=1) and ramps up by 1 every 60s of stability, backs off on errors.
 
+### Archive.org compatibility
+Archive.org directory listings parse correctly via Pattern 2/3 in `parse_html_for_files_with_sizes`. Regex backtracking prevented by skipping Pattern 3 on pages without `<tr>` tags and capping scan to 200KB. Zip contents browsable via `/serve/{collection}/{system}.zip/` endpoint — individual ROM files inside zips have direct download URLs.
+
+### Log file output
+When `log_dir` is configured, writes 4 file types per run:
+- `run_summary_{timestamp}.txt` — overall stats, per-system breakdown, filter impact
+- `{system}_selected.txt` — every selected ROM with title/region/revision/source
+- `{system}_excluded.txt` — every excluded network ROM with title/region
+- `console_{timestamp}.txt` — complete console output (buffered from `_push_event('log')` calls)
+
 ## Testing
 
 Tests use a custom `TestResult` framework (not pytest). Run directly: `python tests/test_file.py`
@@ -298,9 +320,13 @@ All tests import from `retro_refiner.*` package — no monolith imports.
 
 - Auth credentials stripped from state file before saving to disk
 - SSRF validation rejects private/localhost URLs in `validate_source()`
-- No `innerHTML` with dynamic content — all DOM construction uses `textContent` or `createElement`
+- Dynamic values in `innerHTML` escaped via `escapeHtml()` — `textContent`/`createElement` preferred
 - Clipboard uses platform-native subprocesses, not tkinter
 - `cancel_run()` propagates shutdown to network operations
+- aria2c RPC uses random port (16000-32000) to prevent multi-instance conflicts
+- Config snapshot at run start for thread safety (`Config.from_dict(self._config.to_dict())`)
+- `clean_data()` requires DAT file presence check before `rmtree`, plus user confirmation dialog
+- Empty scan results not cached (prevents stale 0-URL cache from blocking future scans)
 
 ## Platform Notes
 
