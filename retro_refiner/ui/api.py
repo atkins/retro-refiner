@@ -1552,11 +1552,33 @@ class Api:
         total = len(downloads)
         tool = get_download_tool()
         fail_count = 0
+        display = _display_name(system)
 
-        if tool == 'aria2c':
-            download_batch_with_aria2c(downloads, parallel=parallel)
-        elif tool == 'curl':
-            download_batch_with_curl(downloads, parallel=parallel)
+        if tool in ('aria2c', 'curl'):
+            # Chunk downloads for progress reporting
+            chunk_size = max(parallel, 4)
+            for start in range(0, total, chunk_size):
+                if not self._running:
+                    break
+                chunk = downloads[start:start + chunk_size]
+                done = min(start + len(chunk), total)
+                self._push_event('progress', {
+                    'phase': 'download',
+                    'message': f'{display}: downloading '
+                               f'{done}/{total}',
+                    'current': done,
+                    'total': total,
+                })
+                if tool == 'aria2c':
+                    download_batch_with_aria2c(
+                        chunk, parallel=parallel)
+                else:
+                    download_batch_with_curl(
+                        chunk, parallel=parallel)
+                # Count failures in this chunk
+                for _url, dl_path in chunk:
+                    if not dl_path.exists() or dl_path.stat().st_size == 0:
+                        fail_count += 1
         else:
             # urllib fallback with per-file progress
             import urllib.request as urllib_req  # pylint: disable=import-outside-toplevel
@@ -1566,7 +1588,7 @@ class Api:
                     break
                 self._push_event('progress', {
                     'phase': 'download',
-                    'message': f'{system.upper()}: {idx}/{total}',
+                    'message': f'{display}: {idx}/{total}',
                     'current': idx,
                     'total': total,
                 })
@@ -1579,17 +1601,16 @@ class Api:
                             _shutil.copyfileobj(resp, f_out)
                 except Exception:  # pylint: disable=broad-except
                     fail_count += 1
-                    self._push_event('log', {
-                        'text': f'  {system.upper()}: failed to download '
-                                f'{Path(dl_path).name}\n',
-                        'level': 'warning',
-                    })
 
-        fail_msg = f', {fail_count} failed' if fail_count else ''
+        if fail_count:
+            self._push_event('log', {
+                'text': f'  {display}: {fail_count} download(s) '
+                        f'failed\n',
+                'className': 'log-warning',
+            })
         self._push_event('log', {
-            'text': f'  {system.upper()}: download complete '
-                    f'({total} files, tool={tool or "urllib"}'
-                    f'{fail_msg})\n',
+            'text': f'  {display}: downloaded {total - fail_count}'
+                    f'/{total} files\n',
         })
 
     def _url_to_filename(self, url):
@@ -1690,17 +1711,34 @@ class Api:
                 downloads, config.network.parallel, system)
 
         # Phase 3: Transfer local files
+        display = _display_name(system)
         if local_files and config.output.local_file_action != 'remove':
             from retro_refiner.transfer import transfer_files  # pylint: disable=import-outside-toplevel
             files_to_transfer = [Path(f) for f in local_files
                                  if Path(f).name not in skip_files]
             if files_to_transfer:
+                total_local = len(files_to_transfer)
+                self._push_event('log', {
+                    'text': f'  {display}: transferring '
+                            f'{total_local} local files...\n',
+                })
+
+                def _on_local_progress(evt, _sys=display):
+                    self._push_event('progress', {
+                        'phase': 'transfer',
+                        'message': f'{_sys}: {evt.current}'
+                                   f'/{evt.total}',
+                        'current': evt.current,
+                        'total': evt.total,
+                    })
+
                 stats = transfer_files(
                     files_to_transfer, dest_dir, system=system,
                     mode=config.output.local_file_action,
-                    flat=flat)
+                    flat=flat,
+                    on_progress=_on_local_progress)
                 self._push_event('log', {
-                    'text': f'  {_display_name(system)}: '
+                    'text': f'  {display}: '
                             f'transferred {stats["transferred"]}, '
                             f'skipped {stats["skipped"]}, '
                             f'errors {stats["errors"]}\n',
