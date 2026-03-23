@@ -1200,7 +1200,7 @@ class Api:
             selectivity = (round(selected_sys / max(total_sys, 1), 3)
                            if total_sys else 0)
             system_rankings.append({
-                'system': sys_code,
+                'system': _display_name(sys_code),
                 'selected': selected_sys,
                 'total': total_sys,
                 'size': sys_sel_size,
