@@ -224,10 +224,11 @@ def scan_network_source_urls(
                 if size > 0:
                     _url_sizes[rom_url] = size
 
-    # Explore subdirectories
-    should_recurse = (recursive and max_depth > 0) or (
-        url_system and not rom_files_with_sizes and max_depth > 0)
-    if should_recurse:
+    # Explore subdirectories — always scan system folders (they contain
+    # the actual ROMs), but only recurse deeper when recursive is enabled
+    should_explore = max_depth > 0 and (
+        recursive or not rom_files_with_sizes)
+    if should_explore:
         subdirs = parse_html_for_directories(html, base_url)
         if not _indent and subdirs:
             print(f"  Parsing {len(subdirs)} entries...", end='', flush=True)
@@ -241,11 +242,19 @@ def scan_network_source_urls(
             system = sysdata.folder_aliases.get(folder_lower, folder_lower)
             is_system_folder = system in sysdata.known_systems
 
+            # Fall back to detect_system_from_path for No-Intro style
+            # names like "Sega - Mega Drive - Genesis"
+            if not is_system_folder:
+                detected_sys = detect_system_from_path(folder_name)
+                if detected_sys:
+                    system = detected_sys
+                    is_system_folder = True
+
             if is_system_folder:
                 if systems and system not in systems:
                     continue
                 system_subdirs.append((subdir_url, system, folder_name))
-            elif max_depth > 1 and not rom_files_with_sizes:
+            elif recursive and max_depth > 1 and not rom_files_with_sizes:
                 other_subdirs.append((subdir_url, folder_name))
 
         # Parallel fetch system subdirectories
@@ -259,11 +268,23 @@ def scan_network_source_urls(
                     desc=f"Scanning {len(urls_to_fetch)} system folders",
                     indent=f"{_indent}  "
                 )
+
+                def _scan_progress(completed, _total):
+                    progress.update(completed)
+                    if on_progress:
+                        on_progress(ProgressEvent(
+                            phase="scanning",
+                            message=(f"Scanning system folders: "
+                                     f"{completed}/{len(urls_to_fetch)}"),
+                            current=completed,
+                            total=len(urls_to_fetch),
+                        ))
+
                 fetched = fetch_urls_parallel(
                     urls_to_fetch,
                     max_workers=scan_workers,
                     auth_header=auth_header,
-                    progress_callback=progress.make_callback()
+                    progress_callback=_scan_progress,
                 )
                 progress.finish()
             else:
@@ -298,7 +319,7 @@ def scan_network_source_urls(
                             _url_sizes[rom_url] = size
 
                 # Nested subdirectories (region folders, etc.)
-                if max_depth > 1:
+                if recursive and max_depth > 1:
                     nested_subdirs = parse_html_for_directories(subdir_html, sub_final_url)
                     if nested_subdirs:
                         nested_fetched = fetch_urls_parallel(
