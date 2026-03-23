@@ -19,7 +19,8 @@ _UI_STATE_FILENAME = '.retro-refiner-state.yaml'
 
 _SYSTEM_ABBREVS = frozenset(
     ('snes', 'nes', 'gba', 'gbc', 'n64', 'psx', 'ps2', 'ps3', 'psp',
-     '3do', 'dsi', 'fds', 'msx', 'msx2', 'n64dd', 'sgx'))
+     '3do', '3ds', 'dsi', 'fds', 'msx', 'msx2', 'n64dd', 'ngp', 'ngpc',
+     'scv', 'sgx', 'tg16', 'tgcd'))
 
 
 def _display_name(system: str) -> str:
@@ -850,7 +851,7 @@ class Api:
                         url_sizes=all_sizes,
                         dat_entries=dat_entries,
                     )
-                    selected_urls = result.selected if result.selected else urls
+                    selected_urls = result.selected
                     filter_breakdown = result.stats.filter_breakdown if result.stats else {}
             except Exception as exc:  # pylint: disable=broad-except
                 self._push_event('log', {
@@ -959,8 +960,7 @@ class Api:
             'breakdown': filter_breakdown,
             'elapsed_ms': elapsed_ms,
             'excluded_roms': excluded_roms,
-            'total_excluded_roms': len(result.excluded)
-            if result and hasattr(result, 'excluded') else 0,
+            'total_excluded_roms': excluded_count,
             'verbose_stats': verbose_stats,
         })
 
@@ -1010,10 +1010,13 @@ class Api:
         regions = dict(Counter(r.region for r in parsed if r.region))
         years_list = [r.year for r in parsed
                       if 1970 <= r.year <= 2030]
-        years = dict(Counter(years_list))
-        peak_year = Counter(years_list).most_common(1)[0][0] if years_list else 0
+        # Only report year stats if >= 10% of ROMs have year data
+        has_year_data = len(years_list) >= max(len(parsed) // 10, 3)
+        years = dict(Counter(years_list)) if has_year_data else {}
+        peak_year = (Counter(years_list).most_common(1)[0][0]
+                     if has_year_data and years_list else 0)
         year_range = ([min(years_list), max(years_list)]
-                      if years_list else [0, 0])
+                      if has_year_data and years_list else [0, 0])
         formats = dict(Counter(
             Path(r.filename).suffix.lower() for r in parsed
             if Path(r.filename).suffix))
@@ -1147,7 +1150,7 @@ class Api:
                 words = t.split()
                 key = words[0] if words else t
                 for i in range(1, min(3, len(words))):
-                    if words[i].isdigit():
+                    if words[i].isdigit() or words[i] in ('-', '&'):
                         break
                     key = ' '.join(words[:i+1])
                 series[key] += 1
