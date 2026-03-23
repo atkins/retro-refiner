@@ -44,6 +44,7 @@ class Api:
         self._picker_state = {}  # system -> list of rom dicts
         self._run_breakdowns = {}  # system -> filter_breakdown dict
         self._log_buffer = []     # buffered log messages for file output
+        self._step_prefix = lambda n: f'[{n}/2] '  # run phase indicator
 
     def set_window(self, window):
         """Store a reference to the pywebview window."""
@@ -374,6 +375,8 @@ class Api:
 
             self._run_breakdowns = {}
             self._log_buffer = []
+            total_steps = 3 if commit else 2
+            self._step_prefix = lambda n: f'[{n}/{total_steps}] '
 
             config = self._config
 
@@ -435,7 +438,8 @@ class Api:
                 elapsed = time.monotonic() - filter_t0
                 eta = self._eta_str(elapsed, sys_idx - 1, num_systems)
                 elapsed_s = self._elapsed_str(elapsed)
-                msg = (f'Filtering {sys_idx}/{num_systems}: '
+                msg = (f'{self._step_prefix(2)}'
+                       f'Filtering {sys_idx}/{num_systems}: '
                        f'{_display_name(system)} '
                        f'\u2502 {total_selected:,} selected '
                        f'\u2502 {format_size(total_size)} '
@@ -665,7 +669,8 @@ class Api:
                     rate = evt.current / max(elapsed, 0.1)
                     eta = self._eta_str(
                         elapsed, evt.current, evt.total)
-                    msg = (f'Scanning: {evt.current}/{evt.total}'
+                    msg = (f'{self._step_prefix(1)}'
+                           f'Scanning: {evt.current}/{evt.total}'
                            f' folders \u2502 '
                            f'{rate:.0f}/s{eta}')
                 self._push_event('progress', {
@@ -1596,7 +1601,8 @@ class Api:
                 eta = self._eta_str(elapsed, start, total)
                 self._push_event('progress', {
                     'phase': 'download',
-                    'message': (f'{display}: {done}/{total}'
+                    'message': (f'{self._step_prefix(3)}'
+                                f'{display}: {done}/{total}'
                                 f'{eta}'),
                     'current': done, 'total': total,
                 })
@@ -1618,7 +1624,8 @@ class Api:
                 eta = self._eta_str(elapsed, idx - 1, total)
                 self._push_event('progress', {
                     'phase': 'download',
-                    'message': (f'{display}: {idx}/{total}'
+                    'message': (f'{self._step_prefix(3)}'
+                                f'{display}: {idx}/{total}'
                                 f'{eta}'),
                     'current': idx, 'total': total,
                 })
@@ -1731,7 +1738,8 @@ class Api:
                                 if active_info else total_bytes)
                     if completed > 0 and not active_info:
                         total_bytes = dl_bytes
-                    msg = (f'{display}: {completed}/{total} '
+                    msg = (f'{self._step_prefix(3)}'
+                           f'{display}: {completed}/{total} '
                            f'\u2502 {speed_str} '
                            f'\u2502 {format_size(dl_bytes)}'
                            f'{eta}')
