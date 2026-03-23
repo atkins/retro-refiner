@@ -426,9 +426,19 @@ class Api:
             total_source = 0
             total_source_size = 0
 
-            for system in sorted(all_systems):
+            sorted_systems = sorted(all_systems)
+            num_systems = len(sorted_systems)
+            for sys_idx, system in enumerate(sorted_systems, 1):
                 if not self._running:
                     break
+                self._push_event('progress', {
+                    'phase': 'filtering',
+                    'message': (f'Filtering system {sys_idx}'
+                                f'/{num_systems}: '
+                                f'{_display_name(system)}'),
+                    'current': sys_idx,
+                    'total': num_systems,
+                })
                 counts = self._filter_system(
                     system, all_urls.get(system, []),
                     local_systems.get(system, []),
