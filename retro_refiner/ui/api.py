@@ -411,6 +411,7 @@ class Api:
                 from retro_refiner.transfer import (  # pylint: disable=import-outside-toplevel
                     generate_m3u_playlist,
                     generate_gamelist_xml,
+                    generate_retroarch_playlist,
                 )
 
                 dest_dir = (Path(config.destination) if config.destination
@@ -449,6 +450,25 @@ class Api:
                             if rom_files:
                                 generate_gamelist_xml(
                                     system, rom_files, sys_dir)
+
+                ra_dir = config.output.retroarch_playlists
+                if ra_dir and self._running:
+                    ra_path = Path(ra_dir)
+                    ra_path.mkdir(parents=True, exist_ok=True)
+                    self._push_event('log', {
+                        'text': f'Generating RetroArch playlists '
+                                f'in {ra_dir}...\n',
+                    })
+                    for system in sorted(all_systems):
+                        sys_dir = (dest_dir / system
+                                   if not config.output.flat else dest_dir)
+                        if sys_dir.exists():
+                            rom_files = [f for f in sys_dir.iterdir()
+                                         if f.is_file()]
+                            if rom_files:
+                                generate_retroarch_playlist(
+                                    system, rom_files, sys_dir,
+                                    ra_path)
 
             # Push summary
             self._push_event('summary', {
