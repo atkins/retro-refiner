@@ -1626,10 +1626,28 @@ function clearResults() {
 function copyLog() {
   var log = document.getElementById('view-log');
   var text = log.innerText || log.textContent;
-  if (window.pywebview) {
-    window.pywebview.api.copy_to_clipboard(text);
-  } else if (navigator.clipboard) {
-    navigator.clipboard.writeText(text);
+  if (!text || !text.trim()) return;
+  var btn = document.querySelector('.bottom-bar .bottom-btn:nth-child(2)');
+  if (window.pywebview && window.pywebview.api) {
+    window.pywebview.api.copy_to_clipboard(text).then(function() {
+      if (btn) { btn.textContent = 'Copied!'; setTimeout(function() { btn.textContent = 'Copy'; }, 1500); }
+    }).catch(function() {
+      if (btn) { btn.textContent = 'Failed'; setTimeout(function() { btn.textContent = 'Copy'; }, 1500); }
+    });
+  } else {
+    try {
+      var ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+      if (btn) { btn.textContent = 'Copied!'; setTimeout(function() { btn.textContent = 'Copy'; }, 1500); }
+    } catch(e) {
+      if (btn) { btn.textContent = 'Failed'; setTimeout(function() { btn.textContent = 'Copy'; }, 1500); }
+    }
   }
 }
 
@@ -1837,7 +1855,8 @@ var LogRenderer = {
     var lines = [];
     lines.push(tl + hc.repeat(bw - 2) + tr);
 
-    var topLine = 'Sources: ' + (data.total_sources || 0) +
+    var srcCount = data.sources ? data.sources.length : 0;
+    var topLine = 'Sources: ' + srcCount +
       '  ' + vc + '  Systems: ' + (data.total_systems || 0) +
       '  ' + vc + '  ROMs: ' + (data.total_roms || 0).toLocaleString();
     lines.push(padLine(topLine));
@@ -1859,9 +1878,10 @@ var LogRenderer = {
       data.sources.forEach(function(src) {
         var srcLine = document.createElement('div');
         srcLine.className = 'log-verbose-line';
-        var text = '  \u251C\u2500 ' + (src.name || src.url || 'source');
-        if (src.systems !== undefined) text += ' \u2502 ' + src.systems + ' systems';
-        if (src.roms !== undefined) text += ' \u2502 ' + src.roms.toLocaleString() + ' ROMs';
+        var srcLabel = src.url ? decodeURIComponent(src.url) : (src.path || 'source');
+        var text = '  \u251C\u2500 ' + srcLabel;
+        if (src.systems_found !== undefined) text += ' \u2502 ' + src.systems_found + ' systems';
+        if (src.rom_count !== undefined) text += ' \u2502 ' + src.rom_count.toLocaleString() + ' ROMs';
         if (src.cached) text += ' (cached)';
         srcLine.textContent = text;
         container.appendChild(srcLine);
@@ -1967,21 +1987,23 @@ var LogRenderer = {
         var fmtParts = Object.entries(vs.formats).sort(function(a, b) { return b[1] - a[1]; }).map(function(r) { return r[0] + ' (' + r[1] + ')'; });
         addTreeLine(container, 'formats: ' + fmtParts.join(', '));
       }
-      if (vs.year_range) {
+      if (vs.year_range && vs.year_range[0] > 0) {
         var yearText = 'years: ' + vs.year_range[0] + '\u2013' + vs.year_range[1];
-        if (vs.peak_year) yearText += ' \u00B7 peak: ' + vs.peak_year.year + ' (' + vs.peak_year.count + ' titles)';
+        if (vs.peak_year) yearText += ' \u00B7 peak: ' + vs.peak_year;
         addTreeLine(container, yearText);
       }
-      if (vs.sizes) {
+      if (vs.sizes && vs.sizes.avg > 0) {
         var szText = 'size: avg ' + self._formatSize(vs.sizes.avg) +
-          ' \u00B7 median ' + self._formatSize(vs.sizes.median) +
-          ' \u00B7 range ' + self._formatSize(vs.sizes.min) + '\u2013' + self._formatSize(vs.sizes.max);
-        addTreeLine(container, szText);
-        if (vs.sizes.largest) {
-          addTreeLine(container, 'largest: ' + vs.sizes.largest.name + ' (' + self._formatSize(vs.sizes.largest.size) + ')');
+          ' \u00B7 median ' + self._formatSize(vs.sizes.median);
+        if (vs.sizes.largest && vs.sizes.smallest) {
+          szText += ' \u00B7 range ' + self._formatSize(vs.sizes.smallest[1]) + '\u2013' + self._formatSize(vs.sizes.largest[1]);
         }
-        if (vs.sizes.smallest) {
-          addTreeLine(container, 'smallest: ' + vs.sizes.smallest.name + ' (' + self._formatSize(vs.sizes.smallest.size) + ')');
+        addTreeLine(container, szText);
+        if (vs.sizes.largest && vs.sizes.largest[1] > 0) {
+          addTreeLine(container, 'largest: ' + vs.sizes.largest[0] + ' (' + self._formatSize(vs.sizes.largest[1]) + ')');
+        }
+        if (vs.sizes.smallest && vs.sizes.smallest[1] > 0) {
+          addTreeLine(container, 'smallest: ' + vs.sizes.smallest[0] + ' (' + self._formatSize(vs.sizes.smallest[1]) + ')');
         }
       }
       if (vs.translation_count && vs.translation_count > 0) {
@@ -2066,15 +2088,10 @@ var LogRenderer = {
     ];
 
     if (data.throughput) {
-      var thrText = 'Throughput ' + pad(data.throughput + ' ROMs/sec', 10);
-      if (data.space_saved) {
-        thrText = pad(thrText, 24) + 'Saved     ' + data.space_saved.amount;
-        if (data.space_saved.pct) thrText += ' (' + data.space_saved.pct + '% reduction)';
-      }
-      statsArr.push(padLine(thrText));
-    } else if (data.space_saved) {
-      var savedText = 'Saved      ' + data.space_saved.amount;
-      if (data.space_saved.pct) savedText += ' (' + data.space_saved.pct + '% reduction)';
+      statsArr.push(padLine('Throughput ' + data.throughput + ' ROMs/sec'));
+    }
+    if (data.space_saved && data.space_saved_bytes > 0) {
+      var savedText = 'Saved      ' + data.space_saved;
       statsArr.push(padLine(savedText));
     }
 
@@ -2121,15 +2138,16 @@ var LogRenderer = {
       sysHSpan.textContent = '        Top Systems by Size';
       sysHeader.appendChild(sysHSpan);
       container.appendChild(sysHeader);
-      data.system_rankings.forEach(function(sys) {
+      data.system_rankings.sort(function(a, b) { return b.size - a.size; });
+      data.system_rankings.slice(0, 5).forEach(function(sys) {
         var sysLine = document.createElement('div');
         sysLine.className = 'log-fanfare-section';
-        sysLine.textContent = '          ' + sys.name + ': ' + sys.size + ' (' + sys.count + ' ROMs)';
+        sysLine.textContent = '          ' + sys.system + ': ' + LogRenderer._formatSize(sys.size) + ' (' + sys.selected + ' ROMs)';
         container.appendChild(sysLine);
       });
     }
 
-    if (data.filter_impact && data.filter_impact.length > 0) {
+    if (data.filter_impact && Object.keys(data.filter_impact).length > 0) {
       var filtHeader = document.createElement('div');
       filtHeader.className = 'log-fanfare-section';
       var filtHSpan = document.createElement('span');
@@ -2137,16 +2155,21 @@ var LogRenderer = {
       filtHSpan.textContent = '        Filter Impact';
       filtHeader.appendChild(filtHSpan);
       container.appendChild(filtHeader);
-      data.filter_impact.forEach(function(f) {
+      Object.entries(data.filter_impact).forEach(function(entry) {
         var fLine = document.createElement('div');
         fLine.className = 'log-fanfare-section';
-        fLine.textContent = '          ' + f.name + ': ' + f.removed.toLocaleString() + ' removed';
+        fLine.textContent = '          ' + entry[0] + ': ' + entry[1].toLocaleString() + ' removed';
         container.appendChild(fLine);
       });
     }
 
-    if (data.notable_finds && data.notable_finds.length > 0) {
-      data.notable_finds.forEach(function(nf) {
+    if (data.notable_finds && Object.keys(data.notable_finds).length > 0) {
+      var nf = data.notable_finds;
+      var nfLines = [];
+      if (nf.rare_regions) nfLines.push('\uD83C\uDF0D Rare regions: ' + nf.rare_regions.join(', '));
+      if (nf.largest_rom && nf.largest_rom[1] > 0) nfLines.push('\uD83D\uDCC0 Largest ROM: ' + nf.largest_rom[0] + ' (' + LogRenderer._formatSize(nf.largest_rom[1]) + ')');
+      if (nf.smallest_rom && nf.smallest_rom[1] > 0) nfLines.push('\uD83D\uDD2C Smallest ROM: ' + nf.smallest_rom[0] + ' (' + LogRenderer._formatSize(nf.smallest_rom[1]) + ')');
+      nfLines.forEach(function(nf) {
         var nfEl = document.createElement('div');
         nfEl.textContent = '        ' + nf;
         container.appendChild(nfEl);

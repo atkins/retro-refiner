@@ -153,22 +153,34 @@ class Api:
         import sys as _sys  # pylint: disable=import-outside-toplevel
         try:
             if _sys.platform == 'win32':
-                _sp.run(
-                    ['powershell', '-NoProfile', '-Command',
-                     'Set-Clipboard -Value $input'],
-                    input=text, text=True, timeout=5,
-                    check=False,
-                    creationflags=_sp.CREATE_NO_WINDOW,
-                )
+                # Pipe via stdin fails on unicode (cp1252 can't encode
+                # box-drawing chars). Use a temp file with UTF-8 encoding.
+                import tempfile  # pylint: disable=import-outside-toplevel
+                import os  # pylint: disable=import-outside-toplevel
+                fd, tmp = tempfile.mkstemp(suffix='.txt')
+                try:
+                    with os.fdopen(fd, 'w', encoding='utf-8') as fh:
+                        fh.write(text)
+                    _sp.run(
+                        ['powershell', '-NoProfile', '-Command',
+                         f'Get-Content -Raw -Encoding UTF8 "{tmp}"'
+                         ' | Set-Clipboard'],
+                        timeout=10, check=True,
+                        creationflags=_sp.CREATE_NO_WINDOW,
+                    )
+                finally:
+                    os.unlink(tmp)
             elif _sys.platform == 'darwin':
-                _sp.run(['pbcopy'], input=text, text=True,
-                        timeout=5, check=False)
+                _sp.run(['pbcopy'], input=text.encode('utf-8'),
+                        timeout=10, check=True)
             else:
                 _sp.run(
                     ['xclip', '-selection', 'clipboard'],
-                    input=text, text=True, timeout=5, check=False)
+                    input=text.encode('utf-8'),
+                    timeout=10, check=True)
+            return True
         except Exception:  # pylint: disable=broad-except
-            pass
+            return False
 
     def update_selection(self, selection_json: str):
         """Update selection config from JS."""
