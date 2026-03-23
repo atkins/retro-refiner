@@ -428,14 +428,21 @@ class Api:
 
             sorted_systems = sorted(all_systems)
             num_systems = len(sorted_systems)
+            filter_t0 = time.monotonic()
             for sys_idx, system in enumerate(sorted_systems, 1):
                 if not self._running:
                     break
+                elapsed = time.monotonic() - filter_t0
+                eta = self._eta_str(elapsed, sys_idx - 1, num_systems)
+                elapsed_s = self._elapsed_str(elapsed)
+                msg = (f'Filtering {sys_idx}/{num_systems}: '
+                       f'{_display_name(system)} '
+                       f'\u2502 {total_selected:,} selected '
+                       f'\u2502 {format_size(total_size)} '
+                       f'\u2502 {elapsed_s}{eta}')
                 self._push_event('progress', {
                     'phase': 'filtering',
-                    'message': (f'Filtering system {sys_idx}'
-                                f'/{num_systems}: '
-                                f'{_display_name(system)}'),
+                    'message': msg,
                     'current': sys_idx,
                     'total': num_systems,
                 })
@@ -648,16 +655,25 @@ class Api:
             net_recursive = src_opts.get('recursive', False)
             net_depth = config.advanced.max_depth or 3
 
-            _scan_state = {'last_logged': 0}
+            _scan_state = {'last_logged': 0, 't0': time.monotonic()}
 
             def _on_scan_progress(evt, state=_scan_state):
+                msg = evt.message or ''
+                # Enrich progress events with timing
+                if evt.total > 0 and evt.current > 0:
+                    elapsed = time.monotonic() - state['t0']
+                    rate = evt.current / max(elapsed, 0.1)
+                    eta = self._eta_str(
+                        elapsed, evt.current, evt.total)
+                    msg = (f'Scanning: {evt.current}/{evt.total}'
+                           f' folders \u2502 '
+                           f'{rate:.0f}/s{eta}')
                 self._push_event('progress', {
-                    'phase': evt.phase, 'message': evt.message,
+                    'phase': evt.phase, 'message': msg,
                     'current': evt.current, 'total': evt.total,
                 })
                 # Log scan messages and progress milestones
                 if evt.message and evt.total == 0:
-                    # Non-progress messages (e.g. "Found X ROM files")
                     self._push_event('log', {
                         'text': f'  {evt.message}\n',
                         'className': 'log-muted',
@@ -1570,14 +1586,18 @@ class Api:
         elif tool == 'curl':
             # Chunk curl for progress updates
             chunk_size = max(parallel, 4)
+            dl_t0 = time.monotonic()
             for start in range(0, total, chunk_size):
                 if not self._running:
                     break
                 chunk = downloads[start:start + chunk_size]
                 done = min(start + len(chunk), total)
+                elapsed = time.monotonic() - dl_t0
+                eta = self._eta_str(elapsed, start, total)
                 self._push_event('progress', {
                     'phase': 'download',
-                    'message': f'{display}: {done}/{total}',
+                    'message': (f'{display}: {done}/{total}'
+                                f'{eta}'),
                     'current': done, 'total': total,
                 })
                 download_batch_with_curl(
@@ -1590,12 +1610,16 @@ class Api:
             # urllib fallback with per-file progress
             import urllib.request as urllib_req  # pylint: disable=import-outside-toplevel
             import shutil as _shutil  # pylint: disable=import-outside-toplevel
+            dl_t0 = time.monotonic()
             for idx, (dl_url, dl_path) in enumerate(downloads, 1):
                 if not self._running:
                     break
+                elapsed = time.monotonic() - dl_t0
+                eta = self._eta_str(elapsed, idx - 1, total)
                 self._push_event('progress', {
                     'phase': 'download',
-                    'message': f'{display}: {idx}/{total}',
+                    'message': (f'{display}: {idx}/{total}'
+                                f'{eta}'),
                     'current': idx, 'total': total,
                 })
                 try:
@@ -1675,6 +1699,8 @@ class Api:
 
             # Poll for progress
             last_completed = 0
+            dl_t0 = time.monotonic()
+            total_bytes = 0
             while self._running:
                 if proc.poll() is not None:
                     break
@@ -1692,9 +1718,23 @@ class Api:
 
                 if completed != last_completed or active > 0:
                     last_completed = completed
+                    elapsed = time.monotonic() - dl_t0
+                    eta = self._eta_str(
+                        elapsed, completed, total)
                     speed_str = format_size(speed) + '/s'
+                    # Sum downloaded bytes from active tasks
+                    active_info = rpc.get_active()
+                    cur_bytes = sum(
+                        int(a.get('completedLength', 0))
+                        for a in active_info)
+                    dl_bytes = (total_bytes + cur_bytes
+                                if active_info else total_bytes)
+                    if completed > 0 and not active_info:
+                        total_bytes = dl_bytes
                     msg = (f'{display}: {completed}/{total} '
-                           f'({active} active, {speed_str})')
+                           f'\u2502 {speed_str} '
+                           f'\u2502 {format_size(dl_bytes)}'
+                           f'{eta}')
                     self._push_event('progress', {
                         'phase': 'download',
                         'message': msg,
@@ -2244,6 +2284,28 @@ class Api:
         else:
             self._picker_state.clear()
             self._manual_selections.clear()
+
+    @staticmethod
+    def _eta_str(elapsed, completed, total):
+        """Compute ETA string like ' · ~45s remaining'."""
+        if completed <= 0 or total <= 0:
+            return ''
+        remaining = total - completed
+        rate = completed / max(elapsed, 0.1)
+        eta_secs = int(remaining / rate)
+        if eta_secs < 60:
+            return f' \u2502 ~{eta_secs}s left'
+        mins, secs = divmod(eta_secs, 60)
+        return f' \u2502 ~{mins}m {secs:02d}s left'
+
+    @staticmethod
+    def _elapsed_str(elapsed):
+        """Format elapsed seconds as compact string."""
+        secs = int(elapsed)
+        if secs < 60:
+            return f'{secs}s'
+        mins, secs = divmod(secs, 60)
+        return f'{mins}m {secs:02d}s'
 
     def _push_event(self, event_type: str, data: dict):
         """Push an event to the JavaScript frontend."""
