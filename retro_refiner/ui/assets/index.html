@@ -676,6 +676,14 @@
             <option value="symlink" title="Create symbolic links (shortcuts) that point back to the originals. Works across drives, but if the original is deleted the link breaks. On Windows requires admin privileges or Developer Mode enabled (Win 10 1703+).">Symlink</option>
           </select>
         </div>
+        <div class="toggle-row">
+          <label title="Generate M3U playlists for multi-disc games (e.g. Final Fantasy VII Disc 1-3 → one .m3u file)">Create multi-disc M3U</label>
+          <div class="toggle-switch sm" onclick="this.querySelector('input').click()"><input type="checkbox" id="opt-playlists"><span class="toggle-slider"></span></div>
+        </div>
+        <div class="toggle-row">
+          <label title="Put all ROMs in one folder instead of per-system subfolders">Flatten output</label>
+          <div class="toggle-switch sm" onclick="this.querySelector('input').click()"><input type="checkbox" id="opt-flatten"><span class="toggle-slider"></span></div>
+        </div>
         <div class="field-label">Systems <span id="system-pill-count" style="color:var(--text-muted);font-weight:normal"></span> <span id="system-pill-actions" style="display:none;font-weight:normal"><a href="#" onclick="event.preventDefault();toggleAllPills(true)" style="color:var(--accent);font-size:9px">All</a> <a href="#" onclick="event.preventDefault();toggleAllPills(false)" style="color:var(--accent);font-size:9px">None</a></span></div>
         <div class="system-pills" id="system-pills">
           <span class="system-pill-placeholder">Scan sources to discover systems</span>
@@ -785,72 +793,33 @@
       </div>
     </div>
 
-    <!-- Network -->
-    <div class="section" data-section="network">
-      <div class="section-header collapsed" onclick="toggleSection(this)">
-        <span class="arrow">&#9656;</span> NETWORK
-      </div>
-      <div class="section-body hidden">
-        <div class="field-label">Parallel downloads</div>
-        <input type="number" id="opt-parallel" min="1" max="32" value="4" title="Number of simultaneous file downloads">
-        <div class="field-label">Scan workers</div>
-        <input type="number" id="opt-scan-workers" min="1" max="64" value="16" title="Number of parallel threads for scanning source URLs">
-        <div class="toggle-row" style="margin-top:4px">
-          <label title="Resume partially downloaded files instead of restarting">Resume downloads</label>
-          <div class="toggle-switch sm" onclick="this.querySelector('input').click()"><input type="checkbox" id="opt-resume-downloads"><span class="toggle-slider"></span></div>
-        </div>
-        <div class="toggle-row">
-          <label title="Automatically adjust download parallelism based on connection stability">Auto-tune speed</label>
-          <div class="toggle-switch sm" onclick="this.querySelector('input').click()"><input type="checkbox" id="opt-auto-tune" checked><span class="toggle-slider"></span></div>
-        </div>
-      </div>
-    </div>
-
-    <!-- Output -->
-    <div class="section" data-section="output">
-      <div class="section-header collapsed" onclick="toggleSection(this)">
-        <span class="arrow">&#9656;</span> OUTPUT
-      </div>
-      <div class="section-body hidden">
-        <div class="toggle-row">
-          <label title="Generate M3U playlists for multi-disc games (e.g. Final Fantasy VII Disc 1-3 → one .m3u file)">Create multi-disc M3U</label>
-          <div class="toggle-switch sm" onclick="this.querySelector('input').click()"><input type="checkbox" id="opt-playlists"><span class="toggle-slider"></span></div>
-        </div>
-        <div class="toggle-row">
-          <label title="Put all ROMs in one folder instead of per-system subfolders">Flatten output</label>
-          <div class="toggle-switch sm" onclick="this.querySelector('input').click()"><input type="checkbox" id="opt-flatten"><span class="toggle-slider"></span></div>
-        </div>
-        <div class="field-label">EmulationStation gamelists dir</div>
-        <input type="hidden" id="opt-gamelists">
-        <div class="path-picker" onclick="browsePathPicker('opt-gamelists', 'opt-gamelists-display')" title="Generate gamelist.xml files in this directory (one per system)">
-          <span class="path-icon">&#x1F4C1;</span>
-          <span class="path-text" id="opt-gamelists-display">Select folder...</span>
-          <span class="path-clear" aria-label="Clear gamelists path" onclick="event.stopPropagation(); clearPathPicker('opt-gamelists', 'opt-gamelists-display', 'Select folder...')">&#xD7;</span>
-        </div>
-        <div class="field-label">RetroArch playlists dir</div>
-        <input type="hidden" id="opt-retroarch-playlists">
-        <div class="path-picker" onclick="browsePathPicker('opt-retroarch-playlists', 'opt-retroarch-playlists-display')" title="Generate .lpl playlist files in this directory (one per system)">
-          <span class="path-icon">&#x1F4C1;</span>
-          <span class="path-text" id="opt-retroarch-playlists-display">Select folder...</span>
-          <span class="path-clear" aria-label="Clear playlists path" onclick="event.stopPropagation(); clearPathPicker('opt-retroarch-playlists', 'opt-retroarch-playlists-display', 'Select folder...')">&#xD7;</span>
-        </div>
-        <div class="field-label">Log directory</div>
-        <input type="hidden" id="opt-log-dir">
-        <div class="path-picker" onclick="browsePathPicker('opt-log-dir', 'opt-log-dir-display')" title="Directory for filter log files">
-          <span class="path-icon">&#x1F4C1;</span>
-          <span class="path-text" id="opt-log-dir-display">Select folder...</span>
-          <span class="path-clear" aria-label="Clear log directory" onclick="event.stopPropagation(); clearPathPicker('opt-log-dir', 'opt-log-dir-display', 'Select folder...')">&#xD7;</span>
-        </div>
-      </div>
-    </div>
-
-    <!-- Advanced -->
+    <!-- Advanced (merged: Network + Output + Advanced + Auth) -->
     <div class="section" data-section="advanced">
       <div class="section-header collapsed" onclick="toggleSection(this)">
         <span class="arrow">&#9656;</span> ADVANCED
       </div>
       <div class="section-body hidden">
-        <div class="toggle-grid">
+        <div class="field-label">Network</div>
+        <div class="field-label" style="font-size:9px;color:var(--text-muted);margin-top:-4px;letter-spacing:0">Downloads &amp; scanning</div>
+        <div class="flex-row" style="gap:8px">
+          <div style="flex:1">
+            <div class="field-label">Parallel downloads</div>
+            <input type="number" id="opt-parallel" min="1" max="32" value="4" title="Number of simultaneous file downloads">
+          </div>
+          <div style="flex:1">
+            <div class="field-label">Scan workers</div>
+            <input type="number" id="opt-scan-workers" min="1" max="64" value="16" title="Number of parallel threads for scanning source URLs">
+          </div>
+        </div>
+        <div class="toggle-grid" style="margin-top:4px">
+          <div class="toggle-row">
+            <label title="Resume partially downloaded files instead of restarting">Resume</label>
+            <div class="toggle-switch sm" onclick="this.querySelector('input').click()"><input type="checkbox" id="opt-resume-downloads"><span class="toggle-slider"></span></div>
+          </div>
+          <div class="toggle-row">
+            <label title="Automatically adjust download parallelism based on connection stability">Auto-tune</label>
+            <div class="toggle-switch sm" onclick="this.querySelector('input').click()"><input type="checkbox" id="opt-auto-tune" checked><span class="toggle-slider"></span></div>
+          </div>
           <div class="toggle-row">
             <label title="Don't download or use DAT files for metadata">Skip DATs</label>
             <div class="toggle-switch sm" onclick="this.querySelector('input').click()"><input type="checkbox" id="opt-no-dat"><span class="toggle-slider"></span></div>
@@ -864,16 +833,15 @@
             <div class="toggle-switch sm" onclick="this.querySelector('input').click()"><input type="checkbox" id="opt-no-cache"><span class="toggle-slider"></span></div>
           </div>
         </div>
-        <div class="field-label">Recursive scan depth</div>
-        <input type="number" id="opt-max-depth" min="1" max="10" value="3" title="How many levels deep to scan for sources with recursive enabled">
-        <div class="field-label">MAME version</div>
-        <input type="text" id="opt-mame-version" placeholder="e.g. 0.261" title="Specific MAME version for DAT file downloads">
-        <div class="field-label">DAT directory</div>
-        <input type="hidden" id="opt-dat-dir">
-        <div class="path-picker" onclick="browsePathPicker('opt-dat-dir', 'opt-dat-dir-display')" title="Directory for DAT metadata files">
-          <span class="path-icon">&#x1F4C1;</span>
-          <span class="path-text" id="opt-dat-dir-display">Default: ./dat_files</span>
-          <span class="path-clear" aria-label="Clear DAT directory" onclick="event.stopPropagation(); clearPathPicker('opt-dat-dir', 'opt-dat-dir-display', 'Default: ./dat_files')">&#xD7;</span>
+        <div class="flex-row" style="gap:8px;margin-top:4px">
+          <div style="flex:1">
+            <div class="field-label">Scan depth</div>
+            <input type="number" id="opt-max-depth" min="1" max="10" value="3" title="How many levels deep to scan for sources with recursive enabled">
+          </div>
+          <div style="flex:1">
+            <div class="field-label">MAME version</div>
+            <input type="text" id="opt-mame-version" placeholder="e.g. 0.261" title="Specific MAME version for DAT file downloads">
+          </div>
         </div>
         <div class="field-label">Ratings source</div>
         <select id="opt-ratings-source" title="Which rating database to use for Top N filtering">
@@ -881,23 +849,59 @@
           <option value="igdb">IGDB only</option>
           <option value="launchbox">LaunchBox only</option>
         </select>
-      </div>
-    </div>
 
-    <!-- Auth -->
-    <div class="section" data-section="auth">
-      <div class="section-header collapsed" onclick="toggleSection(this)">
-        <span class="arrow">&#9656;</span> AUTH
-      </div>
-      <div class="section-body hidden">
-        <div class="field-label">IGDB Client ID</div>
-        <input type="text" id="opt-igdb-client-id" placeholder="Twitch app client ID" title="Required for game ratings — register at dev.twitch.tv">
-        <div class="field-label">IGDB Client Secret</div>
-        <input type="password" id="opt-igdb-client-secret" placeholder="Twitch app client secret" title="Twitch application client secret for IGDB API access">
-        <div class="field-label">Internet Archive Access Key</div>
-        <input type="text" id="opt-ia-access-key" placeholder="IA S3 access key" title="S3-compatible access key from archive.org/account/s3.php">
-        <div class="field-label">Internet Archive Secret Key</div>
-        <input type="password" id="opt-ia-secret-key" placeholder="IA S3 secret key" title="S3-compatible secret key from archive.org/account/s3.php">
+        <div class="field-label" style="margin-top:8px">Directories</div>
+        <div class="field-label" style="font-size:9px;color:var(--text-muted);margin-top:-4px;letter-spacing:0">EmulationStation gamelists</div>
+        <input type="hidden" id="opt-gamelists">
+        <div class="path-picker" onclick="browsePathPicker('opt-gamelists', 'opt-gamelists-display')" title="Generate gamelist.xml files in this directory (one per system)">
+          <span class="path-icon">&#x1F4C1;</span>
+          <span class="path-text" id="opt-gamelists-display">Select folder...</span>
+          <span class="path-clear" aria-label="Clear gamelists path" onclick="event.stopPropagation(); clearPathPicker('opt-gamelists', 'opt-gamelists-display', 'Select folder...')">&#xD7;</span>
+        </div>
+        <div class="field-label" style="font-size:9px;color:var(--text-muted);margin-top:4px;letter-spacing:0">RetroArch playlists</div>
+        <input type="hidden" id="opt-retroarch-playlists">
+        <div class="path-picker" onclick="browsePathPicker('opt-retroarch-playlists', 'opt-retroarch-playlists-display')" title="Generate .lpl playlist files in this directory (one per system)">
+          <span class="path-icon">&#x1F4C1;</span>
+          <span class="path-text" id="opt-retroarch-playlists-display">Select folder...</span>
+          <span class="path-clear" aria-label="Clear playlists path" onclick="event.stopPropagation(); clearPathPicker('opt-retroarch-playlists', 'opt-retroarch-playlists-display', 'Select folder...')">&#xD7;</span>
+        </div>
+        <div class="field-label" style="font-size:9px;color:var(--text-muted);margin-top:4px;letter-spacing:0">Log directory</div>
+        <input type="hidden" id="opt-log-dir">
+        <div class="path-picker" onclick="browsePathPicker('opt-log-dir', 'opt-log-dir-display')" title="Directory for filter log files">
+          <span class="path-icon">&#x1F4C1;</span>
+          <span class="path-text" id="opt-log-dir-display">Select folder...</span>
+          <span class="path-clear" aria-label="Clear log directory" onclick="event.stopPropagation(); clearPathPicker('opt-log-dir', 'opt-log-dir-display', 'Select folder...')">&#xD7;</span>
+        </div>
+        <div class="field-label" style="font-size:9px;color:var(--text-muted);margin-top:4px;letter-spacing:0">DAT directory</div>
+        <input type="hidden" id="opt-dat-dir">
+        <div class="path-picker" onclick="browsePathPicker('opt-dat-dir', 'opt-dat-dir-display')" title="Directory for DAT metadata files">
+          <span class="path-icon">&#x1F4C1;</span>
+          <span class="path-text" id="opt-dat-dir-display">Default: ./dat_files</span>
+          <span class="path-clear" aria-label="Clear DAT directory" onclick="event.stopPropagation(); clearPathPicker('opt-dat-dir', 'opt-dat-dir-display', 'Default: ./dat_files')">&#xD7;</span>
+        </div>
+
+        <div class="field-label" style="margin-top:8px">Auth</div>
+        <div class="field-label" style="font-size:9px;color:var(--text-muted);margin-top:-4px;letter-spacing:0">API credentials</div>
+        <div class="flex-row" style="gap:8px">
+          <div style="flex:1">
+            <div class="field-label">IGDB Client ID</div>
+            <input type="text" id="opt-igdb-client-id" placeholder="Twitch client ID" title="Required for game ratings — register at dev.twitch.tv">
+          </div>
+          <div style="flex:1">
+            <div class="field-label">IGDB Secret</div>
+            <input type="password" id="opt-igdb-client-secret" placeholder="Twitch secret" title="Twitch application client secret for IGDB API access">
+          </div>
+        </div>
+        <div class="flex-row" style="gap:8px">
+          <div style="flex:1">
+            <div class="field-label">IA Access Key</div>
+            <input type="text" id="opt-ia-access-key" placeholder="IA S3 key" title="S3-compatible access key from archive.org/account/s3.php">
+          </div>
+          <div style="flex:1">
+            <div class="field-label">IA Secret Key</div>
+            <input type="password" id="opt-ia-secret-key" placeholder="IA S3 secret" title="S3-compatible secret key from archive.org/account/s3.php">
+          </div>
+        </div>
       </div>
     </div>
 
