@@ -914,6 +914,7 @@ class Api:
                     no_filter=sel.all_roms,
                     best_version=sel.best_version,
                     english_only=sel.english_only,
+                    log_dir=config.advanced.log_dir,
                 )
                 name_to_path = {Path(f).name: Path(f)
                                 for f in local_files}
