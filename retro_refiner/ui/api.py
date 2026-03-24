@@ -47,6 +47,7 @@ class Api:
         self._run_breakdowns = {}  # system -> filter_breakdown dict
         self._log_buffer = []     # buffered log messages for file output
         self._step_prefix = lambda n: f'[{n}/2] '  # run phase indicator
+        self._skip_save = False   # set True during reset to prevent save-on-close
 
     def set_window(self, window):
         """Store a reference to the pywebview window."""
@@ -85,6 +86,7 @@ class Api:
         import subprocess as _sp  # pylint: disable=import-outside-toplevel
         import sys as _sys  # pylint: disable=import-outside-toplevel
 
+        self._skip_save = True  # prevent on_closing from rewriting state
         runtime = get_runtime_path()
 
         # Delete state file
@@ -173,6 +175,8 @@ class Api:
         Auth credentials are excluded from the persisted state to avoid
         storing secrets in cleartext on disk.
         """
+        if self._skip_save:
+            return
         path = get_runtime_path() / _UI_STATE_FILENAME
         try:
             # Temporarily clear auth fields so they are not persisted
