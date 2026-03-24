@@ -1591,8 +1591,9 @@ class Api:
         if tool == 'aria2c':
             fail_count = self._download_with_aria2c_rpc(
                 downloads, parallel, display, format_size)
-            # Retry failed downloads with curl (aria2c can fail on
-            # URLs with encoded brackets due to redirect handling)
+            # Retry failed downloads with curl in chunks (aria2c can
+            # fail on URLs with encoded brackets due to redirect
+            # handling, and large batches exceed Windows cmd limit)
             if fail_count > 0 and self._running:
                 failed = [(u, p) for u, p in downloads
                           if not p.exists() or p.stat().st_size == 0]
@@ -1602,8 +1603,13 @@ class Api:
                                 f'{len(failed)} failed downloads '
                                 f'with curl...\n',
                     })
-                    download_batch_with_curl(
-                        failed, parallel=parallel)
+                    chunk_size = max(parallel, 4)
+                    for i in range(0, len(failed), chunk_size):
+                        if not self._running:
+                            break
+                        chunk = failed[i:i + chunk_size]
+                        download_batch_with_curl(
+                            chunk, parallel=parallel)
                     # Recount failures
                     fail_count = sum(
                         1 for _, p in downloads
