@@ -1737,8 +1737,8 @@ class Api:
             '-j', str(parallel),
             '-x', str(min(parallel, 8)),
             '-s', str(min(parallel, 8)),
-            '--connect-timeout=10', '--timeout=30',
-            '--max-tries=1', '--retry-wait=1',
+            '--connect-timeout=15', '--timeout=60',
+            '--max-tries=3', '--retry-wait=3',
             '--file-allocation=none',
             '--allow-overwrite=true',
             '--auto-file-renaming=false',
@@ -1799,35 +1799,6 @@ class Api:
                 Path(input_file).unlink()
             except OSError:
                 pass
-
-        # Retry failures with curl (handles redirects reliably)
-        failed = [(u, p) for u, p in downloads
-                  if not p.exists() or p.stat().st_size == 0]
-        if failed and self._running:
-            self._push_event('log', {
-                'text': f'  {display}: retrying {len(failed)} '
-                        f'files with curl...\n',
-            })
-            chunk_size = max(parallel, 4)
-            dl_t0 = time.monotonic()
-            for i in range(0, len(failed), chunk_size):
-                if not self._running:
-                    break
-                chunk = failed[i:i + chunk_size]
-                done = min(i + len(chunk), len(failed))
-                elapsed = time.monotonic() - dl_t0
-                eta = self._eta_str(elapsed, i, len(failed))
-                self._push_event('progress', {
-                    'phase': 'download',
-                    'message': (f'{self._step_prefix(3)}'
-                                f'{display}: curl '
-                                f'{done}/{len(failed)}'
-                                f'{eta}'),
-                    'current': done,
-                    'total': len(failed),
-                })
-                download_batch_with_curl(
-                    chunk, parallel=parallel)
 
         # Count remaining failures
         for _url, dl_path in downloads:
