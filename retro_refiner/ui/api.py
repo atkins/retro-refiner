@@ -1733,8 +1733,8 @@ class Api:
             '-j', str(parallel),
             '-x', str(min(parallel, 8)),
             '-s', str(min(parallel, 8)),
-            '--connect-timeout=30', '--timeout=60',
-            '--max-tries=3', '--retry-wait=5',
+            '--connect-timeout=10', '--timeout=30',
+            '--max-tries=1', '--retry-wait=1',
             '--file-allocation=none',
             '--allow-overwrite=true',
             '--auto-file-renaming=false',
@@ -1751,6 +1751,7 @@ class Api:
             # Poll output files for progress
             dl_t0 = time.monotonic()
             last_completed = 0
+            last_change = time.monotonic()
             while self._running:
                 if proc.poll() is not None:
                     break
@@ -1759,24 +1760,27 @@ class Api:
                     1 for _, p in downloads
                     if p.exists() and p.stat().st_size > 0)
 
+                elapsed = time.monotonic() - dl_t0
                 if completed != last_completed:
                     last_completed = completed
-                    elapsed = time.monotonic() - dl_t0
-                    eta = self._eta_str(
-                        elapsed, completed, total)
-                    rate = completed / max(elapsed, 0.1)
-                    elapsed_s = self._elapsed_str(elapsed)
-                    msg = (f'{self._step_prefix(3)}'
-                           f'{display}: {completed}/{total} '
-                           f'\u2502 {rate:.1f} files/s '
-                           f'\u2502 {elapsed_s}'
-                           f'{eta}')
-                    self._push_event('progress', {
-                        'phase': 'download',
-                        'message': msg,
-                        'current': completed,
-                        'total': total,
-                    })
+                    last_change = time.monotonic()
+                eta = self._eta_str(elapsed, completed, total)
+                rate = completed / max(elapsed, 0.1)
+                elapsed_s = self._elapsed_str(elapsed)
+                stall = time.monotonic() - last_change
+                stall_str = (f' \u2502 stalled {int(stall)}s'
+                             if stall > 5 else '')
+                msg = (f'{self._step_prefix(3)}'
+                       f'{display}: {completed}/{total} '
+                       f'\u2502 {rate:.1f} files/s '
+                       f'\u2502 {elapsed_s}'
+                       f'{eta}{stall_str}')
+                self._push_event('progress', {
+                    'phase': 'download',
+                    'message': msg,
+                    'current': completed,
+                    'total': total,
+                })
 
                 time.sleep(1.0)
 
