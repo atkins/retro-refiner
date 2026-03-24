@@ -1589,31 +1589,49 @@ class Api:
         display = _display_name(system)
 
         if tool == 'aria2c':
-            fail_count = self._download_with_aria2c_rpc(
-                downloads, parallel, display, format_size)
-            # Retry failed downloads with curl in chunks (aria2c can
-            # fail on URLs with encoded brackets due to redirect
-            # handling, and large batches exceed Windows cmd limit)
-            if fail_count > 0 and self._running:
-                failed = [(u, p) for u, p in downloads
-                          if not p.exists() or p.stat().st_size == 0]
-                if failed:
+            # Split: aria2c can't handle URLs with encoded brackets
+            # (%5B/%5D) through 302 redirects — route those to curl
+            aria2c_batch = [(u, p) for u, p in downloads
+                            if '%5B' not in u and '%5D' not in u]
+            curl_batch = [(u, p) for u, p in downloads
+                          if '%5B' in u or '%5D' in u]
+
+            if aria2c_batch:
+                fail_count += self._download_with_aria2c_rpc(
+                    aria2c_batch, parallel, display, format_size)
+
+            # Download bracket-URL files with curl (chunked for
+            # Windows command line length limit)
+            if curl_batch and self._running:
+                if aria2c_batch:
                     self._push_event('log', {
-                        'text': f'  {display}: retrying '
-                                f'{len(failed)} failed downloads '
-                                f'with curl...\n',
+                        'text': f'  {display}: downloading '
+                                f'{len(curl_batch)} files with '
+                                f'curl (bracket URLs)...\n',
                     })
-                    chunk_size = max(parallel, 4)
-                    for i in range(0, len(failed), chunk_size):
-                        if not self._running:
-                            break
-                        chunk = failed[i:i + chunk_size]
-                        download_batch_with_curl(
-                            chunk, parallel=parallel)
-                    # Recount failures
-                    fail_count = sum(
-                        1 for _, p in downloads
-                        if not p.exists() or p.stat().st_size == 0)
+                chunk_size = max(parallel, 4)
+                dl_t0 = time.monotonic()
+                for i in range(0, len(curl_batch), chunk_size):
+                    if not self._running:
+                        break
+                    chunk = curl_batch[i:i + chunk_size]
+                    done = min(i + len(chunk), len(curl_batch))
+                    elapsed = time.monotonic() - dl_t0
+                    eta = self._eta_str(elapsed, i, len(curl_batch))
+                    self._push_event('progress', {
+                        'phase': 'download',
+                        'message': (f'{self._step_prefix(3)}'
+                                    f'{display}: '
+                                    f'{done}/{len(curl_batch)} '
+                                    f'(curl){eta}'),
+                        'current': done,
+                        'total': len(curl_batch),
+                    })
+                    download_batch_with_curl(
+                        chunk, parallel=parallel)
+                for _u, p in curl_batch:
+                    if not p.exists() or p.stat().st_size == 0:
+                        fail_count += 1
         elif tool == 'curl':
             # Chunk curl for progress updates
             chunk_size = max(parallel, 4)
