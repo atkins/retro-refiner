@@ -1720,12 +1720,38 @@ class Api:
 
         total = len(downloads)
 
+        # Pre-resolve redirects: one HEAD request to learn the
+        # redirect host, then rewrite all URLs. This avoids aria2c's
+        # redirect handling which fails with encoded special chars.
+        resolved = list(downloads)
+        try:
+            import urllib.request as _ureq  # pylint: disable=import-outside-toplevel
+            from urllib.parse import urlparse as _urlparse  # pylint: disable=import-outside-toplevel
+            sample_url = downloads[0][0]
+            req = _ureq.Request(
+                sample_url, method='HEAD',
+                headers={'User-Agent': 'Mozilla/5.0'})
+            with _ureq.urlopen(req, timeout=10) as resp:
+                orig_host = _urlparse(sample_url).netloc
+                final_host = _urlparse(resp.url).netloc
+                if final_host != orig_host:
+                    self._push_event('log', {
+                        'text': f'  {display}: resolved redirect '
+                                f'{orig_host} -> {final_host}\n',
+                        'className': 'log-muted',
+                    })
+                    resolved = [
+                        (u.replace(orig_host, final_host, 1), p)
+                        for u, p in downloads]
+        except Exception:  # pylint: disable=broad-except
+            pass  # fall through with original URLs
+
         # Write aria2c input file
         with _tmp.NamedTemporaryFile(
                 mode='w', suffix='.txt', delete=False,
                 encoding='utf-8') as tmp:
             input_file = tmp.name
-            for url, dest_path in downloads:
+            for url, dest_path in resolved:
                 dest_path.parent.mkdir(parents=True, exist_ok=True)
                 tmp.write(f"{url}\n")
                 tmp.write(f"  dir={dest_path.parent}\n")
