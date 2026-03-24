@@ -1589,49 +1589,8 @@ class Api:
         display = _display_name(system)
 
         if tool == 'aria2c':
-            # Split: aria2c can't handle URLs with encoded brackets
-            # (%5B/%5D) through 302 redirects — route those to curl
-            aria2c_batch = [(u, p) for u, p in downloads
-                            if '%5B' not in u and '%5D' not in u]
-            curl_batch = [(u, p) for u, p in downloads
-                          if '%5B' in u or '%5D' in u]
-
-            if aria2c_batch:
-                fail_count += self._download_with_aria2c_rpc(
-                    aria2c_batch, parallel, display, format_size)
-
-            # Download bracket-URL files with curl (chunked for
-            # Windows command line length limit)
-            if curl_batch and self._running:
-                if aria2c_batch:
-                    self._push_event('log', {
-                        'text': f'  {display}: downloading '
-                                f'{len(curl_batch)} files with '
-                                f'curl (bracket URLs)...\n',
-                    })
-                chunk_size = max(parallel, 4)
-                dl_t0 = time.monotonic()
-                for i in range(0, len(curl_batch), chunk_size):
-                    if not self._running:
-                        break
-                    chunk = curl_batch[i:i + chunk_size]
-                    done = min(i + len(chunk), len(curl_batch))
-                    elapsed = time.monotonic() - dl_t0
-                    eta = self._eta_str(elapsed, i, len(curl_batch))
-                    self._push_event('progress', {
-                        'phase': 'download',
-                        'message': (f'{self._step_prefix(3)}'
-                                    f'{display}: '
-                                    f'{done}/{len(curl_batch)} '
-                                    f'(curl){eta}'),
-                        'current': done,
-                        'total': len(curl_batch),
-                    })
-                    download_batch_with_curl(
-                        chunk, parallel=parallel)
-                for _u, p in curl_batch:
-                    if not p.exists() or p.stat().st_size == 0:
-                        fail_count += 1
+            fail_count = self._download_with_aria2c_rpc(
+                downloads, parallel, display, format_size)
         elif tool == 'curl':
             # Chunk curl for progress updates
             chunk_size = max(parallel, 4)
@@ -1696,13 +1655,14 @@ class Api:
 
     def _download_with_aria2c_rpc(self, downloads, parallel,
                                    display, format_size):
-        """Download with aria2c RPC for real-time progress."""
+        """Download with aria2c batch mode and file-polling progress.
+
+        Runs aria2c without RPC (RPC mode has a bug with encoded
+        brackets in redirect URLs). Polls output files for progress.
+        """
         import subprocess as _sp  # pylint: disable=import-outside-toplevel
         import sys  # pylint: disable=import-outside-toplevel
         import tempfile as _tmp  # pylint: disable=import-outside-toplevel
-        from retro_refiner.downloader import (  # pylint: disable=import-outside-toplevel
-            Aria2cRPC,
-        )
         _no_window = ({"creationflags": _sp.CREATE_NO_WINDOW}
                       if sys.platform == 'win32' else {})
 
@@ -1719,14 +1679,8 @@ class Api:
                 tmp.write(f"  dir={dest_path.parent}\n")
                 tmp.write(f"  out={dest_path.name}\n")
 
-        import random  # pylint: disable=import-outside-toplevel
-        rpc_port = random.randint(16000, 32000)
-        rpc_secret = 'retro'
         cmd = [
-            'aria2c', '--enable-rpc',
-            f'--rpc-listen-port={rpc_port}',
-            f'--rpc-secret={rpc_secret}',
-            '--rpc-listen-all=false',
+            'aria2c',
             '-q', '--console-log-level=error',
             '-j', str(parallel),
             '-x', str(min(parallel, 8)),
@@ -1746,42 +1700,27 @@ class Api:
                 cmd, stdout=_sp.DEVNULL, stderr=_sp.DEVNULL,
                 **_no_window)
 
-            rpc = Aria2cRPC(port=rpc_port, secret=rpc_secret)
-
-            # Wait for RPC to become available
-            for _ in range(30):
-                if rpc.get_global_stat() is not None:
-                    break
-                time.sleep(0.1)
-
-            # Poll for progress
-            last_completed = 0
+            # Poll output files for progress
             dl_t0 = time.monotonic()
+            last_completed = 0
             while self._running:
                 if proc.poll() is not None:
                     break
 
-                stat = rpc.get_global_stat()
-                if not stat:
-                    time.sleep(0.3)
-                    continue
+                completed = sum(
+                    1 for _, p in downloads
+                    if p.exists() and p.stat().st_size > 0)
 
-                active = int(stat.get('numActive', 0))
-                waiting = int(stat.get('numWaiting', 0))
-                stopped = int(stat.get('numStopped', 0))
-                speed = int(stat.get('downloadSpeed', 0))
-                completed = stopped
-
-                if completed != last_completed or active > 0:
+                if completed != last_completed:
                     last_completed = completed
                     elapsed = time.monotonic() - dl_t0
                     eta = self._eta_str(
                         elapsed, completed, total)
-                    speed_str = format_size(speed) + '/s'
+                    rate = completed / max(elapsed, 0.1)
                     elapsed_s = self._elapsed_str(elapsed)
                     msg = (f'{self._step_prefix(3)}'
                            f'{display}: {completed}/{total} '
-                           f'\u2502 {speed_str} '
+                           f'\u2502 {rate:.1f} files/s '
                            f'\u2502 {elapsed_s}'
                            f'{eta}')
                     self._push_event('progress', {
@@ -1791,15 +1730,11 @@ class Api:
                         'total': total,
                     })
 
-                if active == 0 and waiting == 0:
-                    break
-
-                time.sleep(0.5)
+                time.sleep(1.0)
 
         except Exception as exc:  # pylint: disable=broad-except
             self._push_event('log', {
-                'text': f'  {display}: aria2c error: {exc}, '
-                        f'falling back to direct download\n',
+                'text': f'  {display}: aria2c error: {exc}\n',
                 'className': 'log-warning',
             })
         finally:
