@@ -1795,7 +1795,41 @@ class Api:
             except OSError:
                 pass
 
-        # Count failures
+        # Retry failed downloads up to 3 times
+        for retry in range(3):
+            failed = [(u, p) for u, p in downloads
+                      if not p.exists() or p.stat().st_size == 0]
+            if not failed or not self._running:
+                break
+            self._push_event('log', {
+                'text': f'  {display}: retrying {len(failed)} '
+                        f'failed downloads '
+                        f'(attempt {retry + 2})...\n',
+            })
+            with _tmp.NamedTemporaryFile(
+                    mode='w', suffix='.txt', delete=False,
+                    encoding='utf-8') as retry_tmp:
+                retry_file = retry_tmp.name
+                for url, dest_path in failed:
+                    retry_tmp.write(f"{url}\n")
+                    retry_tmp.write(f"  dir={dest_path.parent}\n")
+                    retry_tmp.write(f"  out={dest_path.name}\n")
+            retry_cmd = cmd.copy()
+            retry_cmd[-1] = retry_file
+            try:
+                retry_proc = _sp.Popen(  # pylint: disable=consider-using-with
+                    retry_cmd, stdout=_sp.DEVNULL,
+                    stderr=_sp.DEVNULL, **_no_window)
+                retry_proc.wait()
+            except Exception:  # pylint: disable=broad-except
+                pass
+            finally:
+                try:
+                    Path(retry_file).unlink()
+                except OSError:
+                    pass
+
+        # Count remaining failures
         for _url, dl_path in downloads:
             if not dl_path.exists() or dl_path.stat().st_size == 0:
                 fail_count += 1
