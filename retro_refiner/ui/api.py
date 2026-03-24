@@ -1800,6 +1800,48 @@ class Api:
             except OSError:
                 pass
 
+        # Retry failures with curl (handles redirects that aria2c can't)
+        failed = [(u, p) for u, p in downloads
+                  if not p.exists() or p.stat().st_size == 0]
+        if failed and self._running:
+            from retro_refiner.downloader import (  # pylint: disable=import-outside-toplevel
+                download_batch_with_curl,
+            )
+            self._push_event('log', {
+                'text': f'  {display}: retrying {len(failed)} '
+                        f'files with curl...\n',
+            })
+            chunk_size = max(parallel, 4)
+            dl_t0 = time.monotonic()
+            for i in range(0, len(failed), chunk_size):
+                if not self._running:
+                    break
+                chunk = failed[i:i + chunk_size]
+                done = min(i + len(chunk), len(failed))
+                elapsed = time.monotonic() - dl_t0
+                eta = self._eta_str(elapsed, i, len(failed))
+                self._push_event('progress', {
+                    'phase': 'download',
+                    'message': (f'{self._step_prefix(3)}'
+                                f'{display}: curl '
+                                f'{done}/{len(failed)}'
+                                f'{eta}'),
+                    'current': done,
+                    'total': len(failed),
+                })
+                download_batch_with_curl(
+                    chunk, parallel=parallel)
+
+            # Remove any error pages curl may have saved (< 1KB HTML)
+            for _u, p in failed:
+                if p.exists() and p.stat().st_size < 1024:
+                    try:
+                        with open(p, 'rb') as chk:
+                            if chk.read(6) in (b'<html>', b'<!DOCT'):
+                                p.unlink()
+                    except OSError:
+                        pass
+
         # Count remaining failures
         for _url, dl_path in downloads:
             if not dl_path.exists() or dl_path.stat().st_size == 0:
