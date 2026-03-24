@@ -1693,6 +1693,8 @@ class Api:
             '--connect-timeout=30', '--timeout=60',
             '--max-tries=3', '--retry-wait=5',
             '--file-allocation=none',
+            '--allow-overwrite=true',
+            '--auto-file-renaming=false',
             '-i', input_file,
         ]
 
