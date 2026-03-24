@@ -931,8 +931,7 @@
       <span class="footer-label">JOBS</span>
       <button class="btn-subtle" onclick="saveConfig()" title="Save current settings to a YAML file">Save</button>
       <button class="btn-subtle" onclick="loadConfig()" title="Load settings from a YAML or JSON file">Load</button>
-      <button class="btn-subtle" onclick="loadDefaults()" title="Reset all settings to factory defaults">Reset</button>
-      <button class="btn-subtle" onclick="cleanData()" title="Delete scan cache, DAT files, CRC cache, state file, and temp files">Clean</button>
+      <button class="btn-subtle" onclick="resetApp()" title="Delete all settings, cache, and restart fresh">Reset</button>
     </div>
 
   </div>
@@ -1364,14 +1363,6 @@ function saveConfig() {
   });
 }
 
-function loadDefaults() {
-  if (!window.pywebview) return;
-  window.pywebview.api.get_default_config().then(function(json) {
-    var cfg = JSON.parse(json);
-    if (cfg) restoreUiState(cfg);
-  });
-}
-
 function showConfirm(message, onConfirm) {
   var overlay = document.getElementById('confirm-modal');
   document.getElementById('confirm-modal-text').textContent = message;
@@ -1392,17 +1383,10 @@ function showConfirm(message, onConfirm) {
   overlay.addEventListener('click', onBackdrop);
 }
 
-function cleanData() {
+function resetApp() {
   if (!window.pywebview) return;
-  showConfirm('This will delete scan cache, DAT files, CRC cache, and saved state. Continue?', function() {
-    window.pywebview.api.clean_data().then(function(json) {
-      var result = JSON.parse(json);
-      if (result && result.deleted && result.deleted.length > 0) {
-        appendLog('Cleaned ' + result.deleted.length + ' items: ' + result.deleted.join(', ') + '\n', 'log-success');
-      } else {
-        appendLog('Nothing to clean — no cached or generated data found.\n', 'log-muted');
-      }
-    });
+  showConfirm('Reset all settings and clear cache? The app will restart.', function() {
+    window.pywebview.api.reset_and_restart();
   });
 }
 

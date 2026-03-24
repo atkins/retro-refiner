@@ -79,6 +79,48 @@ class Api:
         self._config = Config()
         return json.dumps(self._config.to_dict())
 
+    def reset_and_restart(self):
+        """Delete state file and cache, then restart the app."""
+        import shutil  # pylint: disable=import-outside-toplevel
+        import subprocess as _sp  # pylint: disable=import-outside-toplevel
+        import sys as _sys  # pylint: disable=import-outside-toplevel
+
+        runtime = get_runtime_path()
+
+        # Delete state file
+        state_file = runtime / _UI_STATE_FILENAME
+        try:
+            state_file.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+        # Delete cache
+        cache_dir = runtime / 'cache'
+        if cache_dir.exists():
+            shutil.rmtree(cache_dir, ignore_errors=True)
+
+        # Delete CRC cache
+        crc_cache = runtime / '_crc_cache.json'
+        try:
+            crc_cache.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+        # Delete DAT files
+        dat_dir = Path(self._config.advanced.dat_dir or './dat_files')
+        if not dat_dir.is_absolute():
+            dat_dir = runtime / dat_dir
+        if dat_dir.exists() and any(dat_dir.glob('*.dat')):
+            shutil.rmtree(dat_dir, ignore_errors=True)
+
+        # Relaunch
+        _sp.Popen(  # pylint: disable=consider-using-with
+            [_sys.executable, '-m', 'retro_refiner'],
+            start_new_session=True,
+        )
+        if self._window:
+            self._window.destroy()
+
     def clean_data(self) -> str:
         """Delete all cached and generated data files.
 
@@ -1654,7 +1696,7 @@ class Api:
         })
 
     def _download_with_aria2c_rpc(self, downloads, parallel,
-                                   display, format_size):
+                                   display, _format_size):
         """Download with aria2c batch mode and file-polling progress.
 
         Runs aria2c without RPC (RPC mode has a bug with encoded
