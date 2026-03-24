@@ -553,6 +553,18 @@
     transition: width 0.3s ease;
   }
 
+  /* Confirm modal */
+  .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 1000; align-items: center; justify-content: center; }
+  .modal-overlay.visible { display: flex; }
+  .modal-box { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 8px; padding: 20px 24px; min-width: 300px; max-width: 420px; box-shadow: 0 8px 32px rgba(0,0,0,0.4); }
+  .modal-box p { color: var(--text-primary); margin: 0 0 16px; font-size: 13px; line-height: 1.5; }
+  .modal-buttons { display: flex; justify-content: flex-end; gap: 8px; }
+  .modal-buttons button { padding: 6px 16px; border-radius: 4px; border: 1px solid var(--border); font-size: 12px; cursor: pointer; font-family: var(--font-ui); }
+  .modal-btn-cancel { background: var(--bg-input); color: var(--text-secondary); }
+  .modal-btn-cancel:hover { color: var(--text-primary); border-color: var(--text-muted); }
+  .modal-btn-confirm { background: var(--accent); color: var(--bg-primary); border-color: var(--accent); font-weight: 600; }
+  .modal-btn-confirm:hover { opacity: 0.9; }
+
   /* Hide views */
   .view-hidden { display: none !important; }
 
@@ -956,6 +968,17 @@
       <div class="picker-view view-hidden" id="view-picker"></div>
     </div>
 
+    <!-- Confirm modal -->
+    <div class="modal-overlay" id="confirm-modal">
+      <div class="modal-box">
+        <p id="confirm-modal-text"></p>
+        <div class="modal-buttons">
+          <button class="modal-btn-cancel" id="confirm-modal-cancel">Cancel</button>
+          <button class="modal-btn-confirm" id="confirm-modal-ok">Continue</button>
+        </div>
+      </div>
+    </div>
+
     <!-- Bottom bar -->
     <div class="bottom-bar">
       <button class="bottom-btn" onclick="clearLog()">Clear</button>
@@ -1340,17 +1363,37 @@ function loadDefaults() {
   });
 }
 
+function showConfirm(message, onConfirm) {
+  var overlay = document.getElementById('confirm-modal');
+  document.getElementById('confirm-modal-text').textContent = message;
+  overlay.classList.add('visible');
+  var ok = document.getElementById('confirm-modal-ok');
+  var cancel = document.getElementById('confirm-modal-cancel');
+  function close() {
+    overlay.classList.remove('visible');
+    ok.removeEventListener('click', onOk);
+    cancel.removeEventListener('click', onCancel);
+    overlay.removeEventListener('click', onBackdrop);
+  }
+  function onOk() { close(); onConfirm(); }
+  function onCancel() { close(); }
+  function onBackdrop(e) { if (e.target === overlay) close(); }
+  ok.addEventListener('click', onOk);
+  cancel.addEventListener('click', onCancel);
+  overlay.addEventListener('click', onBackdrop);
+}
+
 function cleanData() {
   if (!window.pywebview) return;
-  if (!confirm('This will delete scan cache, DAT files, CRC cache, and saved state. Continue?')) return;
-  window.pywebview.api.clean_data().then(function(json) {
-    var result = JSON.parse(json);
-    if (result && result.deleted && result.deleted.length > 0) {
-      var msg = 'Cleaned ' + result.deleted.length + ' items:\n\n' + result.deleted.join('\n');
-      alert(msg);
-    } else {
-      alert('Nothing to clean — no cached or generated data found.');
-    }
+  showConfirm('This will delete scan cache, DAT files, CRC cache, and saved state. Continue?', function() {
+    window.pywebview.api.clean_data().then(function(json) {
+      var result = JSON.parse(json);
+      if (result && result.deleted && result.deleted.length > 0) {
+        appendLog('Cleaned ' + result.deleted.length + ' items: ' + result.deleted.join(', ') + '\n', 'log-success');
+      } else {
+        appendLog('Nothing to clean — no cached or generated data found.\n', 'log-muted');
+      }
+    });
   });
 }
 
@@ -1631,18 +1674,19 @@ function doPreview() {
 
 function doRun() {
   if (isRunning) return;
-  if (!confirm('Start committing files to the destination?')) return;
   if (sources.length === 0) {
     appendLog('No sources configured. Add a folder or URL first.\n', 'log-warning');
     showView('log');
     return;
   }
-  setRunning(true);
-  clearResults();
-  showView('log');
-  appendLog('Starting commit run...\n', 'log-info');
-  pushConfigToBackend().then(function() {
-    if (window.pywebview) window.pywebview.api.run_commit();
+  showConfirm('Start committing files to the destination?', function() {
+    setRunning(true);
+    clearResults();
+    showView('log');
+    appendLog('Starting commit run...\n', 'log-info');
+    pushConfigToBackend().then(function() {
+      if (window.pywebview) window.pywebview.api.run_commit();
+    });
   });
 }
 
