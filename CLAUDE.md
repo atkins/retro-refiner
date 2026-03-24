@@ -161,7 +161,7 @@ The main run method is split into extracted helper methods:
 - `_commit_system()` — per-system commit in 4 phases: (1) validate destination (skip files already present, optional CRC check), (2) download remote files directly to destination (uses `.rrdownload` temp files, renamed on completion for crash safety), (3) transfer local files via configured `local_file_action` (copy/move/symlink/hardlink/remove), (4) clean destination (remove unselected files if `clean_destination` enabled)
 - `_compute_system_stats()` — per-system verbose stats (regions, years, sizes, formats, revisions, languages)
 - `_write_run_logs()` — comprehensive log file output (4 file types) when log_dir configured
-- `_download_with_aria2c_rpc()` — aria2c RPC download with real-time progress polling
+- `_download_with_aria2c()` — aria2c batch download with redirect pre-resolution, file-polling progress, and curl fallback
 - `clean_data()` — delete scan cache, DAT files, CRC cache, state file, temp downloads
 
 ### Structured Log Events

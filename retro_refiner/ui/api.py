@@ -116,11 +116,14 @@ class Api:
             shutil.rmtree(dat_dir, ignore_errors=True)
 
         # Relaunch detached from parent's terminal
+        launch_kw = {'start_new_session': True}
+        if _sys.platform == 'win32':
+            launch_kw = {'creationflags': (
+                _sp.CREATE_NO_WINDOW | _sp.CREATE_NEW_PROCESS_GROUP)}
         _sp.Popen(  # pylint: disable=consider-using-with
             [_sys.executable, '-m', 'retro_refiner'],
-            start_new_session=True,
             stdout=_sp.DEVNULL, stderr=_sp.DEVNULL,
-            stdin=_sp.DEVNULL,
+            stdin=_sp.DEVNULL, **launch_kw,
         )
         if self._window:
             self._window.destroy()
@@ -1627,9 +1630,8 @@ class Api:
     def _download_batch(self, downloads, parallel, system):
         """Download files using best available tool with progress events."""
         from retro_refiner.downloader import (  # pylint: disable=import-outside-toplevel
-            get_download_tool, download_batch_with_curl,
+            get_download_tool,
         )
-        from retro_refiner.network import format_size  # pylint: disable=import-outside-toplevel
 
         total = len(downloads)
         tool = get_download_tool()
@@ -1637,9 +1639,10 @@ class Api:
         display = _display_name(system)
 
         if tool == 'aria2c':
-            fail_count = self._download_with_aria2c_rpc(
-                downloads, parallel, display, format_size)
+            fail_count = self._download_with_aria2c(
+                downloads, parallel, display)
         elif tool == 'curl':
+            from retro_refiner.downloader import download_batch_with_curl  # pylint: disable=import-outside-toplevel
             # Chunk curl for progress updates
             chunk_size = max(parallel, 4)
             dl_t0 = time.monotonic()
@@ -1701,20 +1704,16 @@ class Api:
                     f'/{total} files\n',
         })
 
-    def _download_with_aria2c_rpc(self, downloads, parallel,
-                                   display, _format_size):
+    def _download_with_aria2c(self, downloads, parallel, display):
         """Download with aria2c batch mode and curl fallback.
 
-        Uses aria2c for the initial batch with file-polling progress.
-        Falls back to chunked curl for any failures (handles redirects
-        that aria2c can't follow).
+        Pre-resolves redirects via a single HEAD request, then runs
+        aria2c with direct URLs and file-polling progress. Falls back
+        to chunked curl for any failures.
         """
         import subprocess as _sp  # pylint: disable=import-outside-toplevel
         import sys  # pylint: disable=import-outside-toplevel
         import tempfile as _tmp  # pylint: disable=import-outside-toplevel
-        from retro_refiner.downloader import (  # pylint: disable=import-outside-toplevel
-            download_batch_with_curl,
-        )
         _no_window = ({"creationflags": _sp.CREATE_NO_WINDOW}
                       if sys.platform == 'win32' else {})
 
