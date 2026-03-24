@@ -1701,12 +1701,72 @@ class Api:
                     f'/{total} files\n',
         })
 
+    def _resolve_redirects(self, downloads, display):
+        """Resolve HTTP redirects via parallel HEAD requests.
+
+        Returns downloads list with URLs replaced by final destinations.
+        """
+        import urllib.request as _ureq  # pylint: disable=import-outside-toplevel
+        from concurrent.futures import (  # pylint: disable=import-outside-toplevel
+            ThreadPoolExecutor, as_completed,
+        )
+
+        total = len(downloads)
+        resolved = list(downloads)  # copy
+
+        def _resolve_one(idx_url):
+            idx, (url, dest) = idx_url
+            try:
+                req = _ureq.Request(
+                    url, method='HEAD',
+                    headers={'User-Agent': 'Mozilla/5.0'})
+                with _ureq.urlopen(req, timeout=10) as resp:
+                    if resp.url != url:
+                        return idx, resp.url
+            except Exception:  # pylint: disable=broad-except
+                pass
+            return idx, None
+
+        self._push_event('log', {
+            'text': f'  {display}: resolving redirects...\n',
+            'className': 'log-muted',
+        })
+
+        t0 = time.monotonic()
+        count = 0
+        with ThreadPoolExecutor(max_workers=16) as pool:
+            futures = {pool.submit(_resolve_one, (i, d)):
+                       i for i, d in enumerate(downloads)}
+            for future in as_completed(futures):
+                idx, final_url = future.result()
+                if final_url:
+                    resolved[idx] = (final_url, downloads[idx][1])
+                    count += 1
+                done = sum(1 for f in futures if f.done())
+                if done % max(total // 10, 1) == 0 or done == total:
+                    self._push_event('progress', {
+                        'phase': 'download',
+                        'message': (f'{self._step_prefix(3)}'
+                                    f'{display}: resolving '
+                                    f'{done}/{total} URLs'),
+                        'current': done, 'total': total,
+                    })
+
+        elapsed = time.monotonic() - t0
+        if count > 0:
+            self._push_event('log', {
+                'text': f'  {display}: resolved {count} redirects '
+                        f'in {self._elapsed_str(elapsed)}\n',
+                'className': 'log-muted',
+            })
+
+        return resolved
+
     def _download_with_aria2c_rpc(self, downloads, parallel,
                                    display, _format_size):
         """Download with aria2c batch mode and file-polling progress.
 
-        Runs aria2c without RPC (RPC mode has a bug with encoded
-        brackets in redirect URLs). Polls output files for progress.
+        Resolves redirects first, then runs aria2c with direct URLs.
         """
         import subprocess as _sp  # pylint: disable=import-outside-toplevel
         import sys  # pylint: disable=import-outside-toplevel
@@ -1716,12 +1776,15 @@ class Api:
 
         total = len(downloads)
 
+        # Resolve redirects so aria2c gets direct URLs
+        resolved = self._resolve_redirects(downloads, display)
+
         # Write aria2c input file
         with _tmp.NamedTemporaryFile(
                 mode='w', suffix='.txt', delete=False,
                 encoding='utf-8') as tmp:
             input_file = tmp.name
-            for url, dest_path in downloads:
+            for url, dest_path in resolved:
                 dest_path.parent.mkdir(parents=True, exist_ok=True)
                 tmp.write(f"{url}\n")
                 tmp.write(f"  dir={dest_path.parent}\n")
@@ -1801,9 +1864,9 @@ class Api:
             except OSError:
                 pass
 
-        # Retry failed downloads up to 3 times
-        for retry in range(3):
-            failed = [(u, p) for u, p in downloads
+        # Retry failed downloads once (redirects already resolved)
+        for retry in range(1):
+            failed = [(u, p) for u, p in resolved
                       if not p.exists() or p.stat().st_size == 0]
             if not failed or not self._running:
                 break
