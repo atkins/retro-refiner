@@ -1701,90 +1701,31 @@ class Api:
                     f'/{total} files\n',
         })
 
-    def _resolve_redirects(self, downloads, display):
-        """Resolve HTTP redirects via parallel HEAD requests.
-
-        Returns downloads list with URLs replaced by final destinations.
-        """
-        import urllib.request as _ureq  # pylint: disable=import-outside-toplevel
-        from concurrent.futures import (  # pylint: disable=import-outside-toplevel
-            ThreadPoolExecutor, as_completed,
-        )
-
-        total = len(downloads)
-        resolved = list(downloads)  # copy
-
-        def _resolve_one(idx_url):
-            idx, (url, dest) = idx_url
-            try:
-                req = _ureq.Request(
-                    url, method='HEAD',
-                    headers={'User-Agent': 'Mozilla/5.0'})
-                with _ureq.urlopen(req, timeout=10) as resp:
-                    if resp.url != url:
-                        return idx, resp.url
-            except Exception:  # pylint: disable=broad-except
-                pass
-            return idx, None
-
-        self._push_event('log', {
-            'text': f'  {display}: resolving redirects...\n',
-            'className': 'log-muted',
-        })
-
-        t0 = time.monotonic()
-        count = 0
-        with ThreadPoolExecutor(max_workers=16) as pool:
-            futures = {pool.submit(_resolve_one, (i, d)):
-                       i for i, d in enumerate(downloads)}
-            for future in as_completed(futures):
-                idx, final_url = future.result()
-                if final_url:
-                    resolved[idx] = (final_url, downloads[idx][1])
-                    count += 1
-                done = sum(1 for f in futures if f.done())
-                if done % max(total // 10, 1) == 0 or done == total:
-                    self._push_event('progress', {
-                        'phase': 'download',
-                        'message': (f'{self._step_prefix(3)}'
-                                    f'{display}: resolving '
-                                    f'{done}/{total} URLs'),
-                        'current': done, 'total': total,
-                    })
-
-        elapsed = time.monotonic() - t0
-        if count > 0:
-            self._push_event('log', {
-                'text': f'  {display}: resolved {count} redirects '
-                        f'in {self._elapsed_str(elapsed)}\n',
-                'className': 'log-muted',
-            })
-
-        return resolved
-
     def _download_with_aria2c_rpc(self, downloads, parallel,
                                    display, _format_size):
-        """Download with aria2c batch mode and file-polling progress.
+        """Download with aria2c batch mode and curl fallback.
 
-        Resolves redirects first, then runs aria2c with direct URLs.
+        Uses aria2c for the initial batch with file-polling progress.
+        Falls back to chunked curl for any failures (handles redirects
+        that aria2c can't follow).
         """
         import subprocess as _sp  # pylint: disable=import-outside-toplevel
         import sys  # pylint: disable=import-outside-toplevel
         import tempfile as _tmp  # pylint: disable=import-outside-toplevel
+        from retro_refiner.downloader import (  # pylint: disable=import-outside-toplevel
+            download_batch_with_curl,
+        )
         _no_window = ({"creationflags": _sp.CREATE_NO_WINDOW}
                       if sys.platform == 'win32' else {})
 
         total = len(downloads)
-
-        # Resolve redirects so aria2c gets direct URLs
-        resolved = self._resolve_redirects(downloads, display)
 
         # Write aria2c input file
         with _tmp.NamedTemporaryFile(
                 mode='w', suffix='.txt', delete=False,
                 encoding='utf-8') as tmp:
             input_file = tmp.name
-            for url, dest_path in resolved:
+            for url, dest_path in downloads:
                 dest_path.parent.mkdir(parents=True, exist_ok=True)
                 tmp.write(f"{url}\n")
                 tmp.write(f"  dir={dest_path.parent}\n")
@@ -1814,7 +1755,6 @@ class Api:
             # Poll output files for progress
             dl_t0 = time.monotonic()
             last_completed = 0
-            last_change = time.monotonic()
             while self._running:
                 if proc.poll() is not None:
                     break
@@ -1826,18 +1766,14 @@ class Api:
                 elapsed = time.monotonic() - dl_t0
                 if completed != last_completed:
                     last_completed = completed
-                    last_change = time.monotonic()
                 eta = self._eta_str(elapsed, completed, total)
                 rate = completed / max(elapsed, 0.1)
                 elapsed_s = self._elapsed_str(elapsed)
-                stall = time.monotonic() - last_change
-                stall_str = (f' \u2502 stalled {int(stall)}s'
-                             if stall > 5 else '')
                 msg = (f'{self._step_prefix(3)}'
                        f'{display}: {completed}/{total} '
                        f'\u2502 {rate:.1f} files/s '
                        f'\u2502 {elapsed_s}'
-                       f'{eta}{stall_str}')
+                       f'{eta}')
                 self._push_event('progress', {
                     'phase': 'download',
                     'message': msg,
@@ -1864,39 +1800,34 @@ class Api:
             except OSError:
                 pass
 
-        # Retry failed downloads once (redirects already resolved)
-        for retry in range(1):
-            failed = [(u, p) for u, p in resolved
-                      if not p.exists() or p.stat().st_size == 0]
-            if not failed or not self._running:
-                break
+        # Retry failures with curl (handles redirects reliably)
+        failed = [(u, p) for u, p in downloads
+                  if not p.exists() or p.stat().st_size == 0]
+        if failed and self._running:
             self._push_event('log', {
                 'text': f'  {display}: retrying {len(failed)} '
-                        f'failed downloads '
-                        f'(attempt {retry + 2})...\n',
+                        f'files with curl...\n',
             })
-            with _tmp.NamedTemporaryFile(
-                    mode='w', suffix='.txt', delete=False,
-                    encoding='utf-8') as retry_tmp:
-                retry_file = retry_tmp.name
-                for url, dest_path in failed:
-                    retry_tmp.write(f"{url}\n")
-                    retry_tmp.write(f"  dir={dest_path.parent}\n")
-                    retry_tmp.write(f"  out={dest_path.name}\n")
-            retry_cmd = cmd.copy()
-            retry_cmd[-1] = retry_file
-            try:
-                retry_proc = _sp.Popen(  # pylint: disable=consider-using-with
-                    retry_cmd, stdout=_sp.DEVNULL,
-                    stderr=_sp.DEVNULL, **_no_window)
-                retry_proc.wait()
-            except Exception:  # pylint: disable=broad-except
-                pass
-            finally:
-                try:
-                    Path(retry_file).unlink()
-                except OSError:
-                    pass
+            chunk_size = max(parallel, 4)
+            dl_t0 = time.monotonic()
+            for i in range(0, len(failed), chunk_size):
+                if not self._running:
+                    break
+                chunk = failed[i:i + chunk_size]
+                done = min(i + len(chunk), len(failed))
+                elapsed = time.monotonic() - dl_t0
+                eta = self._eta_str(elapsed, i, len(failed))
+                self._push_event('progress', {
+                    'phase': 'download',
+                    'message': (f'{self._step_prefix(3)}'
+                                f'{display}: curl '
+                                f'{done}/{len(failed)}'
+                                f'{eta}'),
+                    'current': done,
+                    'total': len(failed),
+                })
+                download_batch_with_curl(
+                    chunk, parallel=parallel)
 
         # Count remaining failures
         for _url, dl_path in downloads:
