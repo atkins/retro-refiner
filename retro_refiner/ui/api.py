@@ -1780,13 +1780,16 @@ class Api:
             # Poll output files for progress
             dl_t0 = time.monotonic()
             last_completed = 0
+            done_set = set()
             while self._running:
                 if proc.poll() is not None:
                     break
 
-                completed = sum(
-                    1 for _, p in downloads
-                    if p.exists() and p.stat().st_size > 0)
+                for i, (_, p) in enumerate(downloads):
+                    if i not in done_set and p.exists() \
+                            and p.stat().st_size > 0:
+                        done_set.add(i)
+                completed = len(done_set)
 
                 elapsed = time.monotonic() - dl_t0
                 if completed != last_completed:
@@ -1857,12 +1860,14 @@ class Api:
                 download_batch_with_curl(
                     chunk, parallel=parallel)
 
-            # Remove any error pages curl may have saved (< 1KB HTML)
+            # Remove any error pages curl may have saved
             for _u, p in failed:
-                if p.exists() and p.stat().st_size < 1024:
+                if p.exists() and p.stat().st_size < 4096:
                     try:
                         with open(p, 'rb') as chk:
-                            if chk.read(6) in (b'<html>', b'<!DOCT'):
+                            content = chk.read()
+                            if (content[:6] in (b'<html>', b'<!DOCT')
+                                    and b'</html>' in content):
                                 p.unlink()
                     except OSError:
                         pass

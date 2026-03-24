@@ -1067,6 +1067,8 @@ function showView(view) {
     document.getElementById('view-picker').classList.remove('view-hidden');
     document.getElementById('tab-results').classList.add('active');
     if (copyBtn) copyBtn.style.display = 'none';
+  } else {
+    if (copyBtn) copyBtn.style.display = 'none';
   }
 }
 
