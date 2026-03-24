@@ -115,10 +115,12 @@ class Api:
         if dat_dir.exists() and any(dat_dir.glob('*.dat')):
             shutil.rmtree(dat_dir, ignore_errors=True)
 
-        # Relaunch
+        # Relaunch detached from parent's terminal
         _sp.Popen(  # pylint: disable=consider-using-with
             [_sys.executable, '-m', 'retro_refiner'],
             start_new_session=True,
+            stdout=_sp.DEVNULL, stderr=_sp.DEVNULL,
+            stdin=_sp.DEVNULL,
         )
         if self._window:
             self._window.destroy()
