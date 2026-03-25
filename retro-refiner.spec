@@ -21,8 +21,10 @@ a = Analysis(
         'time', 'argparse', 'tempfile', 'io', 'select', 'datetime',
         'xml.etree.ElementTree', 'curses', 'termios', 'tty', 'ctypes', 'msvcrt',
         'queue', 'html.parser',
-        # pywebview and its backends
+        # Third-party libraries
         'webview',
+        'yaml', 'httpx', 'httpcore', 'certifi', 'idna', 'sniffio', 'anyio', 'h11',
+        'humanize', 'tenacity', 'orjson', 'bs4',
         # retro_refiner package
         'retro_refiner', 'retro_refiner.config', 'retro_refiner.systems',
         'retro_refiner.paths', 'retro_refiner.network', 'retro_refiner.scanner',
