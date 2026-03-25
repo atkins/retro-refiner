@@ -19,12 +19,18 @@ jobs:
           - os: windows-latest
             artifact: retro-refiner-windows.exe
             exe_name: retro-refiner.exe
+            nuitka_mode: "--standalone --onefile"
+            nuitka_extra: "--windows-icon-from-ico=retro_refiner/ui/assets/icon.ico --windows-console-mode=disable"
           - os: ubuntu-latest
             artifact: retro-refiner-linux
             exe_name: retro-refiner
+            nuitka_mode: "--standalone --onefile"
+            nuitka_extra: ""
           - os: macos-latest
             artifact: retro-refiner-macos
             exe_name: retro-refiner
+            nuitka_mode: "--standalone --onefile --macos-app-mode=gui"
+            nuitka_extra: ""
 
     runs-on: ${{ matrix.os }}
 
@@ -56,13 +62,12 @@ jobs:
       - name: Build executable
         run: >
           python -m nuitka
-          --standalone --onefile
+          ${{ matrix.nuitka_mode }}
           --assume-yes-for-downloads
           --enable-plugin=no-qt
           --include-data-dir=data=data
           --include-data-dir=retro_refiner/ui/assets=retro_refiner/ui/assets
-          --windows-icon-from-ico=retro_refiner/ui/assets/icon.ico
-          --windows-console-mode=disable
+          ${{ matrix.nuitka_extra }}
           --output-filename=${{ matrix.exe_name }}
           --python-flag=-m
           retro_refiner
