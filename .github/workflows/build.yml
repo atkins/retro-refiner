@@ -12,38 +12,57 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
-  build:
-    strategy:
-      matrix:
-        include:
-          - os: windows-latest
-            artifact: retro-refiner-windows.exe
-            exe_name: retro-refiner.exe
-            nuitka_mode: "--standalone --onefile"
-            nuitka_extra: "--windows-icon-from-ico=retro_refiner/ui/assets/icon.ico --windows-console-mode=disable"
-          - os: ubuntu-latest
-            artifact: retro-refiner-linux
-            exe_name: retro-refiner
-            nuitka_mode: "--standalone --onefile"
-            nuitka_extra: ""
-          - os: macos-latest
-            artifact: retro-refiner-macos
-            exe_name: retro-refiner
-            nuitka_mode: "--standalone --onefile --macos-app-mode=gui"
-            nuitka_extra: ""
-
-    runs-on: ${{ matrix.os }}
-
+  build-windows:
+    runs-on: windows-latest
     steps:
       - uses: actions/checkout@v5
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
-      - name: Install system dependencies (Linux)
-        if: runner.os == 'Linux'
+      - name: Install Python dependencies
+        run: pip install "nuitka[onefile]" pywebview httpx pyyaml humanize tenacity orjson beautifulsoup4
+
+      - name: Inject version from tag
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          sed -i.bak 's/__version__ = "dev"/__version__ = "'"$VERSION"'"/' retro_refiner/__init__.py
+          rm -f retro_refiner/__init__.py.bak
+
+      - name: Build executable
+        run: >
+          python -m nuitka
+          --standalone --onefile
+          --assume-yes-for-downloads
+          --enable-plugin=no-qt
+          --include-data-dir=data=data
+          --include-data-dir=retro_refiner/ui/assets=retro_refiner/ui/assets
+          --windows-icon-from-ico=retro_refiner/ui/assets/icon.ico
+          --windows-console-mode=disable
+          --output-filename=retro-refiner.exe
+          --python-flag=-m
+          retro_refiner
+
+      - name: Smoke test
+        shell: bash
+        run: ./retro-refiner.exe --export-config > /dev/null
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: retro-refiner-windows.exe
+          path: retro-refiner.exe
+
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install system dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y libgirepository1.0-dev libcairo2-dev libwebkit2gtk-4.1-dev gir1.2-webkit2-4.1 patchelf
@@ -55,40 +74,75 @@ jobs:
         shell: bash
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
-          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
           sed -i.bak 's/__version__ = "dev"/__version__ = "'"$VERSION"'"/' retro_refiner/__init__.py
           rm -f retro_refiner/__init__.py.bak
 
       - name: Build executable
         run: >
           python -m nuitka
-          ${{ matrix.nuitka_mode }}
+          --standalone --onefile
           --assume-yes-for-downloads
           --enable-plugin=no-qt
           --include-data-dir=data=data
           --include-data-dir=retro_refiner/ui/assets=retro_refiner/ui/assets
-          ${{ matrix.nuitka_extra }}
-          --output-filename=${{ matrix.exe_name }}
+          --output-filename=retro-refiner
           --python-flag=-m
           retro_refiner
 
       - name: Smoke test
-        shell: bash
-        run: |
-          ./${{ matrix.exe_name }} --export-config > /dev/null
-
-      - name: Rename artifact
-        shell: bash
-        run: mv ${{ matrix.exe_name }} ${{ matrix.artifact }}
+        run: ./retro-refiner --export-config > /dev/null
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.artifact }}
-          path: ${{ matrix.artifact }}
+          name: retro-refiner-linux
+          path: retro-refiner
+
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Python dependencies
+        run: pip install "nuitka[onefile]" pywebview httpx pyyaml humanize tenacity orjson beautifulsoup4
+
+      - name: Inject version from tag
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          sed -i.bak 's/__version__ = "dev"/__version__ = "'"$VERSION"'"/' retro_refiner/__init__.py
+          rm -f retro_refiner/__init__.py.bak
+
+      - name: Build app bundle
+        run: >
+          python -m nuitka
+          --mode=app
+          --assume-yes-for-downloads
+          --enable-plugin=no-qt
+          --include-data-dir=data=data
+          --include-data-dir=retro_refiner/ui/assets=retro_refiner/ui/assets
+          --macos-app-name=Retro-Refiner
+          --output-filename=retro-refiner
+          --python-flag=-m
+          retro_refiner
+
+      - name: Smoke test
+        run: ./retro-refiner.app/Contents/MacOS/retro-refiner --export-config > /dev/null
+
+      - name: Package as zip
+        run: zip -r retro-refiner-macos.zip retro-refiner.app
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: retro-refiner-macos.zip
+          path: retro-refiner-macos.zip
 
   release:
-    needs: build
+    needs: [build-windows, build-linux, build-macos]
     runs-on: ubuntu-latest
     steps:
       - name: Download all artifacts
