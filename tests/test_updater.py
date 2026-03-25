@@ -1,12 +1,18 @@
 """Tests for retro_refiner.updater module."""
+import sys
 from datetime import datetime, timezone
 from unittest.mock import patch
+
+import httpx
 
 from retro_refiner.updater import (
     get_current_version, is_newer, is_valid_version,
     _normalize_version, can_check_for_updates, should_check,
     load_update_state, save_update_state,
     get_asset_url, get_asset_size,
+    check_for_update, download_update, apply_update,
+    startup_recovery, launch_and_exit,
+    ASSET_NAMES, GITHUB_API_URL,
 )
 
 
@@ -160,3 +166,173 @@ class TestAssetSelection:
     def test_no_assets(self):
         assert get_asset_url({'assets': []}) is None
         assert get_asset_size({'assets': []}) == 0
+
+
+# -- check_for_update --
+
+class TestCheckForUpdate:
+    def test_returns_info_when_newer(self):
+        def handler(request):
+            return httpx.Response(200, json={
+                'tag_name': 'v9999.12.31.2359',
+                'html_url': 'https://github.com/atkins/retro-refiner/releases/tag/v9999.12.31.2359',
+                'assets': [{
+                    'name': ASSET_NAMES.get(sys.platform, 'retro-refiner-linux'),
+                    'browser_download_url': 'https://example.com/download',
+                    'size': 1000,
+                }],
+            })
+
+        client = httpx.Client(transport=httpx.MockTransport(handler))
+        with patch('retro_refiner.updater.__version__', '2026.03.24.1330'), \
+             patch.object(httpx, 'Client', return_value=client):
+            result = check_for_update()
+            assert result is not None
+            assert result['version'] == 'v9999.12.31.2359'
+            assert result['url'] == 'https://example.com/download'
+            assert result['size'] == 1000
+
+    def test_returns_none_when_same_version(self):
+        def handler(request):
+            return httpx.Response(200, json={
+                'tag_name': 'v2026.03.24.1330',
+                'assets': [],
+            })
+        client = httpx.Client(transport=httpx.MockTransport(handler))
+        with patch('retro_refiner.updater.__version__', '2026.03.24.1330'), \
+             patch.object(httpx, 'Client', return_value=client):
+            result = check_for_update()
+            assert result is None
+
+    def test_returns_none_on_error(self):
+        """Network errors should return None silently."""
+        def handler(request):
+            return httpx.Response(500)
+        client = httpx.Client(transport=httpx.MockTransport(handler))
+        with patch('retro_refiner.updater.__version__', '2026.03.24.1330'), \
+             patch.object(httpx, 'Client', return_value=client):
+            result = check_for_update()
+            assert result is None
+
+
+# -- apply_update --
+
+class TestApplyUpdate:
+    def test_apply_linux(self, tmp_path):
+        exe = tmp_path / 'app'
+        exe.write_bytes(b'old binary')
+        new = tmp_path / 'app_new'
+        new.write_bytes(b'new binary')
+
+        with patch('retro_refiner.updater.sys') as mock_sys:
+            mock_sys.platform = 'linux'
+            result = apply_update(new, exe)
+        assert result is True
+        assert exe.read_bytes() == b'new binary'
+
+    def test_apply_windows_creates_old(self, tmp_path):
+        exe = tmp_path / 'app.exe'
+        exe.write_bytes(b'old binary')
+        new = tmp_path / 'app_new.exe'
+        new.write_bytes(b'new binary')
+        old = tmp_path / 'app.exe.old'
+
+        with patch('retro_refiner.updater.sys') as mock_sys:
+            mock_sys.platform = 'win32'
+            result = apply_update(new, exe)
+        assert result is True
+        assert exe.read_bytes() == b'new binary'
+        assert old.read_bytes() == b'old binary'
+
+    def test_apply_failure_returns_false(self, tmp_path):
+        exe = tmp_path / 'nonexistent'
+        new = tmp_path / 'also_nonexistent'
+
+        with patch('retro_refiner.updater.sys') as mock_sys:
+            mock_sys.platform = 'linux'
+            result = apply_update(new, exe)
+        assert result is False
+
+
+# -- startup_recovery --
+
+class TestStartupRecovery:
+    def test_recovery_when_exe_missing(self, tmp_path):
+        exe = tmp_path / 'app.exe'
+        old = tmp_path / 'app.exe.old'
+        old.write_bytes(b'old binary')
+
+        with patch('retro_refiner.updater.is_frozen', return_value=True):
+            startup_recovery(exe)
+        assert exe.exists()
+        assert exe.read_bytes() == b'old binary'
+        assert not old.exists()
+
+    def test_cleanup_old_when_both_exist(self, tmp_path):
+        exe = tmp_path / 'app.exe'
+        exe.write_bytes(b'new binary')
+        old = tmp_path / 'app.exe.old'
+        old.write_bytes(b'old binary')
+
+        with patch('retro_refiner.updater.is_frozen', return_value=True):
+            startup_recovery(exe)
+        assert exe.exists()
+        assert not old.exists()
+
+    def test_noop_when_not_frozen(self, tmp_path):
+        old = tmp_path / 'app.exe.old'
+        old.write_bytes(b'old binary')
+
+        with patch('retro_refiner.updater.is_frozen', return_value=False):
+            startup_recovery(tmp_path / 'app.exe')
+        assert old.exists()
+
+    def test_noop_when_no_old(self, tmp_path):
+        exe = tmp_path / 'app.exe'
+        exe.write_bytes(b'binary')
+
+        with patch('retro_refiner.updater.is_frozen', return_value=True):
+            startup_recovery(exe)
+        assert exe.exists()
+
+
+# -- download verification --
+
+class TestDownloadUpdate:
+    def test_size_mismatch_returns_none(self, tmp_path):
+        def handler(request):
+            return httpx.Response(200, content=b'small',
+                                 headers={'content-length': '5'})
+
+        client = httpx.Client(transport=httpx.MockTransport(handler))
+        with patch('tempfile.mkdtemp', return_value=str(tmp_path)), \
+             patch.object(httpx, 'Client', return_value=client):
+            result = download_update('http://example.com/file',
+                                     expected_size=999999)
+        assert result is None
+
+    def test_successful_download(self, tmp_path):
+        content = b'x' * 1000
+
+        def handler(request):
+            return httpx.Response(200, content=content,
+                                 headers={'content-length': str(len(content))})
+
+        client = httpx.Client(transport=httpx.MockTransport(handler))
+        with patch('tempfile.mkdtemp', return_value=str(tmp_path)), \
+             patch.object(httpx, 'Client', return_value=client):
+            result = download_update('http://example.com/file',
+                                     expected_size=1000)
+        assert result is not None
+        assert result.read_bytes() == content
+
+    def test_network_error_returns_none(self, tmp_path):
+        def handler(request):
+            raise httpx.ConnectError("connection refused")
+
+        client = httpx.Client(transport=httpx.MockTransport(handler))
+        with patch('tempfile.mkdtemp', return_value=str(tmp_path)), \
+             patch.object(httpx, 'Client', return_value=client):
+            result = download_update('http://example.com/file',
+                                     expected_size=1000)
+        assert result is None

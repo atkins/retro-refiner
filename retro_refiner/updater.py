@@ -4,6 +4,7 @@ Checks GitHub Releases for new versions, downloads updates, and replaces
 the running executable. All external imports (httpx) are lazy.
 """
 import json
+import os
 import re
 import sys
 from datetime import datetime, timedelta, timezone
@@ -124,3 +125,141 @@ def get_asset_size(release_info: dict) -> int:
         if asset.get('name') == target:
             return asset.get('size', 0)
     return 0
+
+
+def check_for_update() -> Optional[dict]:
+    """Check GitHub for a newer release.
+
+    Returns dict with keys (version, url, size, html_url) if newer exists.
+    Returns None if up-to-date or on any error (silent failure).
+    """
+    try:
+        import httpx  # pylint: disable=import-outside-toplevel
+        with httpx.Client(timeout=10, follow_redirects=True) as client:
+            resp = client.get(GITHUB_API_URL, headers={
+                'Accept': 'application/vnd.github.v3+json',
+                'User-Agent': 'Retro-Refiner-Updater/1.0',
+            })
+            resp.raise_for_status()
+            data = resp.json()
+
+        tag = data.get('tag_name', '')
+        if not is_newer(tag, get_current_version()):
+            return None
+
+        asset_url = get_asset_url(data)
+        if not asset_url:
+            return None
+
+        return {
+            'version': tag,
+            'url': asset_url,
+            'size': get_asset_size(data),
+            'html_url': data.get('html_url', RELEASES_URL),
+        }
+    except Exception:  # pylint: disable=broad-except
+        return None
+
+
+def download_update(url: str, expected_size: int,
+                    progress_callback=None) -> Optional[Path]:
+    """Download update to a temp directory. Returns path or None on failure."""
+    import tempfile  # pylint: disable=import-outside-toplevel
+    import httpx  # pylint: disable=import-outside-toplevel
+
+    dest_dir = Path(tempfile.mkdtemp(prefix='retro-refiner-update-'))
+    asset_name = ASSET_NAMES.get(sys.platform, 'retro-refiner-update')
+    dest_path = dest_dir / asset_name
+
+    try:
+        with httpx.Client(follow_redirects=True, timeout=120,
+                          headers={'User-Agent': 'Retro-Refiner-Updater/1.0'}
+                          ) as client:
+            with client.stream('GET', url) as response:
+                response.raise_for_status()
+                total = int(response.headers.get('content-length', 0))
+                downloaded = 0
+                with open(dest_path, 'wb') as f:
+                    for chunk in response.iter_bytes(65536):
+                        f.write(chunk)
+                        downloaded += len(chunk)
+                        if progress_callback and total > 0:
+                            progress_callback(downloaded, total)
+    except Exception:  # pylint: disable=broad-except
+        return None
+
+    if expected_size > 0 and dest_path.stat().st_size != expected_size:
+        return None
+
+    return dest_path
+
+
+def apply_update(new_path: Path, exe_path: Path) -> bool:
+    """Replace the running executable with the downloaded update.
+
+    Windows: rename exe -> exe.old, move new -> exe, remove MOTW.
+    macOS/Linux: move new -> exe, set executable bit, remove quarantine.
+    Returns True on success.
+    """
+    import shutil  # pylint: disable=import-outside-toplevel
+    try:
+        if sys.platform == 'win32':
+            old_path = Path(str(exe_path) + '.old')
+            old_path.unlink(missing_ok=True)
+            os.rename(exe_path, old_path)
+            shutil.move(str(new_path), str(exe_path))
+            try:
+                os.remove(f"{exe_path}:Zone.Identifier")
+            except OSError:
+                pass
+        else:
+            shutil.move(str(new_path), str(exe_path))
+            os.chmod(exe_path, 0o755)
+            if sys.platform == 'darwin':
+                import subprocess  # pylint: disable=import-outside-toplevel
+                subprocess.run(
+                    ['xattr', '-d', 'com.apple.quarantine', str(exe_path)],
+                    capture_output=True, check=False)
+        return True
+    except Exception:  # pylint: disable=broad-except
+        return False
+
+
+def startup_recovery(exe_path: Optional[Path] = None) -> None:
+    """Recover from interrupted update and clean up old executables."""
+    if not is_frozen():
+        return
+    if exe_path is None:
+        exe_path = Path(sys.executable)
+    old_path = Path(str(exe_path) + '.old')
+
+    if not exe_path.exists() and old_path.exists():
+        try:
+            os.rename(old_path, exe_path)
+        except OSError:
+            pass
+        return
+
+    if old_path.exists():
+        try:
+            old_path.unlink()
+        except OSError:
+            pass
+
+
+def launch_and_exit(exe_path: Optional[Path] = None) -> None:
+    """Launch the (updated) executable and exit the current process."""
+    import subprocess  # pylint: disable=import-outside-toplevel
+    if exe_path is None:
+        exe_path = Path(sys.executable)
+
+    if is_frozen():
+        cmd = [str(exe_path)]
+    else:
+        cmd = [sys.executable, '-m', 'retro_refiner']
+
+    subprocess.Popen(  # pylint: disable=consider-using-with
+        cmd, start_new_session=True,
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+    )
+    sys.exit(0)
