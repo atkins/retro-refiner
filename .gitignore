@@ -91,3 +91,4 @@ _scan_cache.json
 *.pbp
 *.cso
 *.wbfs
+.coverage
