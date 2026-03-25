@@ -28,8 +28,11 @@ python tests/test_v2_config.py       # 65 config tests
 python tests/test_v2_systems.py      # 19 systems tests
 python tests/test_v2_paths.py        # 3 path tests
 python tests/test_v2_cli.py          # 36 CLI tests
+python tests/test_network.py         # 213 network tests
+python tests/test_scanner_dat_transfer.py  # 138 scanner/DAT/transfer tests
+python tests/test_api.py             # 176 API tests
 ```
-Note: `pytest` is not installed. Tests use a custom `TestResult` framework and are run directly. **519 tests total, all passing.**
+Note: `pytest` is not installed. Tests use a custom `TestResult` framework and are run directly. **1,046 tests total, all passing.**
 
 ### Lint
 ```bash
@@ -310,6 +313,9 @@ Tests use a custom `TestResult` framework (not pytest). Run directly: `python te
 Test files:
 - `tests/test_selection.py` — 316 tests: ROM parsing, selection, filtering, config, playlists, transfers, MAME, TeknoParrot, dedup, ratings
 - `tests/test_v2_*.py` — 203 tests across 5 files covering all v2 modules
+- `tests/test_network.py` — 213 tests: URL utils, size parsing, HTML parsing (all 5 patterns), SSRF validation, scan cache
+- `tests/test_scanner_dat_transfer.py` — 138 tests: system detection, local scanning, DAT parsing (XML+ClrMamePro), title normalization, CRC, validate/clean destination, file transfers, playlist generation
+- `tests/test_api.py` — 176 tests: display names, ETA/elapsed formatting, config management, clean_data, system stats, UI state, picker, clipboard, run state
 
 All tests import from `retro_refiner.*` package — no monolith imports.
 
