@@ -625,50 +625,25 @@ def fetch_url(url: str, timeout: int = 30, max_redirects: int = 5,
 
     Returns (content, final_url) tuple.
     """
-    current_url = url
-    redirects = 0
-
-    while redirects < max_redirects:
-        try:
-            headers = {
-                'User-Agent': 'Mozilla/5.0 (compatible; Retro-Refiner/1.0)',
-                'Accept': 'text/html,application/xhtml+xml,*/*',
-                'Accept-Language': 'en-US,en;q=0.9',
-            }
-            if auth_header:
-                headers['Authorization'] = auth_header
-            request = urllib.request.Request(current_url, headers=headers)
-            with urllib.request.urlopen(request, timeout=timeout) as response:
-                final_url = response.geturl()
-
-                if 'archive.org/account/' in final_url:
-                    raise Exception(  # pylint: disable=broad-exception-raised
-                        "Archive.org requires authentication.\n"
-                        "Get credentials at: https://archive.org/account/s3.php\n"
-                        "Then set: export IA_ACCESS_KEY=your_key\n"
-                        "         export IA_SECRET_KEY=your_secret"
-                    )
-
-                return response.read(), final_url
-        except urllib.error.HTTPError as exc:
-            if exc.code in (301, 302, 303, 307, 308):
-                new_url = exc.headers.get('Location')
-                if new_url:
-                    if 'archive.org/account/' in new_url:
-                        raise Exception(  # pylint: disable=broad-exception-raised
-                            "Archive.org requires authentication.\n"
-                            "Get credentials at: https://archive.org/account/s3.php\n"
-                            "Then set: export IA_ACCESS_KEY=your_key\n"
-                            "         export IA_SECRET_KEY=your_secret"
-                        ) from exc
-                    current_url = normalize_url(new_url, current_url) or new_url
-                    redirects += 1
-                    continue
-            raise
-
-    raise Exception(  # pylint: disable=broad-exception-raised
-        f"Too many redirects for {url}"
-    )
+    import httpx  # pylint: disable=import-outside-toplevel
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (compatible; Retro-Refiner/1.0)',
+        'Accept': 'text/html,application/xhtml+xml,*/*',
+        'Accept-Language': 'en-US,en;q=0.9',
+    }
+    if auth_header:
+        headers['Authorization'] = auth_header
+    with httpx.Client(follow_redirects=True, max_redirects=max_redirects,
+                      timeout=timeout, headers=headers) as client:
+        response = client.get(url)
+        final_url = str(response.url)
+        if 'archive.org/account/' in final_url:
+            raise Exception(  # pylint: disable=broad-exception-raised
+                "Archive.org requires authentication.\n"
+                "Get credentials at: https://archive.org/account/s3.php"
+            )
+        response.raise_for_status()
+        return response.content, final_url
 
 
 def fetch_urls_parallel(urls: List[str], max_workers: int = 16,
@@ -676,33 +651,50 @@ def fetch_urls_parallel(urls: List[str], max_workers: int = 16,
                         progress_callback=None) -> Dict[str, Tuple[bytes, str]]:
     """Fetch multiple URLs in parallel using ThreadPoolExecutor.
 
+    Uses a shared httpx.Client for connection pooling across threads.
     Returns dict of {url: (content, final_url)} for successful fetches.
     """
+    import httpx  # pylint: disable=import-outside-toplevel
     results: Dict[str, Tuple[bytes, str]] = {}
 
     if not urls:
         return results
 
-    def _fetch_one(target_url):
-        try:
-            check_shutdown()
-            content, final_url = fetch_url(target_url, auth_header=auth_header)
-            return target_url, (content, final_url), None
-        except Exception as exc:  # pylint: disable=broad-except
-            return target_url, None, str(exc)
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (compatible; Retro-Refiner/1.0)',
+        'Accept': 'text/html,application/xhtml+xml,*/*',
+        'Accept-Language': 'en-US,en;q=0.9',
+    }
+    if auth_header:
+        headers['Authorization'] = auth_header
 
     actual_workers = min(max_workers, len(urls))
 
-    with ThreadPoolExecutor(max_workers=actual_workers) as executor:
-        futures = {executor.submit(_fetch_one, u): u for u in urls}
-        completed = 0
-        for future in as_completed(futures):
-            completed += 1
-            if progress_callback:
-                progress_callback(completed, len(urls))
-            target_url, result, _error = future.result()
-            if result:
-                results[target_url] = result
+    with httpx.Client(follow_redirects=True, max_redirects=5,
+                      timeout=30, headers=headers) as client:
+
+        def _fetch_one(target_url):
+            try:
+                check_shutdown()
+                response = client.get(target_url)
+                final_url = str(response.url)
+                if 'archive.org/account/' in final_url:
+                    return target_url, None, "Archive.org auth required"
+                response.raise_for_status()
+                return target_url, (response.content, final_url), None
+            except Exception as exc:  # pylint: disable=broad-except
+                return target_url, None, str(exc)
+
+        with ThreadPoolExecutor(max_workers=actual_workers) as executor:
+            futures = {executor.submit(_fetch_one, u): u for u in urls}
+            completed = 0
+            for future in as_completed(futures):
+                completed += 1
+                if progress_callback:
+                    progress_callback(completed, len(urls))
+                target_url, result, _error = future.result()
+                if result:
+                    results[target_url] = result
 
     return results
 
