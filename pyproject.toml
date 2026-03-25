@@ -1,3 +1,16 @@
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "--ignore=tests/test_smoke.py -q"
+
+[tool.ruff]
+target-version = "py311"
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "W"]
+ignore = [
+    "E402",   # module-level import not at top (intentional lazy imports)
+    "F401",   # unused imports in __init__.py (re-exports)
+    "E501",   # line too long (handled by pylint)
+    "F821",   # undefined name in type hints (forward references)
+]

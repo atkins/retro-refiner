@@ -1288,7 +1288,7 @@ class Api:
         # --- 1. Run summary log ---
         summary_path = log_dir / f'run_summary_{timestamp}.txt'
         with open(summary_path, 'w', encoding='utf-8') as f:
-            f.write(f"Retro-Refiner Run Summary\n")
+            f.write("Retro-Refiner Run Summary\n")
             f.write(f"{'=' * 60}\n")
             f.write(f"Date:       {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
             f.write(f"Mode:       {mode}\n")
@@ -1431,7 +1431,7 @@ class Api:
         # --- 4. Console log (all messages from the run) ---
         console_path = log_dir / f'console_{timestamp}.txt'
         with open(console_path, 'w', encoding='utf-8') as f:
-            f.write(f"Retro-Refiner Console Log\n")
+            f.write("Retro-Refiner Console Log\n")
             f.write(f"{'=' * 60}\n")
             f.write(f"Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
             f.write(f"Mode: {mode}\n\n")
