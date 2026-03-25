@@ -28,9 +28,8 @@ python tests/test_v2_config.py       # 65 config tests
 python tests/test_v2_systems.py      # 19 systems tests
 python tests/test_v2_paths.py        # 3 path tests
 python tests/test_v2_cli.py          # 36 CLI tests
-python tests/test_v2_integration.py  # 5 integration tests
 ```
-Note: `pytest` is not installed. Tests use a custom `TestResult` framework and are run directly. **524 tests total, all passing.**
+Note: `pytest` is not installed. Tests use a custom `TestResult` framework and are run directly. **519 tests total, all passing.**
 
 ### Lint
 ```bash
@@ -310,7 +309,7 @@ Tests use a custom `TestResult` framework (not pytest). Run directly: `python te
 
 Test files:
 - `tests/test_selection.py` — 316 tests: ROM parsing, selection, filtering, config, playlists, transfers, MAME, TeknoParrot, dedup, ratings
-- `tests/test_v2_*.py` — 208 tests across 6 files covering all v2 modules
+- `tests/test_v2_*.py` — 203 tests across 5 files covering all v2 modules
 
 All tests import from `retro_refiner.*` package — no monolith imports.
 
