@@ -633,6 +633,29 @@ class Api:
                 if config.output.local_file_action != 'remove':
                     dest_dir.mkdir(parents=True, exist_ok=True)
 
+                # Check disk space before committing
+                if total_size > 0 and dest_dir.exists():
+                    import shutil as _shutil  # pylint: disable=import-outside-toplevel
+                    try:
+                        free = _shutil.disk_usage(dest_dir).free
+                        if free < total_size:
+                            from retro_refiner.network import format_size  # pylint: disable=import-outside-toplevel
+                            self._push_event('log', {
+                                'text': (f'\nInsufficient disk space on '
+                                         f'{dest_dir.anchor}\n'
+                                         f'  Need: {format_size(total_size)}'
+                                         f'  Available: {format_size(free)}'
+                                         '\n'),
+                                'className': 'log-error',
+                            })
+                            self._push_event('status', {
+                                'state': 'error',
+                                'message': 'Insufficient disk space',
+                            })
+                            return
+                    except OSError:
+                        pass  # can't check, proceed anyway
+
                 for system in sorted(all_systems):
                     if not self._running:
                         break
