@@ -29,7 +29,7 @@ a = Analysis(
         'retro_refiner.dat', 'retro_refiner.filter', 'retro_refiner.mame',
         'retro_refiner.teknoparrot', 'retro_refiner.downloader',
         'retro_refiner.transfer', 'retro_refiner.ratings', 'retro_refiner.dedup',
-        'retro_refiner.models', 'retro_refiner.cli',
+        'retro_refiner.updater', 'retro_refiner.models', 'retro_refiner.cli',
         'retro_refiner.ui', 'retro_refiner.ui.app', 'retro_refiner.ui.api',
     ],
     hookspath=[],

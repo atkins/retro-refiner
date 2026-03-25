@@ -22,12 +22,12 @@ python -m retro_refiner --export-config
 
 ### Run tests
 ```bash
-python -m pytest                     # 1254 tests, ~1s
+python -m pytest                     # 1310 tests, ~1s
 python -m pytest -v                  # verbose output
 python -m pytest tests/test_selection.py  # just core tests
 python tests/test_smoke.py           # network smoke tests (slow, needs Myrient)
 ```
-Uses pytest. Config in `pyproject.toml`. Smoke tests excluded by default. **1254 tests total, all passing.**
+Uses pytest. Config in `pyproject.toml`. Smoke tests excluded by default. **1310 tests total, all passing.**
 
 ### Lint
 ```bash
@@ -73,6 +73,7 @@ retro_refiner/
     transfer.py       # Copy/move/symlink/hardlink/remove, dest validation, dest cleaning, playlist gen, gamelist gen
     ratings.py        # IGDB + LaunchBox rating data, combine/boost ratings
     dedup.py          # Cross-system dedup analysis, exclusion playlist parsing
+    updater.py        # Self-update: GitHub release check, download, apply, recovery
     models.py         # Shared result types: FilterResult, ProgressEvent, ScanResult, etc.
     ui/
         app.py        # pywebview window launcher
@@ -160,6 +161,10 @@ The main run method is split into extracted helper methods:
 - `_download_batch()` — httpx streaming download with ThreadPoolExecutor parallelism, 3 retries, progress polling
 - `reset_and_restart()` — delete state/cache/DATs, relaunch app fresh
 - `clean_data()` — delete scan cache, DAT files, CRC cache, state file, temp downloads
+- `check_for_updates()` — background GitHub Releases API check, returns update info JSON
+- `download_update()` — stream download + apply in background thread, pushes progress events
+- `restart_app()` — save state, launch updated executable, exit
+- `dismiss_update()` — store dismissed version in update state file
 
 ### Structured Log Events
 Python emits structured events consumed by JS `LogRenderer`:
