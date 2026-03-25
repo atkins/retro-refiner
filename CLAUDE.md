@@ -22,17 +22,12 @@ python -m retro_refiner --export-config
 
 ### Run tests
 ```bash
-python tests/test_selection.py       # 316 core tests
-python tests/test_v2_modules.py      # 80 module tests
-python tests/test_v2_config.py       # 65 config tests
-python tests/test_v2_systems.py      # 19 systems tests
-python tests/test_v2_paths.py        # 3 path tests
-python tests/test_v2_cli.py          # 36 CLI tests
-python tests/test_network.py         # 213 network tests
-python tests/test_scanner_dat_transfer.py  # 138 scanner/DAT/transfer tests
-python tests/test_api.py             # 176 API tests
+python -m pytest                     # 917 tests, ~1s
+python -m pytest -v                  # verbose output
+python -m pytest tests/test_selection.py  # just core tests
+python tests/test_smoke.py           # network smoke tests (slow, needs Myrient)
 ```
-Note: `pytest` is not installed. Tests use a custom `TestResult` framework and are run directly. **1,046 tests total, all passing.**
+Uses pytest. Config in `pyproject.toml`. Smoke tests excluded by default. **917 tests total, all passing.**
 
 ### Lint
 ```bash
@@ -306,20 +301,15 @@ When `log_dir` is configured, writes 4 file types per run:
 
 ## Testing
 
-Tests use a custom `TestResult` framework (not pytest). Run directly: `python tests/test_file.py`
-
-`TestResult` API: `results.ok(name)` and `results.fail(name, expected, actual)`. Global `results` instance (plural). No `assert_equal` or similar — write explicit `if`/`else` checks.
+Tests use pytest with `assert` statements. Run `python -m pytest` from the project root.
 
 Test files:
-- `tests/test_selection.py` — 316 tests: ROM parsing, selection, filtering, config, playlists, transfers, MAME, TeknoParrot, dedup, ratings
-- `tests/test_v2_*.py` — 203 tests across 5 files covering all v2 modules
-- `tests/test_network.py` — 213 tests: URL utils, size parsing, HTML parsing (all 5 patterns), SSRF validation, scan cache
-- `tests/test_scanner_dat_transfer.py` — 138 tests: system detection, local scanning, DAT parsing (XML+ClrMamePro), title normalization, CRC, validate/clean destination, file transfers, playlist generation
-- `tests/test_api.py` — 176 tests: display names, ETA/elapsed formatting, config management, clean_data, system stats, UI state, picker, clipboard, run state
-
-All tests import from `retro_refiner.*` package — no monolith imports.
-
-`tests/test_selection.py` uses `_filter_network_roms_compat()` wrapper that defaults `best_version=True` for backward compat. New `filter_roms_from_files` calls in tests that expect 1G1R must pass `best_version=True` explicitly.
+- `tests/test_selection.py` — 319 tests: ROM parsing, selection, filtering, config, playlists, transfers, MAME, TeknoParrot, dedup, ratings
+- `tests/test_v2_*.py` — 203 tests across 5 files covering v2 modules, config, systems, paths, CLI
+- `tests/test_network.py` — 209 tests: URL utils, size parsing, HTML parsing (all 5 patterns), SSRF validation, scan cache
+- `tests/test_scanner_dat_transfer.py` — 80 tests: system detection, local scanning, DAT parsing (XML+ClrMamePro), title normalization, CRC, validate/clean destination, file transfers, playlist generation
+- `tests/test_api.py` — 106 tests: display names, ETA/elapsed formatting, config management, clean_data, system stats, UI state, picker, run state
+- `tests/test_smoke.py` — network smoke tests (excluded from default run, needs Myrient)
 
 ## Security
 

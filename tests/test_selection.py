@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Comprehensive test script for Retro-Refiner.
+Comprehensive test suite for Retro-Refiner.
 
 Tests all major features:
 - ROM parsing and selection
@@ -11,13 +11,19 @@ Tests all major features:
 - Transfer modes
 """
 
-import os
-import sys
+import argparse
+import inspect
+import io
 import json
+import os
 import shutil
+import sys
 import tempfile
+import zipfile as zf_mod
+from contextlib import redirect_stdout
 from pathlib import Path
-from collections import defaultdict
+
+import pytest
 
 # Add project root to path so retro_refiner package is importable
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -34,6 +40,7 @@ from retro_refiner.dat import (
 )
 from retro_refiner.config import (
     load_config, apply_config_to_args, DEFAULT_REGION_PRIORITY, Config,
+    SelectionConfig,
 )
 from retro_refiner.network import (
     is_url, parse_url, normalize_url, extract_links_from_html,
@@ -60,78 +67,56 @@ from retro_refiner.mame import (
 from retro_refiner.paths import get_base_path, get_runtime_path
 import retro_refiner
 
-# System data globals
-_sys_data = load_system_data()
-KNOWN_SYSTEMS = _sys_data.known_systems
-FOLDER_ALIASES = _sys_data.folder_aliases
-EXTENSION_TO_SYSTEM = _sys_data.extension_to_system
-IGDB_PLATFORM_MAP = _sys_data.igdb_platform_map
-LIBRETRO_DAT_SYSTEMS = _sys_data.libretro_dat_systems
-REDUMP_DAT_SYSTEMS = _sys_data.redump_dat_systems
-TEN_DAT_SYSTEMS = _sys_data.ten_dat_systems
-LAUNCHBOX_PLATFORM_MAP = _sys_data.launchbox_platform_map
-DAT_NAME_TO_SYSTEM = _sys_data.dat_name_to_system
-SYSTEM_TO_LAUNCHBOX = _sys_data.system_to_launchbox
-
-
-class TestResult:
-    """Track test results."""
-    def __init__(self):
-        self.passed = 0
-        self.failed = 0
-        self.errors = []
-
-    def ok(self, name):
-        self.passed += 1
-        print(f"  [PASS] {name}")
-
-    def fail(self, name, expected, actual):
-        self.failed += 1
-        self.errors.append((name, expected, actual))
-        print(f"  [FAIL] {name}")
-        print(f"    Expected: {expected}")
-        print(f"    Actual:   {actual}")
-
-    def summary(self):
-        total = self.passed + self.failed
-        print(f"\n{'='*60}")
-        print(f"Results: {self.passed}/{total} passed")
-        if self.failed > 0:
-            print(f"Failed tests: {self.failed}")
-        print(f"{'='*60}")
-        return self.failed == 0
-
-
-results = TestResult()
-
 
 # =============================================================================
-# Legacy API wrappers for tests
+# Fixtures
 # =============================================================================
 
-def _filter_network_roms_compat(urls, system, include_patterns=None,
-                                 exclude_patterns=None, include_betas=False,
-                                 exclude_protos=False, include_unlicensed=False,
-                                 region_priority=None, no_filter=False,
-                                 best_version=True,
-                                 english_only=False, keep_regions=None,
-                                 url_sizes=None, **_kwargs):
-    """Wrap v2 filter_network_roms with the old keyword API for tests."""
-    from retro_refiner.config import Config, SelectionConfig
+@pytest.fixture(scope="module")
+def sys_data():
+    """Load system data once for all tests."""
+    return load_system_data()
+
+
+@pytest.fixture
+def tmp_rom_dir(tmp_path):
+    """Create a temp directory structure for ROM file tests."""
+    rom_dir = tmp_path / "roms"
+    rom_dir.mkdir()
+    dest_dir = tmp_path / "dest"
+    dest_dir.mkdir()
+    return rom_dir, dest_dir
+
+
+def _make_rom_info(filename, base_title, region="USA", **kwargs):
+    """Helper to build a RomInfo with sensible defaults."""
+    defaults = dict(
+        revision=0, is_english=True, is_translation=False,
+        is_beta=False, is_demo=False, is_promo=False, is_sample=False,
+        is_proto=False, is_bios=False, is_pirate=False, is_unlicensed=False,
+        is_homebrew=False, is_rerelease=False, is_compilation=False, is_lock_on=False,
+    )
+    defaults.update(kwargs)
+    return RomInfo(filename=filename, base_title=base_title, region=region, **defaults)
+
+
+def _filter_compat(urls, system, **kwargs):
+    """Wrap filter_network_roms with keyword API for test convenience."""
     sel = SelectionConfig(
-        include_patterns=include_patterns or [],
-        exclude_patterns=exclude_patterns or [],
-        include_betas=include_betas,
-        exclude_protos=exclude_protos,
-        include_unlicensed=include_unlicensed,
-        region_priority=region_priority or DEFAULT_REGION_PRIORITY,
-        all_roms=no_filter,
-        best_version=best_version,
-        english_only=english_only,
-        keep_regions=keep_regions,
+        include_patterns=kwargs.get('include_patterns', []),
+        exclude_patterns=kwargs.get('exclude_patterns', []),
+        include_betas=kwargs.get('include_betas', False),
+        exclude_protos=kwargs.get('exclude_protos', False),
+        include_unlicensed=kwargs.get('include_unlicensed', False),
+        region_priority=kwargs.get('region_priority', DEFAULT_REGION_PRIORITY),
+        all_roms=kwargs.get('no_filter', False),
+        best_version=kwargs.get('best_version', True),
+        english_only=kwargs.get('english_only', False),
+        keep_regions=kwargs.get('keep_regions', None),
     )
     config = Config(selection=sel)
-    result = filter_network_roms(system, urls, config, url_sizes=url_sizes)
+    result = filter_network_roms(system, urls, config,
+                                 url_sizes=kwargs.get('url_sizes', None))
     return result.selected, result.size_info
 
 
@@ -139,491 +124,286 @@ def _filter_network_roms_compat(urls, system, include_patterns=None,
 # ROM Parsing Tests
 # =============================================================================
 
-def test_rom_parsing():
+class TestRomParsing:
     """Test ROM filename parsing."""
-    print("\n" + "="*60)
-    print("ROM PARSING TESTS")
-    print("="*60)
 
-    # Test basic parsing
-    rom = parse_rom_filename("Super Mario Bros. (USA).zip")
-    if rom.base_title == "Super Mario Bros." and rom.region == "USA":
-        results.ok("Basic USA ROM parsing")
-    else:
-        results.fail("Basic USA ROM parsing",
-                    "base_title='Super Mario Bros.', region='USA'",
-                    f"base_title='{rom.base_title}', region='{rom.region}'")
+    @pytest.mark.parametrize("filename,attr,expected", [
+        ("Super Mario Bros. (USA).zip", "base_title", "Super Mario Bros."),
+        ("Super Mario Bros. (USA).zip", "region", "USA"),
+        ("Sonic the Hedgehog (USA) (Rev 1).zip", "revision", 1),
+        ("Unreleased Game (USA) (Beta).zip", "is_beta", True),
+        ("Secret Game (USA) (Proto).zip", "is_proto", True),
+        ("Game Title (USA) (1995).zip", "year", 1995),
+        ("Pirate Game (USA) (Unl).zip", "is_unlicensed", True),
+        ("Game Demo (USA) (Demo).zip", "is_demo", True),
+        ("Shin Megami Tensei - Persona 3 FES (USA) (Trade Demo).zip", "is_demo", True),
+        ("Super Bender Boot Disc (USA).zip", "is_demo", True),
+        ("PlayStation Seizou Kensa-you Disc 3 CD-ROM US-ban Ver1.1 (USA).zip", "is_demo", True),
+        ("Game (USA) (Sample).zip", "is_sample", True),
+        ("[BIOS] PlayStation (USA).zip", "is_bios", True),
+        ("Super Mario All-Stars (USA).zip", "is_compilation", True),
+        ("Tetris (World).zip", "region", "World"),
+        ("Game (USA) (Switch Online).zip", "is_rerelease", True),
+        ("Game (USA) (Promo).zip", "is_promo", True),
+    ], ids=[
+        "basic_usa_title", "basic_usa_region", "revision_detection",
+        "beta_detection", "proto_detection", "year_extraction",
+        "unlicensed_detection", "demo_detection", "trade_demo_detection",
+        "boot_disc_detection", "kensa_disc_detection",
+        "sample_detection", "bios_detection", "compilation_all_stars",
+        "world_region", "switch_online_rerelease", "promo_detection",
+    ])
+    def test_rom_attribute(self, filename, attr, expected):
+        rom = parse_rom_filename(filename)
+        assert getattr(rom, attr) == expected, \
+            f"expected {attr}={expected!r}, got {getattr(rom, attr)!r}"
 
-    # Test revision detection
-    rom = parse_rom_filename("Sonic the Hedgehog (USA) (Rev 1).zip")
-    if rom.revision == 1:
-        results.ok("Revision detection")
-    else:
-        results.fail("Revision detection", "revision=1", f"revision={rom.revision}")
+    def test_translation_detection(self):
+        rom = parse_rom_filename("Final Fantasy V (Japan) [T-En by RPGe].zip")
+        assert rom.is_translation, "expected is_translation=True"
+        assert rom.is_english, "expected is_english=True"
 
-    # Test beta detection
-    rom = parse_rom_filename("Unreleased Game (USA) (Beta).zip")
-    if rom.is_beta:
-        results.ok("Beta detection")
-    else:
-        results.fail("Beta detection", "is_beta=True", f"is_beta={rom.is_beta}")
+    def test_rerelease_virtual_console(self):
+        rom = parse_rom_filename("Zelda (USA) (Virtual Console).zip")
+        assert rom.is_rerelease, "expected is_rerelease=True"
 
-    # Test prototype detection
-    rom = parse_rom_filename("Secret Game (USA) (Proto).zip")
-    if rom.is_proto:
-        results.ok("Prototype detection")
-    else:
-        results.fail("Prototype detection", "is_proto=True", f"is_proto={rom.is_proto}")
+    def test_lock_on_detection(self):
+        rom = parse_rom_filename(
+            "Sonic & Knuckles + Sonic the Hedgehog 3 (USA).zip")
+        assert rom.is_lock_on, "expected is_lock_on=True"
 
-    # Test translation detection
-    rom = parse_rom_filename("Final Fantasy V (Japan) [T-En by RPGe].zip")
-    if rom.is_translation and rom.is_english:
-        results.ok("Translation detection")
-    else:
-        results.fail("Translation detection",
-                    "is_translation=True, is_english=True",
-                    f"is_translation={rom.is_translation}, is_english={rom.is_english}")
+    def test_multi_region_detection(self):
+        rom = parse_rom_filename("Sonic (USA, Europe).zip")
+        assert "USA" in rom.region or "Europe" in rom.region, \
+            f"expected USA or Europe in region, got {rom.region!r}"
 
-    # Test re-release detection
-    rom = parse_rom_filename("Zelda (USA) (Virtual Console).zip")
-    if rom.is_rerelease:
-        results.ok("Re-release detection (Virtual Console)")
-    else:
-        results.fail("Re-release detection", "is_rerelease=True", f"is_rerelease={rom.is_rerelease}")
+    def test_english_language_tag_on_japan_rom(self):
+        rom = parse_rom_filename("Game (Japan) (En).zip")
+        assert rom.is_english, "expected is_english=True"
+        assert rom.region == "Japan", f"expected region=Japan, got {rom.region!r}"
 
-    # Test compilation detection
-    rom = parse_rom_filename("Sonic & Knuckles + Sonic the Hedgehog 3 (USA).zip")
-    if rom.is_lock_on:
-        results.ok("Lock-on detection")
-    else:
-        results.fail("Lock-on detection", "is_lock_on=True", f"is_lock_on={rom.is_lock_on}")
-
-    # Test year extraction
-    rom = parse_rom_filename("Game Title (USA) (1995).zip")
-    if rom.year == 1995:
-        results.ok("Year extraction")
-    else:
-        results.fail("Year extraction", "year=1995", f"year={rom.year}")
-
-    # Test unlicensed detection
-    rom = parse_rom_filename("Pirate Game (USA) (Unl).zip")
-    if rom.is_unlicensed:
-        results.ok("Unlicensed detection")
-    else:
-        results.fail("Unlicensed detection", "is_unlicensed=True", f"is_unlicensed={rom.is_unlicensed}")
-
-    # Test demo detection
-    rom = parse_rom_filename("Game Demo (USA) (Demo).zip")
-    if rom.is_demo:
-        results.ok("Demo detection")
-    else:
-        results.fail("Demo detection", "is_demo=True", f"is_demo={rom.is_demo}")
-
-    # Test trade demo detection
-    rom = parse_rom_filename("Shin Megami Tensei - Persona 3 FES (USA) (Trade Demo).zip")
-    if rom.is_demo:
-        results.ok("Trade demo detection")
-    else:
-        results.fail("Trade demo detection", "is_demo=True", f"is_demo={rom.is_demo}")
-
-    # Test boot disc detection
-    rom = parse_rom_filename("Super Bender Boot Disc (USA).zip")
-    if rom.is_demo:
-        results.ok("Boot disc detection")
-    else:
-        results.fail("Boot disc detection", "is_demo=True", f"is_demo={rom.is_demo}")
-
-    # Test manufacturing inspection disc detection (Kensa)
-    rom = parse_rom_filename("PlayStation Seizou Kensa-you Disc 3 CD-ROM US-ban Ver1.1 (USA).zip")
-    if rom.is_demo:
-        results.ok("Manufacturing inspection disc detection (Kensa)")
-    else:
-        results.fail("Manufacturing inspection disc detection", "is_demo=True", f"is_demo={rom.is_demo}")
-
-    # Test sample detection
-    rom = parse_rom_filename("Game (USA) (Sample).zip")
-    if rom.is_sample:
-        results.ok("Sample detection")
-    else:
-        results.fail("Sample detection", "is_sample=True", f"is_sample={rom.is_sample}")
-
-    # Test BIOS detection
-    rom = parse_rom_filename("[BIOS] PlayStation (USA).zip")
-    if rom.is_bios:
-        results.ok("BIOS detection")
-    else:
-        results.fail("BIOS detection", "is_bios=True", f"is_bios={rom.is_bios}")
-
-    # Test compilation detection
-    rom = parse_rom_filename("Super Mario All-Stars (USA).zip")
-    if rom.is_compilation:
-        results.ok("Compilation detection (All-Stars)")
-    else:
-        results.fail("Compilation detection", "is_compilation=True", f"is_compilation={rom.is_compilation}")
-
-    # Test multi-region detection
-    rom = parse_rom_filename("Sonic (USA, Europe).zip")
-    if "USA" in rom.region or "Europe" in rom.region:
-        results.ok("Multi-region detection")
-    else:
-        results.fail("Multi-region detection", "USA or Europe in region", f"region={rom.region}")
-
-    # Test World region
-    rom = parse_rom_filename("Tetris (World).zip")
-    if rom.region == "World":
-        results.ok("World region detection")
-    else:
-        results.fail("World region detection", "region='World'", f"region='{rom.region}'")
-
-    # Test language tag (En)
-    rom = parse_rom_filename("Game (Japan) (En).zip")
-    if rom.is_english and rom.region == "Japan":
-        results.ok("English language tag on Japan ROM")
-    else:
-        results.fail("English language tag", "is_english=True, region='Japan'",
-                    f"is_english={rom.is_english}, region='{rom.region}'")
-
-    # Test Switch Online re-release
-    rom = parse_rom_filename("Game (USA) (Switch Online).zip")
-    if rom.is_rerelease:
-        results.ok("Re-release detection (Switch Online)")
-    else:
-        results.fail("Re-release detection (Switch Online)", "is_rerelease=True", f"is_rerelease={rom.is_rerelease}")
-
-    # Test promo detection
-    rom = parse_rom_filename("Game (USA) (Promo).zip")
-    if rom.is_promo:
-        results.ok("Promo detection")
-    else:
-        results.fail("Promo detection", "is_promo=True", f"is_promo={rom.is_promo}")
-
-    # Test kiosk detection - kiosk may be detected via promo or demo
-    rom = parse_rom_filename("Game (USA) (Kiosk).zip")
-    if rom.is_demo or rom.is_promo:
-        results.ok("Kiosk detection")
-    else:
-        results.fail("Kiosk detection", "is_demo or is_promo=True",
-                    f"is_demo={rom.is_demo}, is_promo={rom.is_promo}")
+    def test_kiosk_detection(self):
+        rom = parse_rom_filename("Game (USA) (Kiosk).zip")
+        assert rom.is_demo or rom.is_promo, \
+            f"expected is_demo or is_promo, got is_demo={rom.is_demo}, is_promo={rom.is_promo}"
 
 
-def test_title_normalization():
+# =============================================================================
+# Title Normalization Tests
+# =============================================================================
+
+class TestTitleNormalization:
     """Test title normalization and mappings."""
-    print("\n" + "="*60)
-    print("TITLE NORMALIZATION TESTS")
-    print("="*60)
 
-    # Test Rockman -> Mega Man mapping
-    rom = parse_rom_filename("Rockman 2 - Dr. Wily no Nazo (Japan).zip")
-    normalized = normalize_title(rom.base_title)
-    if "mega man" in normalized:
-        results.ok("Rockman -> Mega Man mapping")
-    else:
-        results.fail("Rockman -> Mega Man mapping",
-                    "contains 'mega man'", f"'{normalized}'")
+    @pytest.mark.parametrize("filename,substring", [
+        ("Rockman 2 - Dr. Wily no Nazo (Japan).zip", "mega man"),
+        ("Hoshi no Kirby (Japan).zip", "kirby"),
+        ("Super Donkey Kong (Japan).zip", "donkey kong"),
+    ], ids=["rockman_to_mega_man", "hoshi_no_kirby", "super_donkey_kong"])
+    def test_title_mapping_contains(self, filename, substring):
+        rom = parse_rom_filename(filename)
+        normalized = normalize_title(rom.base_title)
+        assert substring in normalized, \
+            f"expected '{substring}' in '{normalized}'"
 
-    # Test Pocket Monsters -> Pokemon mapping
-    rom = parse_rom_filename("Pocket Monsters Aka (Japan).zip")
-    normalized = normalize_title(rom.base_title)
-    if "pokemon" in normalized and "red" in normalized:
-        results.ok("Pocket Monsters -> Pokemon mapping")
-    else:
-        results.fail("Pocket Monsters -> Pokemon mapping",
-                    "contains 'pokemon' and 'red'", f"'{normalized}'")
+    def test_pocket_monsters_to_pokemon(self):
+        rom = parse_rom_filename("Pocket Monsters Aka (Japan).zip")
+        normalized = normalize_title(rom.base_title)
+        assert "pokemon" in normalized and "red" in normalized, \
+            f"expected 'pokemon' and 'red' in '{normalized}'"
 
-    # Test roman numeral conversion
-    rom = parse_rom_filename("Final Fantasy III (USA).zip")
-    normalized = normalize_title(rom.base_title)
-    if "3" in normalized or "iii" in normalized.lower():
-        results.ok("Roman numeral handling")
-    else:
-        results.fail("Roman numeral handling", "contains '3' or 'iii'", f"'{normalized}'")
+    def test_roman_numeral_handling(self):
+        rom = parse_rom_filename("Final Fantasy III (USA).zip")
+        normalized = normalize_title(rom.base_title)
+        assert "3" in normalized or "iii" in normalized.lower(), \
+            f"expected '3' or 'iii' in '{normalized}'"
 
-    # Test Zelda mapping
-    rom = parse_rom_filename("Zelda no Densetsu (Japan).zip")
-    normalized = normalize_title(rom.base_title)
-    if "zelda" in normalized.lower() or "legend" in normalized.lower():
-        results.ok("Zelda no Densetsu -> Legend of Zelda mapping")
-    else:
-        results.fail("Zelda mapping", "contains 'zelda' or 'legend'", f"'{normalized}'")
+    def test_zelda_no_densetsu_mapping(self):
+        rom = parse_rom_filename("Zelda no Densetsu (Japan).zip")
+        normalized = normalize_title(rom.base_title)
+        assert "zelda" in normalized.lower() or "legend" in normalized.lower(), \
+            f"expected 'zelda' or 'legend' in '{normalized}'"
 
-    # Test Castlevania mapping
-    rom = parse_rom_filename("Akumajou Dracula (Japan).zip")
-    normalized = normalize_title(rom.base_title)
-    if "castlevania" in normalized.lower() or "dracula" in normalized.lower():
-        results.ok("Akumajou Dracula -> Castlevania mapping")
-    else:
-        results.fail("Castlevania mapping", "contains 'castlevania' or 'dracula'", f"'{normalized}'")
+    def test_castlevania_mapping(self):
+        rom = parse_rom_filename("Akumajou Dracula (Japan).zip")
+        normalized = normalize_title(rom.base_title)
+        assert "castlevania" in normalized.lower() or "dracula" in normalized.lower(), \
+            f"expected 'castlevania' or 'dracula' in '{normalized}'"
 
-    # Test Contra/Probotector mapping
-    rom = parse_rom_filename("Probotector (Europe).zip")
-    normalized = normalize_title(rom.base_title)
-    if "contra" in normalized.lower() or "probotector" in normalized.lower():
-        results.ok("Probotector -> Contra mapping")
-    else:
-        results.fail("Probotector mapping", "contains 'contra'", f"'{normalized}'")
+    def test_probotector_mapping(self):
+        rom = parse_rom_filename("Probotector (Europe).zip")
+        normalized = normalize_title(rom.base_title)
+        assert "contra" in normalized.lower() or "probotector" in normalized.lower(), \
+            f"expected 'contra' in '{normalized}'"
 
-    # Test Street Fighter Zero -> Alpha mapping
-    rom = parse_rom_filename("Street Fighter Zero (Japan).zip")
-    normalized = normalize_title(rom.base_title)
-    if "alpha" in normalized.lower() or "zero" in normalized.lower():
-        results.ok("Street Fighter Zero -> Alpha mapping")
-    else:
-        results.fail("Street Fighter Zero mapping", "contains 'alpha' or 'zero'", f"'{normalized}'")
-
-    # Test Kirby mapping
-    rom = parse_rom_filename("Hoshi no Kirby (Japan).zip")
-    normalized = normalize_title(rom.base_title)
-    if "kirby" in normalized.lower():
-        results.ok("Hoshi no Kirby -> Kirby mapping")
-    else:
-        results.fail("Kirby mapping", "contains 'kirby'", f"'{normalized}'")
-
-    # Test Donkey Kong Country mapping
-    rom = parse_rom_filename("Super Donkey Kong (Japan).zip")
-    normalized = normalize_title(rom.base_title)
-    if "donkey kong" in normalized.lower():
-        results.ok("Super Donkey Kong -> Donkey Kong Country mapping")
-    else:
-        results.fail("Donkey Kong mapping", "contains 'donkey kong'", f"'{normalized}'")
+    def test_street_fighter_zero_mapping(self):
+        rom = parse_rom_filename("Street Fighter Zero (Japan).zip")
+        normalized = normalize_title(rom.base_title)
+        assert "alpha" in normalized.lower() or "zero" in normalized.lower(), \
+            f"expected 'alpha' or 'zero' in '{normalized}'"
 
 
-def test_rom_selection():
+# =============================================================================
+# ROM Selection Tests
+# =============================================================================
+
+class TestRomSelection:
     """Test ROM selection logic."""
-    print("\n" + "="*60)
-    print("ROM SELECTION TESTS")
-    print("="*60)
 
-    # Create test ROMs
-    usa_rom = parse_rom_filename("Game (USA).zip")
-    europe_rom = parse_rom_filename("Game (Europe).zip")
-    japan_rom = parse_rom_filename("Game (Japan).zip")
-    world_rom = parse_rom_filename("Game (World).zip")
+    def test_usa_preferred_over_europe_japan(self):
+        roms = [
+            parse_rom_filename("Game (Japan).zip"),
+            parse_rom_filename("Game (Europe).zip"),
+            parse_rom_filename("Game (USA).zip"),
+        ]
+        best = select_best_rom(roms)
+        assert best is not None and best.region == "USA"
 
-    roms = [japan_rom, europe_rom, usa_rom]
-    best = select_best_rom(roms)
-    if best and best.region == "USA":
-        results.ok("USA preferred over Europe/Japan")
-    else:
-        results.fail("USA preferred over Europe/Japan",
-                    "region='USA'", f"region='{best.region if best else None}'")
+    def test_world_preferred_over_japan(self):
+        roms = [
+            parse_rom_filename("Game (Japan).zip"),
+            parse_rom_filename("Game (World).zip"),
+        ]
+        best = select_best_rom(roms)
+        assert best is not None and best.region == "World"
 
-    # Test World fallback
-    roms = [japan_rom, world_rom]
-    best = select_best_rom(roms)
-    if best and best.region == "World":
-        results.ok("World preferred over Japan-only")
-    else:
-        results.fail("World preferred over Japan-only",
-                    "region='World'", f"region='{best.region if best else None}'")
+    def test_latest_revision_preferred(self):
+        roms = [
+            parse_rom_filename("Game (USA).zip"),
+            parse_rom_filename("Game (USA) (Rev 2).zip"),
+            parse_rom_filename("Game (USA) (Rev 1).zip"),
+        ]
+        best = select_best_rom(roms)
+        assert best is not None and best.revision == 2
 
-    # Test revision preference
-    rev0 = parse_rom_filename("Game (USA).zip")
-    rev1 = parse_rom_filename("Game (USA) (Rev 1).zip")
-    rev2 = parse_rom_filename("Game (USA) (Rev 2).zip")
-    roms = [rev0, rev2, rev1]
-    best = select_best_rom(roms)
-    if best and best.revision == 2:
-        results.ok("Latest revision preferred")
-    else:
-        results.fail("Latest revision preferred",
-                    "revision=2", f"revision={best.revision if best else None}")
+    def test_translation_preferred_for_japan_only(self):
+        roms = [
+            parse_rom_filename("Japan Only Game (Japan).zip"),
+            parse_rom_filename("Japan Only Game (Japan) [T-En by Translator].zip"),
+        ]
+        best = select_best_rom(roms)
+        assert best is not None and best.is_translation
 
-    # Test translation inclusion for Japan-only
-    japan_only = parse_rom_filename("Japan Only Game (Japan).zip")
-    translation = parse_rom_filename("Japan Only Game (Japan) [T-En by Translator].zip")
-    roms = [japan_only, translation]
-    best = select_best_rom(roms)
-    if best and best.is_translation:
-        results.ok("Translation preferred for Japan-only game")
-    else:
-        results.fail("Translation preferred for Japan-only game",
-                    "is_translation=True", f"is_translation={best.is_translation if best else None}")
+    def test_custom_region_priority(self):
+        roms = [
+            parse_rom_filename("Game (USA).zip"),
+            parse_rom_filename("Game (Europe).zip"),
+        ]
+        best = select_best_rom(roms, region_priority=["Europe", "USA"])
+        assert best is not None and best.region == "Europe"
 
-    # Test custom region priority - within English versions, should pick first in priority
-    # Note: Japan-only (non-English) games are still lower priority than any English version
-    usa_rom2 = parse_rom_filename("Game (USA).zip")
-    europe_rom2 = parse_rom_filename("Game (Europe).zip")
-    roms = [usa_rom2, europe_rom2]
-    best = select_best_rom(roms, region_priority=["Europe", "USA"])
-    if best and best.region == "Europe":
-        results.ok("Custom region priority (Europe before USA)")
-    else:
-        results.fail("Custom region priority (Europe before USA)",
-                    "region='Europe'", f"region='{best.region if best else None}'")
+    def test_official_preferred_over_translation(self):
+        roms = [
+            parse_rom_filename("Game (Japan) [T-En by Translator].zip"),
+            parse_rom_filename("Game (USA).zip"),
+        ]
+        best = select_best_rom(roms)
+        assert best is not None and not best.is_translation and best.region == "USA"
 
-    # Test official release beats translation when both exist
-    official = parse_rom_filename("Game (USA).zip")
-    translation = parse_rom_filename("Game (Japan) [T-En by Translator].zip")
-    roms = [translation, official]
-    best = select_best_rom(roms)
-    if best and not best.is_translation and best.region == "USA":
-        results.ok("Official release preferred over translation")
-    else:
-        results.fail("Official over translation",
-                    "Official USA selected", f"is_translation={best.is_translation if best else None}")
+    def test_empty_list_returns_none(self):
+        assert select_best_rom([]) is None
 
-    # Test empty ROM list returns None
-    best = select_best_rom([])
-    if best is None:
-        results.ok("Empty ROM list returns None")
-    else:
-        results.fail("Empty ROM list", "None", f"{best}")
+    def test_all_betas_returns_none(self):
+        roms = [
+            parse_rom_filename("Game (USA) (Beta 1).zip"),
+            parse_rom_filename("Game (USA) (Beta 2).zip"),
+        ]
+        assert select_best_rom(roms) is None
 
-    # Test all betas filtered out returns None
-    beta1 = parse_rom_filename("Game (USA) (Beta 1).zip")
-    beta2 = parse_rom_filename("Game (USA) (Beta 2).zip")
-    roms = [beta1, beta2]
-    best = select_best_rom(roms)
-    if best is None:
-        results.ok("All betas filtered returns None")
-    else:
-        results.fail("All betas filtered", "None", f"{best.filename if best else None}")
+    def test_australia_preferred_over_japan(self):
+        roms = [
+            parse_rom_filename("Game (Japan).zip"),
+            parse_rom_filename("Game (Australia).zip"),
+        ]
+        best = select_best_rom(roms)
+        assert best is not None and best.region == "Australia"
 
-    # Test Australia region (English-speaking)
-    aus_rom = parse_rom_filename("Game (Australia).zip")
-    japan_rom2 = parse_rom_filename("Game (Japan).zip")
-    roms = [japan_rom2, aus_rom]
-    best = select_best_rom(roms)
-    if best and best.region == "Australia":
-        results.ok("Australia preferred over Japan (English region)")
-    else:
-        results.fail("Australia preference", "Australia", f"{best.region if best else None}")
-
-    # Test higher revision with same region
-    rev_a = parse_rom_filename("Game (USA) (Rev A).zip")
-    rev_b = parse_rom_filename("Game (USA) (Rev B).zip")
-    roms = [rev_a, rev_b]
-    best = select_best_rom(roms)
-    # Rev B should be higher (B > A alphabetically, usually means later)
-    if best and "Rev B" in best.filename:
-        results.ok("Higher revision letter preferred (Rev B > Rev A)")
-    else:
-        results.fail("Revision letter preference", "Rev B", f"{best.filename if best else None}")
+    def test_revision_letter_b_over_a(self):
+        roms = [
+            parse_rom_filename("Game (USA) (Rev A).zip"),
+            parse_rom_filename("Game (USA) (Rev B).zip"),
+        ]
+        best = select_best_rom(roms)
+        assert best is not None and "Rev B" in best.filename
 
 
 # =============================================================================
 # Config File Tests
 # =============================================================================
 
-def test_config_handling():
+class TestConfigHandling:
     """Test config file loading and generation."""
-    print("\n" + "="*60)
-    print("CONFIG FILE TESTS")
-    print("="*60)
 
-    with tempfile.TemporaryDirectory() as tmpdir:
-        config_path = Path(tmpdir) / "retro-refiner.yaml"
-
-        # Test config loading (built-in YAML parser)
-        with open(config_path, 'w') as f:
-            f.write("selection:\n  english_only: true\n")
+    def test_yaml_config_loading(self, tmp_path):
+        config_path = tmp_path / "retro-refiner.yaml"
+        config_path.write_text("selection:\n  english_only: true\n")
         config = load_config(config_path)
-        if hasattr(config, 'selection') and config.selection.english_only:
-            results.ok("Config file loading (YAML)")
-        else:
-            results.fail("Config file loading (YAML)",
-                        "Config with selection.english_only=True",
-                        f"{type(config)}")
+        assert hasattr(config, 'selection')
+        assert config.selection.english_only is True
 
-        # Test JSON config
-        json_path = Path(tmpdir) / "config.json"
-        with open(json_path, 'w') as f:
-            json.dump({"output": {"flat": True}}, f)
-
+    def test_json_config_loading(self, tmp_path):
+        json_path = tmp_path / "config.json"
+        json_path.write_text(json.dumps({"output": {"flat": True}}))
         config = load_config(json_path)
-        if config.output.flat is True:
-            results.ok("JSON config loading")
-        else:
-            results.fail("JSON config loading", "flat=True",
-                        f"flat={config.output.flat}")
+        assert config.output.flat is True
 
 
 # =============================================================================
-# Network Source Tests
+# URL Handling Tests
 # =============================================================================
 
-def test_url_functions():
+class TestUrlHandling:
     """Test URL handling functions."""
-    print("\n" + "="*60)
-    print("URL HANDLING TESTS")
-    print("="*60)
 
-    # Test is_url
-    if is_url("https://example.com/roms/"):
-        results.ok("is_url detects HTTPS")
-    else:
-        results.fail("is_url detects HTTPS", "True", "False")
+    def test_is_url_https(self):
+        assert is_url("https://example.com/roms/")
 
-    if is_url("http://example.com/roms/"):
-        results.ok("is_url detects HTTP")
-    else:
-        results.fail("is_url detects HTTP", "True", "False")
+    def test_is_url_http(self):
+        assert is_url("http://example.com/roms/")
 
-    if not is_url("/local/path/to/roms"):
-        results.ok("is_url rejects local path")
-    else:
-        results.fail("is_url rejects local path", "False", "True")
+    def test_is_url_rejects_local_path(self):
+        assert not is_url("/local/path/to/roms")
 
-    # Test parse_url
-    scheme, host, path = parse_url("https://example.com/roms/nes/")
-    if scheme == "https" and host == "example.com" and path == "/roms/nes/":
-        results.ok("parse_url components")
-    else:
-        results.fail("parse_url components",
-                    "('https', 'example.com', '/roms/nes/')",
-                    f"('{scheme}', '{host}', '{path}')")
+    def test_parse_url_components(self):
+        scheme, host, path = parse_url("https://example.com/roms/nes/")
+        assert scheme == "https"
+        assert host == "example.com"
+        assert path == "/roms/nes/"
 
-    # Test normalize_url - relative path
-    base = "https://example.com/roms/nes/"
-    normalized = normalize_url("game.zip", base)
-    if normalized == "https://example.com/roms/nes/game.zip":
-        results.ok("normalize_url relative path")
-    else:
-        results.fail("normalize_url relative path",
-                    "https://example.com/roms/nes/game.zip", normalized)
+    def test_normalize_url_relative(self):
+        base = "https://example.com/roms/nes/"
+        result = normalize_url("game.zip", base)
+        assert result == "https://example.com/roms/nes/game.zip"
 
-    # Test normalize_url - parent directory
-    normalized = normalize_url("../snes/game.zip", base)
-    if normalized == "https://example.com/roms/snes/game.zip":
-        results.ok("normalize_url parent directory (../)")
-    else:
-        results.fail("normalize_url parent directory (../)",
-                    "https://example.com/roms/snes/game.zip", normalized)
+    def test_normalize_url_parent_dir(self):
+        base = "https://example.com/roms/nes/"
+        result = normalize_url("../snes/game.zip", base)
+        assert result == "https://example.com/roms/snes/game.zip"
 
-    # Test normalize_url - absolute path
-    normalized = normalize_url("/other/path/game.zip", base)
-    if normalized == "https://example.com/other/path/game.zip":
-        results.ok("normalize_url absolute path")
-    else:
-        results.fail("normalize_url absolute path",
-                    "https://example.com/other/path/game.zip", normalized)
+    def test_normalize_url_absolute_path(self):
+        base = "https://example.com/roms/nes/"
+        result = normalize_url("/other/path/game.zip", base)
+        assert result == "https://example.com/other/path/game.zip"
 
-    # Test normalize_url - skip different domain
-    normalized = normalize_url("https://other.com/game.zip", base)
-    if normalized is None:
-        results.ok("normalize_url rejects different domain")
-    else:
-        results.fail("normalize_url rejects different domain", "None", normalized)
+    def test_normalize_url_rejects_different_domain(self):
+        base = "https://example.com/roms/nes/"
+        result = normalize_url("https://other.com/game.zip", base)
+        assert result is None
 
-    # Test get_filename_from_url
-    filename = get_filename_from_url("https://example.com/roms/Super%20Mario%20Bros.%20(USA).zip")
-    if filename == "Super Mario Bros. (USA).zip":
-        results.ok("get_filename_from_url with encoding")
-    else:
-        results.fail("get_filename_from_url with encoding",
-                    "Super Mario Bros. (USA).zip", filename)
+    def test_get_filename_from_url_with_encoding(self):
+        filename = get_filename_from_url(
+            "https://example.com/roms/Super%20Mario%20Bros.%20(USA).zip")
+        assert filename == "Super Mario Bros. (USA).zip"
 
 
-def test_html_parsing():
+# =============================================================================
+# HTML Parsing Tests
+# =============================================================================
+
+class TestHtmlParsing:
     """Test HTML directory listing parsing."""
-    print("\n" + "="*60)
-    print("HTML PARSING TESTS")
-    print("="*60)
 
-    base_url = "https://example.com/roms/nes/"
-
-    # Test Apache-style autoindex
-    apache_html = '''
+    APACHE_HTML = '''
     <html><body>
     <h1>Index of /roms/nes/</h1>
     <table>
@@ -635,20 +415,7 @@ def test_html_parsing():
     </body></html>
     '''
 
-    files = parse_html_for_files(apache_html, base_url)
-    if len(files) == 2 and any("Mario" in f for f in files):
-        results.ok("Apache autoindex file extraction")
-    else:
-        results.fail("Apache autoindex file extraction", "2 files with Mario", f"{len(files)} files")
-
-    dirs = parse_html_for_directories(apache_html, base_url)
-    if len(dirs) == 1 and "usa/" in dirs[0]:
-        results.ok("Apache autoindex directory extraction")
-    else:
-        results.fail("Apache autoindex directory extraction", "1 dir (usa/)", f"{len(dirs)} dirs")
-
-    # Test nginx-style
-    nginx_html = '''
+    NGINX_HTML = '''
     <html><head><title>Index of /roms/</title></head>
     <body><h1>Index of /roms/</h1><hr><pre>
     <a href="../">../</a>
@@ -658,14 +425,7 @@ def test_html_parsing():
     </pre></body></html>
     '''
 
-    dirs = parse_html_for_directories(nginx_html, "https://example.com/roms/")
-    if len(dirs) >= 3:
-        results.ok("nginx directory listing")
-    else:
-        results.fail("nginx directory listing", ">=3 dirs", f"{len(dirs)} dirs")
-
-    # Test custom HTML with various link formats
-    custom_html = '''
+    CUSTOM_HTML = '''
     <html><body>
     <div class="file-list">
         <a href="game1.zip">Game 1</a>
@@ -679,96 +439,72 @@ def test_html_parsing():
     </body></html>
     '''
 
-    links = extract_links_from_html(custom_html)
-    # Should find href, data-url, data-href patterns
-    if len(links) >= 3:
-        results.ok("Multiple link format extraction")
-    else:
-        results.fail("Multiple link format extraction", ">=3 links", f"{len(links)} links")
+    def test_apache_file_extraction(self):
+        base_url = "https://example.com/roms/nes/"
+        files = parse_html_for_files(self.APACHE_HTML, base_url)
+        assert len(files) == 2
+        assert any("Mario" in f for f in files)
 
-    # Test ROM file detection
-    if is_rom_file("game.zip") and is_rom_file("game.7z") and is_rom_file("game.nes"):
-        results.ok("ROM file extension detection")
-    else:
-        results.fail("ROM file extension detection", "True for .zip/.7z/.nes", "False")
+    def test_apache_directory_extraction(self):
+        base_url = "https://example.com/roms/nes/"
+        dirs = parse_html_for_directories(self.APACHE_HTML, base_url)
+        assert len(dirs) == 1
+        assert "usa/" in dirs[0]
 
-    if not is_rom_file("readme.txt") and not is_rom_file("image.png"):
-        results.ok("Non-ROM file rejection")
-    else:
-        results.fail("Non-ROM file rejection", "False for .txt/.png", "True")
+    def test_nginx_directory_listing(self):
+        dirs = parse_html_for_directories(
+            self.NGINX_HTML, "https://example.com/roms/")
+        assert len(dirs) >= 3
 
-    # Test directory link detection
-    if is_directory_link("games/") and is_directory_link("nes/"):
-        results.ok("Directory link detection (trailing /)")
-    else:
-        results.fail("Directory link detection", "True for trailing /", "False")
+    def test_multiple_link_formats(self):
+        links = extract_links_from_html(self.CUSTOM_HTML)
+        assert len(links) >= 3
+
+    @pytest.mark.parametrize("filename", ["game.zip", "game.7z", "game.nes"])
+    def test_rom_file_detection(self, filename):
+        assert is_rom_file(filename)
+
+    @pytest.mark.parametrize("filename", ["readme.txt", "image.png"])
+    def test_non_rom_file_rejection(self, filename):
+        assert not is_rom_file(filename)
+
+    @pytest.mark.parametrize("link", ["games/", "nes/"])
+    def test_directory_link_detection(self, link):
+        assert is_directory_link(link)
 
 
 # =============================================================================
-# Filter Tests
+# Pattern Matching Tests
 # =============================================================================
 
-def test_pattern_matching():
+class TestPatternMatching:
     """Test include/exclude pattern matching."""
-    print("\n" + "="*60)
-    print("PATTERN MATCHING TESTS")
-    print("="*60)
 
-    # Test glob patterns
-    if matches_patterns("Super Mario Bros. (USA).zip", ["*Mario*"]):
-        results.ok("Glob pattern *Mario* matches")
-    else:
-        results.fail("Glob pattern match", "True", "False")
-
-    if not matches_patterns("Sonic (USA).zip", ["*Mario*"]):
-        results.ok("Glob pattern *Mario* doesn't match Sonic")
-    else:
-        results.fail("Glob pattern non-match", "False", "True")
-
-    # Test multiple patterns (OR logic)
-    if matches_patterns("Zelda (USA).zip", ["*Mario*", "*Zelda*"]):
-        results.ok("Multiple patterns (OR logic)")
-    else:
-        results.fail("Multiple patterns (OR logic)", "True", "False")
-
-    # Test case insensitivity
-    if matches_patterns("SUPER MARIO BROS.zip", ["*mario*"]):
-        results.ok("Case insensitive matching")
-    else:
-        results.fail("Case insensitive matching", "True", "False")
-
-    # Test exact match pattern
-    if matches_patterns("Sonic.zip", ["Sonic.zip"]):
-        results.ok("Exact filename match")
-    else:
-        results.fail("Exact filename match", "True", "False")
-
-    # Test question mark wildcard
-    if matches_patterns("Game1.zip", ["Game?.zip"]):
-        results.ok("Question mark wildcard")
-    else:
-        results.fail("Question mark wildcard", "True", "False")
-
-    # Test bracket character class
-    if matches_patterns("Game1.zip", ["Game[0-9].zip"]):
-        results.ok("Bracket character class [0-9]")
-    else:
-        results.fail("Bracket character class", "True", "False")
-
-    # Test no match returns False
-    if not matches_patterns("Completely Different.zip", ["*Mario*", "*Sonic*", "*Zelda*"]):
-        results.ok("No match returns False")
-    else:
-        results.fail("No match returns False", "False", "True")
+    @pytest.mark.parametrize("filename,patterns,expected", [
+        ("Super Mario Bros. (USA).zip", ["*Mario*"], True),
+        ("Sonic (USA).zip", ["*Mario*"], False),
+        ("Zelda (USA).zip", ["*Mario*", "*Zelda*"], True),
+        ("SUPER MARIO BROS.zip", ["*mario*"], True),
+        ("Sonic.zip", ["Sonic.zip"], True),
+        ("Game1.zip", ["Game?.zip"], True),
+        ("Game1.zip", ["Game[0-9].zip"], True),
+        ("Completely Different.zip", ["*Mario*", "*Sonic*", "*Zelda*"], False),
+    ], ids=[
+        "glob_match", "glob_no_match", "multiple_or", "case_insensitive",
+        "exact_match", "question_wildcard", "bracket_class", "no_match_false",
+    ])
+    def test_pattern(self, filename, patterns, expected):
+        assert matches_patterns(filename, patterns) == expected
 
 
-def test_network_rom_filtering():
+# =============================================================================
+# Network ROM Filtering Tests
+# =============================================================================
+
+class TestNetworkRomFiltering:
     """Test network ROM URL filtering."""
-    print("\n" + "="*60)
-    print("NETWORK ROM FILTERING TESTS")
-    print("="*60)
 
-    test_urls = [
+    TEST_URLS = [
         "https://example.com/nes/Super Mario Bros. (USA).zip",
         "https://example.com/nes/Super Mario Bros. (Japan).zip",
         "https://example.com/nes/Super Mario Bros. 2 (USA).zip",
@@ -778,279 +514,188 @@ def test_network_rom_filtering():
         "https://example.com/nes/Pirate Game (USA) (Unl).zip",
     ]
 
-    # Test include pattern filtering
-    filtered, _ = _filter_network_roms_compat(
-        test_urls, "nes",
-        include_patterns=["*Mario*"],
-        region_priority=DEFAULT_REGION_PRIORITY
-    )
-    mario_count = sum(1 for u in filtered if "Mario" in u)
-    if mario_count >= 1 and not any("Zelda" in u for u in filtered):
-        results.ok("Include pattern filtering (Mario only)")
-    else:
-        results.fail("Include pattern filtering", "Mario only, no Zelda",
-                    f"{mario_count} Mario, Zelda present: {any('Zelda' in u for u in filtered)}")
+    def test_include_pattern_mario_only(self):
+        filtered, _ = _filter_compat(
+            self.TEST_URLS, "nes",
+            include_patterns=["*Mario*"],
+            region_priority=DEFAULT_REGION_PRIORITY,
+        )
+        mario_count = sum(1 for u in filtered if "Mario" in u)
+        assert mario_count >= 1
+        assert not any("Zelda" in u for u in filtered)
 
-    # Test beta exclusion (default)
-    filtered, _ = _filter_network_roms_compat(
-        test_urls, "nes",
-        include_betas=False,
-        region_priority=DEFAULT_REGION_PRIORITY
-    )
-    if not any("Beta" in u for u in filtered):
-        results.ok("Beta ROM exclusion (default)")
-    else:
-        results.fail("Beta ROM exclusion", "no Beta", "Beta found")
+    def test_beta_exclusion_default(self):
+        filtered, _ = _filter_compat(
+            self.TEST_URLS, "nes",
+            include_betas=False,
+            region_priority=DEFAULT_REGION_PRIORITY,
+        )
+        assert not any("Beta" in u for u in filtered)
 
-    # Test proto inclusion - proto passes through filter
-    # Note: filter_network_roms calls select_best_rom which also filters,
-    # but protos are kept by select_best_rom (unlike betas)
-    proto_urls = [
-        "https://example.com/nes/Proto Game (USA) (Proto).zip",
-    ]
-    filtered, _ = _filter_network_roms_compat(
-        proto_urls, "nes",
-        exclude_protos=False,
-        region_priority=DEFAULT_REGION_PRIORITY
-    )
-    if len(filtered) == 1:
-        results.ok("Proto ROM inclusion (--include-protos)")
-    else:
-        results.fail("Proto ROM inclusion", "1 ROM", f"{len(filtered)} ROMs")
+    def test_proto_inclusion(self):
+        proto_urls = [
+            "https://example.com/nes/Proto Game (USA) (Proto).zip",
+        ]
+        filtered, _ = _filter_compat(
+            proto_urls, "nes",
+            exclude_protos=False,
+            region_priority=DEFAULT_REGION_PRIORITY,
+        )
+        assert len(filtered) == 1
 
-    # Test region selection (USA preferred)
-    filtered, _ = _filter_network_roms_compat(
-        test_urls, "nes",
-        region_priority=["USA", "Japan"],
-        include_patterns=["*Mario Bros.*"]  # Match both USA and Japan versions
-    )
-    # Should select USA version for "Super Mario Bros." group
-    usa_selected = any("(USA)" in u and "Super Mario Bros." in u and "2" not in u for u in filtered)
-    if usa_selected:
-        results.ok("Region priority (USA selected over Japan)")
-    else:
-        results.fail("Region priority", "USA version selected", f"Selected: {filtered}")
+    def test_region_priority_usa_over_japan(self):
+        filtered, _ = _filter_compat(
+            self.TEST_URLS, "nes",
+            region_priority=["USA", "Japan"],
+            include_patterns=["*Mario Bros.*"],
+        )
+        usa_selected = any(
+            "(USA)" in u and "Super Mario Bros." in u and "2" not in u
+            for u in filtered
+        )
+        assert usa_selected, f"Expected USA version, got: {filtered}"
 
-    # Test exclude pattern filtering
-    filtered, _ = _filter_network_roms_compat(
-        test_urls, "nes",
-        exclude_patterns=["*Mario*"],
-        region_priority=DEFAULT_REGION_PRIORITY
-    )
-    if not any("Mario" in u for u in filtered) and any("Zelda" in u for u in filtered):
-        results.ok("Exclude pattern filtering (no Mario, has Zelda)")
-    else:
-        results.fail("Exclude pattern filtering", "no Mario, has Zelda",
-                    f"Mario: {any('Mario' in u for u in filtered)}, Zelda: {any('Zelda' in u for u in filtered)}")
+    def test_exclude_pattern(self):
+        filtered, _ = _filter_compat(
+            self.TEST_URLS, "nes",
+            exclude_patterns=["*Mario*"],
+            region_priority=DEFAULT_REGION_PRIORITY,
+        )
+        assert not any("Mario" in u for u in filtered)
+        assert any("Zelda" in u for u in filtered)
 
-    # Test include + exclude patterns together
-    mixed_urls = [
-        "https://example.com/nes/Super Mario Bros. (USA).zip",
-        "https://example.com/nes/Super Mario Bros. (USA) (Beta).zip",
-        "https://example.com/nes/Super Mario Bros. 2 (USA).zip",
-    ]
-    filtered, _ = _filter_network_roms_compat(
-        mixed_urls, "nes",
-        include_patterns=["*Mario*"],
-        exclude_patterns=["*Beta*"],
-        region_priority=DEFAULT_REGION_PRIORITY
-    )
-    has_mario = any("Mario" in u for u in filtered)
-    no_beta = not any("Beta" in u for u in filtered)
-    if has_mario and no_beta:
-        results.ok("Include + exclude patterns together")
-    else:
-        results.fail("Include + exclude together", "Mario yes, Beta no",
-                    f"Mario: {has_mario}, Beta: {not no_beta}")
+    def test_include_plus_exclude(self):
+        mixed_urls = [
+            "https://example.com/nes/Super Mario Bros. (USA).zip",
+            "https://example.com/nes/Super Mario Bros. (USA) (Beta).zip",
+            "https://example.com/nes/Super Mario Bros. 2 (USA).zip",
+        ]
+        filtered, _ = _filter_compat(
+            mixed_urls, "nes",
+            include_patterns=["*Mario*"],
+            exclude_patterns=["*Beta*"],
+            region_priority=DEFAULT_REGION_PRIORITY,
+        )
+        assert any("Mario" in u for u in filtered)
+        assert not any("Beta" in u for u in filtered)
 
-    # Test unlicensed exclusion (default)
-    filtered, _ = _filter_network_roms_compat(
-        test_urls, "nes",
-        include_unlicensed=False,
-        region_priority=DEFAULT_REGION_PRIORITY
-    )
-    if not any("(Unl)" in u for u in filtered):
-        results.ok("Unlicensed ROM exclusion (default)")
-    else:
-        results.fail("Unlicensed exclusion", "no (Unl)", "found (Unl)")
+    def test_unlicensed_exclusion_default(self):
+        filtered, _ = _filter_compat(
+            self.TEST_URLS, "nes",
+            include_unlicensed=False,
+            region_priority=DEFAULT_REGION_PRIORITY,
+        )
+        assert not any("(Unl)" in u for u in filtered)
 
-    # Test unlicensed inclusion - unlicensed ROMs should pass through filter
-    # Note: select_best_rom may still filter unlicensed if pirate flag is set
-    unlicensed_urls = ["https://example.com/nes/Bible Adventures (USA) (Unl).zip"]
-    filtered, _ = _filter_network_roms_compat(
-        unlicensed_urls, "nes",
-        include_unlicensed=True,
-        region_priority=DEFAULT_REGION_PRIORITY
-    )
-    # With include_unlicensed=True, unlicensed should pass pattern filtering
-    # but may still be filtered by selection if also marked as pirate
-    if len(filtered) >= 0:  # Relaxed check - implementation may vary
-        results.ok("Unlicensed ROM filter processing")
-    else:
-        results.fail("Unlicensed filter", "processed", f"{len(filtered)} ROMs")
+    def test_unlicensed_filter_processing(self):
+        unlicensed_urls = [
+            "https://example.com/nes/Bible Adventures (USA) (Unl).zip",
+        ]
+        filtered, _ = _filter_compat(
+            unlicensed_urls, "nes",
+            include_unlicensed=True,
+            region_priority=DEFAULT_REGION_PRIORITY,
+        )
+        # Relaxed check -- implementation may vary
+        assert len(filtered) >= 0
 
 
 # =============================================================================
-# System Detection Tests
+# Edge Case Tests
 # =============================================================================
 
-def test_edge_cases():
+class TestEdgeCases:
     """Test edge cases and special scenarios."""
-    print("\n" + "="*60)
-    print("EDGE CASE TESTS")
-    print("="*60)
 
-    # Test special characters in filename
-    rom = parse_rom_filename("Tom & Jerry (USA).zip")
-    if rom.base_title and "Tom" in rom.base_title:
-        results.ok("Ampersand in filename")
-    else:
-        results.fail("Ampersand in filename", "contains 'Tom'", f"'{rom.base_title}'")
+    @pytest.mark.parametrize("filename,check_field,check_fn", [
+        ("Tom & Jerry (USA).zip", "base_title", lambda v: "Tom" in v),
+        ("Kirby's Dream Land (USA).zip", "base_title", lambda v: "Kirby" in v),
+        ("Zelda II - The Adventure of Link (USA).zip", "base_title", lambda v: "Zelda" in v),
+    ], ids=["ampersand", "apostrophe", "dash"])
+    def test_special_chars(self, filename, check_field, check_fn):
+        rom = parse_rom_filename(filename)
+        val = getattr(rom, check_field)
+        assert check_fn(val), f"check failed for {check_field}={val!r}"
 
-    # Test apostrophe in filename
-    rom = parse_rom_filename("Kirby's Dream Land (USA).zip")
-    if "Kirby" in rom.base_title:
-        results.ok("Apostrophe in filename")
-    else:
-        results.fail("Apostrophe in filename", "contains 'Kirby'", f"'{rom.base_title}'")
+    def test_multiple_parenthetical_tags(self):
+        rom = parse_rom_filename("Game (USA) (En,Fr,De) (Rev 1).zip")
+        assert rom.region == "USA"
+        assert rom.revision == 1
 
-    # Test colon in filename
-    rom = parse_rom_filename("Zelda II - The Adventure of Link (USA).zip")
-    if "Zelda" in rom.base_title:
-        results.ok("Colon/dash in filename")
-    else:
-        results.fail("Colon/dash in filename", "contains 'Zelda'", f"'{rom.base_title}'")
+    def test_very_long_filename(self):
+        long_name = "A" * 100 + " (USA).zip"
+        rom = parse_rom_filename(long_name)
+        assert rom.region == "USA"
 
-    # Test multiple parentheses
-    rom = parse_rom_filename("Game (USA) (En,Fr,De) (Rev 1).zip")
-    if rom.region == "USA" and rom.revision == 1:
-        results.ok("Multiple parenthetical tags")
-    else:
-        results.fail("Multiple parenthetical tags",
-                    "USA, Rev 1", f"region={rom.region}, rev={rom.revision}")
+    def test_filename_only_region(self):
+        rom = parse_rom_filename("(USA).zip")
+        assert rom.region == "USA"
 
-    # Test very long filename
-    long_name = "A" * 100 + " (USA).zip"
-    rom = parse_rom_filename(long_name)
-    if rom.region == "USA":
-        results.ok("Very long filename")
-    else:
-        results.fail("Very long filename", "region=USA", f"region={rom.region}")
+    @pytest.mark.parametrize("filename,expected_region", [
+        ("Game (Germany).zip", "Germany"),
+        ("Game (France).zip", "France"),
+        ("Game (Spain).zip", "Spain"),
+        ("Game (Korea).zip", "Korea"),
+        ("Game (Asia).zip", "Asia"),
+    ], ids=["germany", "france", "spain", "korea", "asia"])
+    def test_region_detection(self, filename, expected_region):
+        rom = parse_rom_filename(filename)
+        assert rom.region == expected_region
 
-    # Test filename with only region (no title)
-    rom = parse_rom_filename("(USA).zip")
-    if rom.region == "USA":
-        results.ok("Filename with only region")
-    else:
-        results.fail("Filename with only region", "region=USA", f"region={rom.region}")
+    def test_hack_detection_h1(self):
+        rom = parse_rom_filename("Game (USA) [h1].zip")
+        # Hack detection may use different patterns -- accept either way
+        assert isinstance(rom.has_hacks, bool)
 
-    # Test European language regions
-    rom = parse_rom_filename("Game (Germany).zip")
-    if rom.region == "Germany":
-        results.ok("Germany region detection")
-    else:
-        results.fail("Germany region", "Germany", f"{rom.region}")
-
-    rom = parse_rom_filename("Game (France).zip")
-    if rom.region == "France":
-        results.ok("France region detection")
-    else:
-        results.fail("France region", "France", f"{rom.region}")
-
-    rom = parse_rom_filename("Game (Spain).zip")
-    if rom.region == "Spain":
-        results.ok("Spain region detection")
-    else:
-        results.fail("Spain region", "Spain", f"{rom.region}")
-
-    # Test Korea and Asia regions
-    rom = parse_rom_filename("Game (Korea).zip")
-    if rom.region == "Korea":
-        results.ok("Korea region detection")
-    else:
-        results.fail("Korea region", "Korea", f"{rom.region}")
-
-    rom = parse_rom_filename("Game (Asia).zip")
-    if rom.region == "Asia":
-        results.ok("Asia region detection")
-    else:
-        results.fail("Asia region", "Asia", f"{rom.region}")
-
-    # Test hack detection - [h] tag in GoodTools naming
-    rom = parse_rom_filename("Game (USA) [h1].zip")
-    if rom.has_hacks:
-        results.ok("Hack detection [h1]")
-    else:
-        # Hack detection may use different patterns - just note it
-        results.ok("Hack detection [h1] (pattern may differ)")
-
-    # Test [Hack] tag detection
-    rom = parse_rom_filename("Game (USA) [Hack by Someone].zip")
-    if rom.has_hacks:
-        results.ok("Hack detection [Hack by]")
-    else:
-        results.fail("Hack detection [Hack by]", "has_hacks=True", f"has_hacks={rom.has_hacks}")
+    def test_hack_detection_hack_by(self):
+        rom = parse_rom_filename("Game (USA) [Hack by Someone].zip")
+        assert rom.has_hacks, f"expected has_hacks=True, got {rom.has_hacks}"
 
 
-def test_launchbox_platform_mapping():
+# =============================================================================
+# LaunchBox Platform Mapping Tests
+# =============================================================================
+
+class TestLaunchboxPlatformMapping:
     """Test LaunchBox platform names map to retro-refiner system codes."""
-    print("\n" + "="*60)
-    print("LAUNCHBOX PLATFORM MAPPING TESTS")
-    print("="*60)
 
-    # Import after implementation
-    try:
-        LAUNCHBOX_PLATFORM_MAP = _sys_data.launchbox_platform_map
-    except AttributeError:
-        print("  [SKIP] LAUNCHBOX_PLATFORM_MAP not yet implemented")
-        return
-
-    test_cases = [
+    @pytest.mark.parametrize("launchbox_name,expected_system", [
         ("Super Nintendo Entertainment System", "snes"),
         ("Nintendo Entertainment System", "nes"),
         ("Sega Genesis", "genesis"),
         ("Sega Mega Drive", "genesis"),
         ("Sony Playstation", "psx"),
         ("Nintendo Game Boy Advance", "gba"),
-    ]
-
-    for launchbox_name, expected_system in test_cases:
-        actual = LAUNCHBOX_PLATFORM_MAP.get(launchbox_name)
-        if actual == expected_system:
-            results.ok(f"Platform mapping: {launchbox_name} -> {expected_system}")
-        else:
-            results.fail(f"Platform mapping: {launchbox_name}", expected_system, actual)
+    ])
+    def test_platform_mapping(self, launchbox_name, expected_system, sys_data):
+        actual = sys_data.launchbox_platform_map.get(launchbox_name)
+        assert actual == expected_system, \
+            f"expected {expected_system}, got {actual}"
 
 
-def test_launchbox_download_function():
-    """Test LaunchBox download function exists."""
-    print("\n" + "="*60)
-    print("LAUNCHBOX DOWNLOAD TESTS")
-    print("="*60)
+# =============================================================================
+# LaunchBox Download Tests
+# =============================================================================
 
-    results.ok("download_launchbox_data function exists")
+class TestLaunchboxDownload:
+    """Test LaunchBox download function."""
 
-    # Test that it returns expected structure (without actually downloading)
-    import inspect
-    sig = inspect.signature(download_launchbox_data)
-    params = list(sig.parameters.keys())
+    def test_function_exists(self):
+        assert callable(download_launchbox_data)
 
-    if 'dat_dir' in params:
-        results.ok("download_launchbox_data has dat_dir parameter")
-    else:
-        results.fail("download_launchbox_data has dat_dir parameter", "dat_dir", params)
+    def test_has_dat_dir_parameter(self):
+        sig = inspect.signature(download_launchbox_data)
+        assert 'dat_dir' in sig.parameters
 
 
-def test_build_ratings_cache():
+# =============================================================================
+# Ratings Cache Tests
+# =============================================================================
+
+class TestBuildRatingsCache:
     """Test building ratings cache from sample XML."""
-    print("\n" + "="*60)
-    print("RATINGS CACHE TESTS")
-    print("="*60)
 
-    # build_ratings_cache is imported from retro_refiner.ratings
-
-    # Create sample XML
-    sample_xml = '''<?xml version="1.0" encoding="utf-8"?>
+    SAMPLE_XML = '''<?xml version="1.0" encoding="utf-8"?>
 <LaunchBox>
   <Game>
     <Name>Super Mario World</Name>
@@ -1070,952 +715,542 @@ def test_build_ratings_cache():
   </Game>
 </LaunchBox>'''
 
-    # Write to temp file
-    import tempfile
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.xml', delete=False) as f:
-        f.write(sample_xml)
-        temp_path = Path(f.name)
+    def test_cache_snes_platform(self, tmp_path):
+        xml_file = tmp_path / "lb.xml"
+        xml_file.write_text(self.SAMPLE_XML)
+        cache = build_ratings_cache(xml_file)
+        assert 'snes' in cache
 
-    try:
-        cache = build_ratings_cache(temp_path)
+    def test_cache_normalized_title(self, tmp_path):
+        xml_file = tmp_path / "lb.xml"
+        xml_file.write_text(self.SAMPLE_XML)
+        cache = build_ratings_cache(xml_file)
+        assert 'super mario world' in cache['snes']
 
-        # Check SNES entries
-        if 'snes' in cache:
-            results.ok("Cache contains snes platform")
-        else:
-            results.fail("Cache contains snes platform", "snes in cache", list(cache.keys()))
-            return
+    def test_cache_rating_value(self, tmp_path):
+        xml_file = tmp_path / "lb.xml"
+        xml_file.write_text(self.SAMPLE_XML)
+        cache = build_ratings_cache(xml_file)
+        entry = cache['snes']['super mario world']
+        assert entry['rating'] == 4.73
 
-        # Check normalized title lookup
-        if 'super mario world' in cache['snes']:
-            results.ok("Cache contains normalized title 'super mario world'")
-        else:
-            results.fail("Cache contains normalized title", "super mario world", list(cache['snes'].keys()))
+    def test_cache_vote_count(self, tmp_path):
+        xml_file = tmp_path / "lb.xml"
+        xml_file.write_text(self.SAMPLE_XML)
+        cache = build_ratings_cache(xml_file)
+        entry = cache['snes']['super mario world']
+        assert entry['votes'] == 892
 
-        # Check rating value
-        rating_entry = cache['snes'].get('super mario world', {})
-        if rating_entry.get('rating') == 4.73:
-            results.ok("Rating value correct (4.73)")
-        else:
-            results.fail("Rating value", 4.73, rating_entry.get('rating'))
-
-        # Check votes
-        if rating_entry.get('votes') == 892:
-            results.ok("Vote count correct (892)")
-        else:
-            results.fail("Vote count", 892, rating_entry.get('votes'))
-
-        # Check genesis
-        if 'genesis' in cache and 'sonic the hedgehog' in cache['genesis']:
-            results.ok("Cache contains genesis/sonic")
-        else:
-            results.fail("Cache contains genesis/sonic", True, False)
-
-    finally:
-        temp_path.unlink()
+    def test_cache_genesis_sonic(self, tmp_path):
+        xml_file = tmp_path / "lb.xml"
+        xml_file.write_text(self.SAMPLE_XML)
+        cache = build_ratings_cache(xml_file)
+        assert 'genesis' in cache
+        assert 'sonic the hedgehog' in cache['genesis']
 
 
-def test_apply_top_n_filter():
+# =============================================================================
+# Top-N Filter Tests
+# =============================================================================
+
+class TestApplyTopNFilter:
     """Test top-N filtering logic."""
-    print("\n" + "="*60)
-    print("TOP-N FILTER TESTS")
-    print("="*60)
 
-    # apply_top_n_filter is imported from retro_refiner.ratings
+    @pytest.fixture
+    def roms_and_ratings(self):
+        roms = [
+            _make_rom_info("Game A (USA).zip", "Game A"),
+            _make_rom_info("Game B (USA).zip", "Game B"),
+            _make_rom_info("Game C (USA).zip", "Game C"),
+            _make_rom_info("Unrated Game (USA).zip", "Unrated Game"),
+        ]
+        ratings = {
+            'game a': {'rating': 4.5, 'votes': 100},
+            'game b': {'rating': 3.0, 'votes': 50},
+            'game c': {'rating': 4.8, 'votes': 200},
+        }
+        return roms, ratings
 
-    # Create sample ROMs
-    roms = [
-        RomInfo(filename="Game A (USA).zip", base_title="Game A", region="USA",
-                revision=0, is_english=True, is_translation=False,
-                is_beta=False, is_demo=False, is_promo=False, is_sample=False,
-                is_proto=False, is_bios=False, is_pirate=False, is_unlicensed=False,
-                is_homebrew=False, is_rerelease=False, is_compilation=False, is_lock_on=False),
-        RomInfo(filename="Game B (USA).zip", base_title="Game B", region="USA",
-                revision=0, is_english=True, is_translation=False,
-                is_beta=False, is_demo=False, is_promo=False, is_sample=False,
-                is_proto=False, is_bios=False, is_pirate=False, is_unlicensed=False,
-                is_homebrew=False, is_rerelease=False, is_compilation=False, is_lock_on=False),
-        RomInfo(filename="Game C (USA).zip", base_title="Game C", region="USA",
-                revision=0, is_english=True, is_translation=False,
-                is_beta=False, is_demo=False, is_promo=False, is_sample=False,
-                is_proto=False, is_bios=False, is_pirate=False, is_unlicensed=False,
-                is_homebrew=False, is_rerelease=False, is_compilation=False, is_lock_on=False),
-        RomInfo(filename="Unrated Game (USA).zip", base_title="Unrated Game", region="USA",
-                revision=0, is_english=True, is_translation=False,
-                is_beta=False, is_demo=False, is_promo=False, is_sample=False,
-                is_proto=False, is_bios=False, is_pirate=False, is_unlicensed=False,
-                is_homebrew=False, is_rerelease=False, is_compilation=False, is_lock_on=False),
-    ]
+    def test_top_2_returns_2(self, roms_and_ratings):
+        roms, ratings = roms_and_ratings
+        result = apply_top_n_filter(roms, ratings, top_n=2, include_unrated=False)
+        assert len(result) == 2
 
-    # Sample ratings (higher = better)
-    ratings = {
-        'game a': {'rating': 4.5, 'votes': 100},
-        'game b': {'rating': 3.0, 'votes': 50},
-        'game c': {'rating': 4.8, 'votes': 200},
-        # 'unrated game' intentionally missing
-    }
+    def test_top_2_sorted_by_rating(self, roms_and_ratings):
+        roms, ratings = roms_and_ratings
+        result = apply_top_n_filter(roms, ratings, top_n=2, include_unrated=False)
+        titles = [r.base_title for r in result]
+        assert titles == ['Game C', 'Game A']
 
-    # Test 1: Top 2, no unrated
-    result = apply_top_n_filter(roms, ratings, top_n=2, include_unrated=False)
-    titles = [r.base_title for r in result]
+    def test_top_4_with_unrated(self, roms_and_ratings):
+        roms, ratings = roms_and_ratings
+        result = apply_top_n_filter(roms, ratings, top_n=4, include_unrated=True)
+        assert len(result) == 4
 
-    if len(result) == 2:
-        results.ok("Top 2 returns 2 games")
-    else:
-        results.fail("Top 2 returns 2 games", 2, len(result))
+    def test_unrated_appears_last(self, roms_and_ratings):
+        roms, ratings = roms_and_ratings
+        result = apply_top_n_filter(roms, ratings, top_n=4, include_unrated=True)
+        titles = [r.base_title for r in result]
+        assert titles[-1] == 'Unrated Game'
 
-    # Should be C (4.8) then A (4.5)
-    if titles == ['Game C', 'Game A']:
-        results.ok("Top 2 sorted by rating (C=4.8, A=4.5)")
-    else:
-        results.fail("Top 2 sorted by rating", ['Game C', 'Game A'], titles)
-
-    # Test 2: Top 4 with unrated included
-    result = apply_top_n_filter(roms, ratings, top_n=4, include_unrated=True)
-    titles = [r.base_title for r in result]
-
-    if len(result) == 4:
-        results.ok("Top 4 with unrated returns 4 games")
-    else:
-        results.fail("Top 4 with unrated returns 4 games", 4, len(result))
-
-    # Unrated should be last
-    if titles[-1] == 'Unrated Game':
-        results.ok("Unrated game appears last")
-    else:
-        results.fail("Unrated game appears last", 'Unrated Game', titles[-1])
-
-    # Test 3: Top 5, exclude unrated (should only get rated games)
-    result = apply_top_n_filter(roms, ratings, top_n=5, include_unrated=False)
-    if len(result) == 3:  # Only 3 rated games exist
-        results.ok("Without include_unrated, only rated games returned")
-    else:
-        results.fail("Without include_unrated, only rated games returned", 3, len(result))
+    def test_without_unrated_only_rated(self, roms_and_ratings):
+        roms, ratings = roms_and_ratings
+        result = apply_top_n_filter(roms, ratings, top_n=5, include_unrated=False)
+        assert len(result) == 3  # Only 3 rated games exist
 
 
-def test_resolve_top_n():
+# =============================================================================
+# Top-N Percentage Tests
+# =============================================================================
+
+class TestResolveTopN:
     """Test resolve_top_n and percentage-based top-N filtering."""
-    print("\n" + "="*60)
-    print("TOP-N PERCENTAGE TESTS")
-    print("="*60)
 
-    # resolve_top_n and apply_top_n_filter imported from retro_refiner.ratings
+    @pytest.mark.parametrize("value,total,expected", [
+        (10, 100, 10),
+        ("50", 200, 50),
+        ("10%", 100, 10),
+        ("10%", 33, 3),
+        ("1%", 5, 1),
+        ("50%", 200, 100),
+        ("100%", 50, 50),
+        (None, 100, None),
+    ], ids=[
+        "int_10", "str_50", "pct_10_of_100", "pct_10_of_33",
+        "pct_1_of_5_min", "pct_50_of_200", "pct_100_of_50", "none",
+    ])
+    def test_resolve(self, value, total, expected):
+        assert resolve_top_n(value, total) == expected
 
-    # Test absolute integer
-    if resolve_top_n(10, 100) == 10:
-        results.ok("resolve_top_n: integer 10 -> 10")
-    else:
-        results.fail("resolve_top_n: integer 10", 10, resolve_top_n(10, 100))
-
-    # Test absolute string
-    if resolve_top_n("50", 200) == 50:
-        results.ok("resolve_top_n: string '50' -> 50")
-    else:
-        results.fail("resolve_top_n: string '50'", 50, resolve_top_n("50", 200))
-
-    # Test percentage
-    if resolve_top_n("10%", 100) == 10:
-        results.ok("resolve_top_n: '10%' of 100 -> 10")
-    else:
-        results.fail("resolve_top_n: '10%' of 100", 10, resolve_top_n("10%", 100))
-
-    # Test percentage rounding
-    if resolve_top_n("10%", 33) == 3:
-        results.ok("resolve_top_n: '10%' of 33 -> 3 (rounded)")
-    else:
-        results.fail("resolve_top_n: '10%' of 33", 3, resolve_top_n("10%", 33))
-
-    # Test percentage minimum 1
-    if resolve_top_n("1%", 5) == 1:
-        results.ok("resolve_top_n: '1%' of 5 -> 1 (minimum)")
-    else:
-        results.fail("resolve_top_n: '1%' of 5", 1, resolve_top_n("1%", 5))
-
-    # Test 50%
-    if resolve_top_n("50%", 200) == 100:
-        results.ok("resolve_top_n: '50%' of 200 -> 100")
-    else:
-        results.fail("resolve_top_n: '50%' of 200", 100, resolve_top_n("50%", 200))
-
-    # Test 100%
-    if resolve_top_n("100%", 50) == 50:
-        results.ok("resolve_top_n: '100%' of 50 -> 50")
-    else:
-        results.fail("resolve_top_n: '100%' of 50", 50, resolve_top_n("100%", 50))
-
-    # Test None passthrough
-    if resolve_top_n(None, 100) is None:
-        results.ok("resolve_top_n: None -> None")
-    else:
-        results.fail("resolve_top_n: None", None, resolve_top_n(None, 100))
-
-    # Test percentage with apply_top_n_filter
-    roms = [
-        RomInfo(filename="Game A (USA).zip", base_title="Game A", region="USA",
-                revision=0, is_english=True, is_translation=False,
-                is_beta=False, is_demo=False, is_promo=False, is_sample=False,
-                is_proto=False, is_bios=False, is_pirate=False, is_unlicensed=False,
-                is_homebrew=False, is_rerelease=False, is_compilation=False, is_lock_on=False),
-        RomInfo(filename="Game B (USA).zip", base_title="Game B", region="USA",
-                revision=0, is_english=True, is_translation=False,
-                is_beta=False, is_demo=False, is_promo=False, is_sample=False,
-                is_proto=False, is_bios=False, is_pirate=False, is_unlicensed=False,
-                is_homebrew=False, is_rerelease=False, is_compilation=False, is_lock_on=False),
-        RomInfo(filename="Game C (USA).zip", base_title="Game C", region="USA",
-                revision=0, is_english=True, is_translation=False,
-                is_beta=False, is_demo=False, is_promo=False, is_sample=False,
-                is_proto=False, is_bios=False, is_pirate=False, is_unlicensed=False,
-                is_homebrew=False, is_rerelease=False, is_compilation=False, is_lock_on=False),
-        RomInfo(filename="Game D (USA).zip", base_title="Game D", region="USA",
-                revision=0, is_english=True, is_translation=False,
-                is_beta=False, is_demo=False, is_promo=False, is_sample=False,
-                is_proto=False, is_bios=False, is_pirate=False, is_unlicensed=False,
-                is_homebrew=False, is_rerelease=False, is_compilation=False, is_lock_on=False),
-    ]
-    ratings = {
-        'game a': {'rating': 4.5, 'votes': 100},
-        'game b': {'rating': 3.0, 'votes': 50},
-        'game c': {'rating': 4.8, 'votes': 200},
-        'game d': {'rating': 2.0, 'votes': 10},
-    }
-
-    # 50% of 4 games = 2 games
-    result = apply_top_n_filter(roms, ratings, top_n="50%", include_unrated=False)
-    if len(result) == 2:
-        results.ok("apply_top_n_filter with '50%' of 4 games -> 2")
-    else:
-        results.fail("apply_top_n_filter with '50%' of 4 games", 2, len(result))
-
-    titles = [r.base_title for r in result]
-    if titles == ['Game C', 'Game A']:
-        results.ok("Percentage filter returns highest rated (C=4.8, A=4.5)")
-    else:
-        results.fail("Percentage filter returns highest rated", ['Game C', 'Game A'], titles)
+    def test_percentage_with_apply_filter(self):
+        roms = [
+            _make_rom_info("Game A (USA).zip", "Game A"),
+            _make_rom_info("Game B (USA).zip", "Game B"),
+            _make_rom_info("Game C (USA).zip", "Game C"),
+            _make_rom_info("Game D (USA).zip", "Game D"),
+        ]
+        ratings = {
+            'game a': {'rating': 4.5, 'votes': 100},
+            'game b': {'rating': 3.0, 'votes': 50},
+            'game c': {'rating': 4.8, 'votes': 200},
+            'game d': {'rating': 2.0, 'votes': 10},
+        }
+        result = apply_top_n_filter(roms, ratings, top_n="50%",
+                                     include_unrated=False)
+        assert len(result) == 2
+        titles = [r.base_title for r in result]
+        assert titles == ['Game C', 'Game A']
 
 
-def test_apply_size_budget():
+# =============================================================================
+# Size Budget Tests
+# =============================================================================
+
+class TestApplySizeBudget:
     """Test size budget truncation logic."""
-    print("\n" + "="*60)
-    print("SIZE BUDGET TESTS")
-    print("="*60)
 
-    # apply_size_budget imported from retro_refiner.ratings
-    # parse_size_string imported from retro_refiner.network
+    @pytest.fixture
+    def budget_setup(self):
+        roms = [
+            _make_rom_info("Game A (USA).zip", "Game A"),
+            _make_rom_info("Game B (USA).zip", "Game B"),
+            _make_rom_info("Game C (USA).zip", "Game C"),
+            _make_rom_info("Game D (USA).zip", "Game D"),
+        ]
+        sizes = {
+            "Game A (USA).zip": 100 * 1024 * 1024,
+            "Game B (USA).zip": 200 * 1024 * 1024,
+            "Game C (USA).zip": 50 * 1024 * 1024,
+            "Game D (USA).zip": 150 * 1024 * 1024,
+        }
+        return roms, sizes
 
-    # Create sample ROMs
-    roms = [
-        RomInfo(filename="Game A (USA).zip", base_title="Game A", region="USA",
-                revision=0, is_english=True, is_translation=False,
-                is_beta=False, is_demo=False, is_promo=False, is_sample=False,
-                is_proto=False, is_bios=False, is_pirate=False, is_unlicensed=False,
-                is_homebrew=False, is_rerelease=False, is_compilation=False, is_lock_on=False),
-        RomInfo(filename="Game B (USA).zip", base_title="Game B", region="USA",
-                revision=0, is_english=True, is_translation=False,
-                is_beta=False, is_demo=False, is_promo=False, is_sample=False,
-                is_proto=False, is_bios=False, is_pirate=False, is_unlicensed=False,
-                is_homebrew=False, is_rerelease=False, is_compilation=False, is_lock_on=False),
-        RomInfo(filename="Game C (USA).zip", base_title="Game C", region="USA",
-                revision=0, is_english=True, is_translation=False,
-                is_beta=False, is_demo=False, is_promo=False, is_sample=False,
-                is_proto=False, is_bios=False, is_pirate=False, is_unlicensed=False,
-                is_homebrew=False, is_rerelease=False, is_compilation=False, is_lock_on=False),
-        RomInfo(filename="Game D (USA).zip", base_title="Game D", region="USA",
-                revision=0, is_english=True, is_translation=False,
-                is_beta=False, is_demo=False, is_promo=False, is_sample=False,
-                is_proto=False, is_bios=False, is_pirate=False, is_unlicensed=False,
-                is_homebrew=False, is_rerelease=False, is_compilation=False, is_lock_on=False),
-    ]
+    def test_budget_fits_all(self, budget_setup):
+        roms, sizes = budget_setup
+        kept, used = apply_size_budget(roms, sizes, 1024 * 1024 * 1024,
+                                       name_fn=lambda r: r.filename)
+        assert len(kept) == 4
 
-    sizes = {
-        "Game A (USA).zip": 100 * 1024 * 1024,   # 100 MB
-        "Game B (USA).zip": 200 * 1024 * 1024,   # 200 MB
-        "Game C (USA).zip": 50 * 1024 * 1024,    # 50 MB
-        "Game D (USA).zip": 150 * 1024 * 1024,   # 150 MB
-    }
+    def test_budget_respected(self, budget_setup):
+        roms, sizes = budget_setup
+        kept, used = apply_size_budget(roms, sizes, 300 * 1024 * 1024,
+                                       name_fn=lambda r: r.filename)
+        assert used <= 300 * 1024 * 1024
 
-    # Test 1: Budget fits all items
-    kept, used = apply_size_budget(roms, sizes, 1024 * 1024 * 1024,
-                                   name_fn=lambda r: r.filename)
-    if len(kept) == 4:
-        results.ok("Size budget fits all (1 GB budget, 500 MB items)")
-    else:
-        results.fail("Size budget fits all", 4, len(kept))
+    def test_budget_prioritizes_rated(self, budget_setup):
+        roms, sizes = budget_setup
+        ratings = {
+            'game a': {'rating': 2.0, 'votes': 10},
+            'game b': {'rating': 4.5, 'votes': 100},
+            'game c': {'rating': 4.8, 'votes': 200},
+            'game d': {'rating': 3.0, 'votes': 50},
+        }
+        kept, used = apply_size_budget(
+            roms, sizes, 300 * 1024 * 1024,
+            ratings=ratings, name_fn=lambda r: r.filename,
+            rating_name_fn=lambda r: r.base_title,
+        )
+        titles = [r.base_title for r in kept]
+        assert 'Game C' in titles and 'Game B' in titles
 
-    # Test 2: Budget too small for all, no ratings (default order)
-    kept, used = apply_size_budget(roms, sizes, 300 * 1024 * 1024,
-                                   name_fn=lambda r: r.filename)
-    if used <= 300 * 1024 * 1024:
-        results.ok("Size budget respected (300 MB limit)")
-    else:
-        results.fail("Size budget respected", f"<= 300 MB", f"{used / (1024*1024):.0f} MB")
+    def test_budget_skips_large_fills_small(self, budget_setup):
+        roms, sizes = budget_setup
+        ratings = {
+            'game a': {'rating': 2.0, 'votes': 10},
+            'game b': {'rating': 4.5, 'votes': 100},
+            'game c': {'rating': 4.8, 'votes': 200},
+            'game d': {'rating': 3.0, 'votes': 50},
+        }
+        kept, used = apply_size_budget(
+            roms, sizes, 200 * 1024 * 1024,
+            ratings=ratings, name_fn=lambda r: r.filename,
+            rating_name_fn=lambda r: r.base_title,
+        )
+        titles = [r.base_title for r in kept]
+        assert 'Game C' in titles and 'Game D' in titles and len(kept) == 2
 
-    # Test 3: With ratings, higher-rated games are prioritized
-    ratings = {
-        'game a': {'rating': 2.0, 'votes': 10},
-        'game b': {'rating': 4.5, 'votes': 100},
-        'game c': {'rating': 4.8, 'votes': 200},
-        'game d': {'rating': 3.0, 'votes': 50},
-    }
-    # Budget: 300 MB. With rating sort: C(50MB,4.8), B(200MB,4.5), D(150MB,3.0), A(100MB,2.0)
-    # Greedy: C(50) -> B(250) -> D won't fit(400) -> A fits(350)? No, 350 > 300. So C+B = 250MB
-    kept, used = apply_size_budget(roms, sizes, 300 * 1024 * 1024,
-                                   ratings=ratings, name_fn=lambda r: r.filename,
-                                   rating_name_fn=lambda r: r.base_title)
-    titles = [r.base_title for r in kept]
-    # C (50MB) fits, B (200MB) fits (250 total), D (150MB) won't fit (400), A (100MB) fits (350)? 350 > 300? yes, skip
-    # So we get C and B
-    if 'Game C' in titles and 'Game B' in titles:
-        results.ok("Size budget prioritizes highest-rated ROMs")
-    else:
-        results.fail("Size budget prioritizes highest-rated ROMs",
-                    "Game C and Game B in result", titles)
+    def test_zero_budget(self, budget_setup):
+        roms, sizes = budget_setup
+        kept, used = apply_size_budget(roms, sizes, 0,
+                                       name_fn=lambda r: r.filename)
+        assert len(kept) == 0 and used == 0
 
-    # Test 4: Greedy skip - large item skipped, smaller ones fill
-    # Budget: 200 MB. Rated order: C(50), B(200), D(150), A(100)
-    # C(50) fits -> B(200) won't fit(250) -> D(150) fits(200) -> A(100) won't fit(300)
-    kept, used = apply_size_budget(roms, sizes, 200 * 1024 * 1024,
-                                   ratings=ratings, name_fn=lambda r: r.filename,
-                                   rating_name_fn=lambda r: r.base_title)
-    titles = [r.base_title for r in kept]
-    if 'Game C' in titles and 'Game D' in titles and len(kept) == 2:
-        results.ok("Size budget skips large items, fills with smaller")
-    else:
-        results.fail("Size budget skips large items", "Game C and Game D", titles)
-
-    # Test 5: Zero budget returns empty
-    kept, used = apply_size_budget(roms, sizes, 0, name_fn=lambda r: r.filename)
-    if len(kept) == 0 and used == 0:
-        results.ok("Zero budget returns empty list")
-    else:
-        results.fail("Zero budget returns empty", "([], 0)", f"({len(kept)}, {used})")
-
-    # Test 6: Empty items list
-    kept, used = apply_size_budget([], sizes, 1024 * 1024 * 1024)
-    if len(kept) == 0 and used == 0:
-        results.ok("Empty items returns empty list")
-    else:
-        results.fail("Empty items returns empty", "([], 0)", f"({len(kept)}, {used})")
+    def test_empty_items(self, budget_setup):
+        _, sizes = budget_setup
+        kept, used = apply_size_budget([], sizes, 1024 * 1024 * 1024)
+        assert len(kept) == 0 and used == 0
 
 
-def test_parse_size_arg():
+# =============================================================================
+# Size Argument Parsing Tests
+# =============================================================================
+
+class TestParseSizeString:
     """Test parse_size_string with common CLI formats."""
-    print("\n" + "="*60)
-    print("SIZE ARGUMENT PARSING TESTS")
-    print("="*60)
 
-    # parse_size_string imported from retro_refiner.network
-
-    # Test basic formats
-    result = parse_size_string("10G")
-    expected = 10 * 1024 * 1024 * 1024
-    if result == expected:
-        results.ok("parse_size_string('10G')")
-    else:
-        results.fail("parse_size_string('10G')", expected, result)
-
-    result = parse_size_string("500M")
-    expected = 500 * 1024 * 1024
-    if result == expected:
-        results.ok("parse_size_string('500M')")
-    else:
-        results.fail("parse_size_string('500M')", expected, result)
-
-    result = parse_size_string("1024K")
-    expected = 1024 * 1024
-    if result == expected:
-        results.ok("parse_size_string('1024K')")
-    else:
-        results.fail("parse_size_string('1024K')", expected, result)
-
-    # Test with decimal
-    result = parse_size_string("1.5G")
-    expected = int(1.5 * 1024 * 1024 * 1024)
-    if result == expected:
-        results.ok("parse_size_string('1.5G')")
-    else:
-        results.fail("parse_size_string('1.5G')", expected, result)
-
-    # Test case insensitivity
-    result = parse_size_string("10g")
-    expected = 10 * 1024 * 1024 * 1024
-    if result == expected:
-        results.ok("parse_size_string('10g') case insensitive")
-    else:
-        results.fail("parse_size_string('10g')", expected, result)
-
-    # Test with unit suffix
-    result = parse_size_string("500MB")
-    expected = 500 * 1024 * 1024
-    if result == expected:
-        results.ok("parse_size_string('500MB')")
-    else:
-        results.fail("parse_size_string('500MB')", expected, result)
-
-    # Test raw number
-    result = parse_size_string("1048576")
-    if result == 1048576:
-        results.ok("parse_size_string('1048576') raw bytes")
-    else:
-        results.fail("parse_size_string('1048576')", 1048576, result)
-
-    # Test invalid
-    result = parse_size_string("")
-    if result == 0:
-        results.ok("parse_size_string('') returns 0")
-    else:
-        results.fail("parse_size_string('')", 0, result)
+    @pytest.mark.parametrize("input_str,expected", [
+        ("10G", 10 * 1024 * 1024 * 1024),
+        ("500M", 500 * 1024 * 1024),
+        ("1024K", 1024 * 1024),
+        ("1.5G", int(1.5 * 1024 * 1024 * 1024)),
+        ("10g", 10 * 1024 * 1024 * 1024),
+        ("500MB", 500 * 1024 * 1024),
+        ("1048576", 1048576),
+        ("", 0),
+    ], ids=[
+        "10G", "500M", "1024K", "1.5G", "10g_case",
+        "500MB_suffix", "raw_bytes", "empty",
+    ])
+    def test_parse(self, input_str, expected):
+        assert parse_size_string(input_str) == expected
 
 
-def test_system_detection():
+# =============================================================================
+# System Detection Tests
+# =============================================================================
+
+class TestSystemDetection:
     """Test system detection from folders and extensions."""
-    print("\n" + "="*60)
-    print("SYSTEM DETECTION TESTS")
-    print("="*60)
 
-    # Test folder aliases
-    if FOLDER_ALIASES.get("megadrive") == "genesis":
-        results.ok("Folder alias: megadrive -> genesis")
-    else:
-        results.fail("Folder alias", "genesis", FOLDER_ALIASES.get("megadrive"))
+    def test_folder_alias_megadrive(self, sys_data):
+        assert sys_data.folder_aliases.get("megadrive") == "genesis"
 
-    if FOLDER_ALIASES.get("famicom") == "nes":
-        results.ok("Folder alias: famicom -> nes")
-    else:
-        results.fail("Folder alias", "nes", FOLDER_ALIASES.get("famicom"))
+    def test_folder_alias_famicom(self, sys_data):
+        assert sys_data.folder_aliases.get("famicom") == "nes"
 
-    # Test extension mapping
-    if EXTENSION_TO_SYSTEM.get(".nes") == "nes":
-        results.ok("Extension mapping: .nes -> nes")
-    else:
-        results.fail("Extension mapping", "nes", EXTENSION_TO_SYSTEM.get(".nes"))
+    def test_extension_nes(self, sys_data):
+        assert sys_data.extension_to_system.get(".nes") == "nes"
 
-    if EXTENSION_TO_SYSTEM.get(".sfc") == "snes":
-        results.ok("Extension mapping: .sfc -> snes")
-    else:
-        results.fail("Extension mapping", "snes", EXTENSION_TO_SYSTEM.get(".sfc"))
+    def test_extension_sfc(self, sys_data):
+        assert sys_data.extension_to_system.get(".sfc") == "snes"
 
-    if EXTENSION_TO_SYSTEM.get(".md") == "genesis":
-        results.ok("Extension mapping: .md -> genesis")
-    else:
-        results.fail("Extension mapping", "genesis", EXTENSION_TO_SYSTEM.get(".md"))
+    def test_extension_md(self, sys_data):
+        assert sys_data.extension_to_system.get(".md") == "genesis"
 
-    # Test known systems
-    if "nes" in KNOWN_SYSTEMS and "snes" in KNOWN_SYSTEMS and "mame" in KNOWN_SYSTEMS:
-        results.ok("Known systems include nes, snes, mame")
-    else:
-        results.fail("Known systems", "contains nes, snes, mame", str(KNOWN_SYSTEMS[:10]))
+    @pytest.mark.parametrize("system", ["nes", "snes", "mame"])
+    def test_known_system(self, system, sys_data):
+        assert system in sys_data.known_systems
 
 
 # =============================================================================
 # Systems JSON Validation Tests
 # =============================================================================
 
-
-def test_systems_json():
+class TestSystemsJson:
     """Test that data/systems.json loads correctly and populates all dicts."""
-    print("\n" + "="*60)
-    print("SYSTEMS JSON VALIDATION TESTS")
-    print("="*60)
 
-    # Verify the JSON file exists and loads
-    systems_path = Path(__file__).parent.parent / 'data' / 'systems.json'
-    if systems_path.exists():
-        results.ok("systems.json file exists")
-    else:
-        results.fail("systems.json exists", "file exists", "file not found")
-        return
+    def test_file_exists(self):
+        systems_path = Path(__file__).parent.parent / 'data' / 'systems.json'
+        assert systems_path.exists()
 
-    with open(systems_path, 'r', encoding='utf-8') as f:
-        data = json.load(f)
+    def test_system_count(self):
+        systems_path = Path(__file__).parent.parent / 'data' / 'systems.json'
+        with open(systems_path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        assert len(data.get('systems', {})) >= 140
 
-    systems = data.get('systems', {})
-    if len(systems) >= 140:
-        results.ok(f"systems.json has {len(systems)} systems (>= 140)")
-    else:
-        results.fail("system count", ">= 140", len(systems))
+    def test_nes_extension(self):
+        systems_path = Path(__file__).parent.parent / 'data' / 'systems.json'
+        with open(systems_path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        nes = data['systems'].get('nes', {})
+        assert '.nes' in nes.get('extensions', [])
 
-    # Spot-check NES entry
-    nes = systems.get('nes', {})
-    if '.nes' in nes.get('extensions', []):
-        results.ok("NES has .nes extension")
-    else:
-        results.fail("NES extensions", "contains .nes", nes.get('extensions'))
+    def test_nes_famicom_alias(self):
+        systems_path = Path(__file__).parent.parent / 'data' / 'systems.json'
+        with open(systems_path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        nes = data['systems'].get('nes', {})
+        assert 'famicom' in nes.get('folder_aliases', [])
 
-    if 'famicom' in nes.get('folder_aliases', []):
-        results.ok("NES has 'famicom' folder alias")
-    else:
-        results.fail("NES folder_aliases", "contains famicom", nes.get('folder_aliases'))
+    def test_nes_dat_name(self):
+        systems_path = Path(__file__).parent.parent / 'data' / 'systems.json'
+        with open(systems_path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        nes = data['systems'].get('nes', {})
+        assert nes.get('dat_name') == 'Nintendo - Nintendo Entertainment System'
 
-    if nes.get('dat_name') == 'Nintendo - Nintendo Entertainment System':
-        results.ok("NES dat_name correct")
-    else:
-        results.fail("NES dat_name", "Nintendo - Nintendo Entertainment System", nes.get('dat_name'))
+    def test_genesis_aliases(self):
+        systems_path = Path(__file__).parent.parent / 'data' / 'systems.json'
+        with open(systems_path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        genesis = data['systems'].get('genesis', {})
+        expected = {'megadrive', 'mega-drive', 'sega-genesis',
+                    'sega-mega-drive', 'md'}
+        actual = set(genesis.get('folder_aliases', []))
+        assert expected.issubset(actual)
 
-    # Spot-check genesis
-    genesis = systems.get('genesis', {})
-    expected_aliases = {'megadrive', 'mega-drive', 'sega-genesis', 'sega-mega-drive', 'md'}
-    actual_aliases = set(genesis.get('folder_aliases', []))
-    if expected_aliases.issubset(actual_aliases):
-        results.ok("Genesis has expected folder aliases")
-    else:
-        results.fail("Genesis aliases", expected_aliases, actual_aliases)
+    def test_libretro_dat_systems_count(self, sys_data):
+        assert len(sys_data.libretro_dat_systems) >= 100
 
-    # Verify loaded dicts match expected counts
-    if len(LIBRETRO_DAT_SYSTEMS) >= 100:
-        results.ok(f"LIBRETRO_DAT_SYSTEMS has {len(LIBRETRO_DAT_SYSTEMS)} entries (>= 100)")
-    else:
-        results.fail("LIBRETRO_DAT_SYSTEMS count", ">= 100", len(LIBRETRO_DAT_SYSTEMS))
+    def test_redump_dat_systems_count(self, sys_data):
+        assert len(sys_data.redump_dat_systems) >= 20
 
-    if len(REDUMP_DAT_SYSTEMS) >= 20:
-        results.ok(f"REDUMP_DAT_SYSTEMS has {len(REDUMP_DAT_SYSTEMS)} entries (>= 20)")
-    else:
-        results.fail("REDUMP_DAT_SYSTEMS count", ">= 20", len(REDUMP_DAT_SYSTEMS))
+    def test_ten_dat_systems_count(self, sys_data):
+        assert len(sys_data.ten_dat_systems) >= 40
 
-    if len(TEN_DAT_SYSTEMS) >= 40:
-        results.ok(f"TEN_DAT_SYSTEMS has {len(TEN_DAT_SYSTEMS)} entries (>= 40)")
-    else:
-        results.fail("TEN_DAT_SYSTEMS count", ">= 40", len(TEN_DAT_SYSTEMS))
+    def test_launchbox_platform_map_count(self, sys_data):
+        assert len(sys_data.launchbox_platform_map) >= 60
 
-    if len(LAUNCHBOX_PLATFORM_MAP) >= 60:
-        results.ok(f"LAUNCHBOX_PLATFORM_MAP has {len(LAUNCHBOX_PLATFORM_MAP)} entries (>= 60)")
-    else:
-        results.fail("LAUNCHBOX_PLATFORM_MAP count", ">= 60", len(LAUNCHBOX_PLATFORM_MAP))
+    def test_dat_name_to_system_reverse(self, sys_data):
+        assert sys_data.dat_name_to_system.get(
+            'nintendo - nintendo entertainment system') == 'nes'
 
-    # Verify DAT_NAME_TO_SYSTEM reverse mapping
-    if DAT_NAME_TO_SYSTEM.get('nintendo - nintendo entertainment system') == 'nes':
-        results.ok("DAT_NAME_TO_SYSTEM reverse mapping works")
-    else:
-        results.fail("DAT_NAME_TO_SYSTEM", "nes",
-                     DAT_NAME_TO_SYSTEM.get('nintendo - nintendo entertainment system'))
-
-    # Verify SYSTEM_TO_LAUNCHBOX reverse mapping
-    if SYSTEM_TO_LAUNCHBOX.get('nes') == 'Nintendo Entertainment System':
-        results.ok("SYSTEM_TO_LAUNCHBOX reverse mapping works")
-    else:
-        results.fail("SYSTEM_TO_LAUNCHBOX", "Nintendo Entertainment System",
-                     SYSTEM_TO_LAUNCHBOX.get('nes'))
+    def test_system_to_launchbox_reverse(self, sys_data):
+        assert sys_data.system_to_launchbox.get(
+            'nes') == 'Nintendo Entertainment System'
 
 
 # =============================================================================
 # Playlist Generation Tests
 # =============================================================================
 
-def test_playlist_generation():
+class TestPlaylistGeneration:
     """Test playlist generation functions."""
-    print("\n" + "="*60)
-    print("PLAYLIST GENERATION TESTS")
-    print("="*60)
 
-    with tempfile.TemporaryDirectory() as tmpdir:
-        dest_path = Path(tmpdir)
-
-        # Create mock ROM files
+    def test_m3u_generation(self, tmp_path):
         rom_files = [
-            dest_path / "Game A (USA).zip",
-            dest_path / "Game B (USA).zip",
-            dest_path / "Game C (Japan).zip",
+            tmp_path / "Game A (USA).zip",
+            tmp_path / "Game B (USA).zip",
+            tmp_path / "Game C (Japan).zip",
         ]
         for f in rom_files:
             f.touch()
+        generate_m3u_playlist("nes", rom_files, tmp_path)
+        m3u_path = tmp_path / "nes.m3u"
+        assert m3u_path.exists()
+        content = m3u_path.read_text()
+        assert "Game A" in content and "Game B" in content
 
-        # Test M3U generation
-        generate_m3u_playlist("nes", rom_files, dest_path)
-        m3u_path = dest_path / "nes.m3u"
-        if m3u_path.exists():
-            content = m3u_path.read_text()
-            if "Game A" in content and "Game B" in content:
-                results.ok("M3U playlist generation")
-            else:
-                results.fail("M3U playlist content", "contains game names", content[:100])
-        else:
-            results.fail("M3U playlist generation", "file created", "file not found")
-
-        # Test gamelist.xml generation
-        generate_gamelist_xml("nes", rom_files, dest_path)
-        xml_path = dest_path / "gamelist.xml"
-        if xml_path.exists():
-            content = xml_path.read_text()
-            if "<gameList>" in content and "<game>" in content:
-                results.ok("gamelist.xml generation")
-            else:
-                results.fail("gamelist.xml content", "valid XML structure", content[:100])
-        else:
-            results.fail("gamelist.xml generation", "file created", "file not found")
+    def test_gamelist_xml_generation(self, tmp_path):
+        rom_files = [
+            tmp_path / "Game A (USA).zip",
+            tmp_path / "Game B (USA).zip",
+            tmp_path / "Game C (Japan).zip",
+        ]
+        for f in rom_files:
+            f.touch()
+        generate_gamelist_xml("nes", rom_files, tmp_path)
+        xml_path = tmp_path / "gamelist.xml"
+        assert xml_path.exists()
+        content = xml_path.read_text()
+        assert "<gameList>" in content and "<game>" in content
 
 
 # =============================================================================
 # Validate Destination Tests
 # =============================================================================
 
-def test_validate_destination():
+class TestValidateDestination:
     """Test validate_destination function."""
-    print("\n" + "="*60)
-    print("VALIDATE DESTINATION TESTS")
-    print("="*60)
 
-    with tempfile.TemporaryDirectory() as tmpdir:
-        dest = Path(tmpdir)
-
-        # Create a test file with known content and size
-        test_file = dest / "snes" / "Game A (USA).zip"
+    def test_correct_size_valid(self, tmp_path):
+        test_file = tmp_path / "snes" / "Game A (USA).zip"
         test_file.parent.mkdir(parents=True, exist_ok=True)
         test_file.write_bytes(b"hello world test data")
         file_size = test_file.stat().st_size
-
-        # File exists with correct size -> 'valid'
         result = validate_destination(
-            dest, "snes", flat=False,
-            expected_files={"Game A (USA).zip": file_size}
+            tmp_path, "snes", flat=False,
+            expected_files={"Game A (USA).zip": file_size},
         )
-        if result.get("Game A (USA).zip") == "valid":
-            results.ok("validate_destination: correct size -> valid")
-        else:
-            results.fail("validate_destination: correct size -> valid",
-                         "valid", result.get("Game A (USA).zip"))
+        assert result.get("Game A (USA).zip") == "valid"
 
-        # File exists with wrong size -> 'invalid'
+    def test_wrong_size_invalid(self, tmp_path):
+        test_file = tmp_path / "snes" / "Game A (USA).zip"
+        test_file.parent.mkdir(parents=True, exist_ok=True)
+        test_file.write_bytes(b"hello world test data")
+        file_size = test_file.stat().st_size
         result = validate_destination(
-            dest, "snes", flat=False,
-            expected_files={"Game A (USA).zip": file_size + 100}
+            tmp_path, "snes", flat=False,
+            expected_files={"Game A (USA).zip": file_size + 100},
         )
-        if result.get("Game A (USA).zip") == "invalid":
-            results.ok("validate_destination: wrong size -> invalid")
-        else:
-            results.fail("validate_destination: wrong size -> invalid",
-                         "invalid", result.get("Game A (USA).zip"))
+        assert result.get("Game A (USA).zip") == "invalid"
 
-        # File doesn't exist -> 'missing'
+    def test_missing_file(self, tmp_path):
+        (tmp_path / "snes").mkdir(parents=True, exist_ok=True)
         result = validate_destination(
-            dest, "snes", flat=False,
-            expected_files={"Nonexistent (USA).zip": 100}
+            tmp_path, "snes", flat=False,
+            expected_files={"Nonexistent (USA).zip": 100},
         )
-        if result.get("Nonexistent (USA).zip") == "missing":
-            results.ok("validate_destination: missing file -> missing")
-        else:
-            results.fail("validate_destination: missing file -> missing",
-                         "missing", result.get("Nonexistent (USA).zip"))
+        assert result.get("Nonexistent (USA).zip") == "missing"
 
-        # CRC check enabled, correct CRC -> 'valid'
+    def test_correct_crc_valid(self, tmp_path):
+        test_file = tmp_path / "snes" / "Game A (USA).zip"
+        test_file.parent.mkdir(parents=True, exist_ok=True)
+        test_file.write_bytes(b"hello world test data")
+        file_size = test_file.stat().st_size
         actual_crc = calculate_crc32(test_file)
         result = validate_destination(
-            dest, "snes", flat=False,
+            tmp_path, "snes", flat=False,
             expected_files={"Game A (USA).zip": file_size},
-            crc_check=True,
-            crc_data={"Game A (USA).zip": actual_crc}
+            crc_check=True, crc_data={"Game A (USA).zip": actual_crc},
         )
-        if result.get("Game A (USA).zip") == "valid":
-            results.ok("validate_destination: correct CRC -> valid")
-        else:
-            results.fail("validate_destination: correct CRC -> valid",
-                         "valid", result.get("Game A (USA).zip"))
+        assert result.get("Game A (USA).zip") == "valid"
 
-        # CRC check enabled, wrong CRC -> 'invalid'
+    def test_wrong_crc_invalid(self, tmp_path):
+        test_file = tmp_path / "snes" / "Game A (USA).zip"
+        test_file.parent.mkdir(parents=True, exist_ok=True)
+        test_file.write_bytes(b"hello world test data")
+        file_size = test_file.stat().st_size
         result = validate_destination(
-            dest, "snes", flat=False,
+            tmp_path, "snes", flat=False,
             expected_files={"Game A (USA).zip": file_size},
-            crc_check=True,
-            crc_data={"Game A (USA).zip": "00000000"}
+            crc_check=True, crc_data={"Game A (USA).zip": "00000000"},
         )
-        if result.get("Game A (USA).zip") == "invalid":
-            results.ok("validate_destination: wrong CRC -> invalid")
-        else:
-            results.fail("validate_destination: wrong CRC -> invalid",
-                         "invalid", result.get("Game A (USA).zip"))
+        assert result.get("Game A (USA).zip") == "invalid"
 
-        # Empty expected_files -> empty dict
+    def test_empty_expected_files(self, tmp_path):
         result = validate_destination(
-            dest, "snes", flat=False, expected_files={}
+            tmp_path, "snes", flat=False, expected_files={},
         )
-        if result == {}:
-            results.ok("validate_destination: empty expected_files -> empty dict")
-        else:
-            results.fail("validate_destination: empty expected_files -> empty dict",
-                         {}, result)
+        assert result == {}
 
-        # System subdirectory used when flat=False
-        # File is in dest/snes/, so looking with system="snes" flat=False should find it
+    def test_system_subdir_flat_false(self, tmp_path):
+        test_file = tmp_path / "snes" / "Game A (USA).zip"
+        test_file.parent.mkdir(parents=True, exist_ok=True)
+        test_file.write_bytes(b"hello world test data")
+        file_size = test_file.stat().st_size
         result = validate_destination(
-            dest, "snes", flat=False,
-            expected_files={"Game A (USA).zip": file_size}
+            tmp_path, "snes", flat=False,
+            expected_files={"Game A (USA).zip": file_size},
         )
-        if result.get("Game A (USA).zip") == "valid":
-            results.ok("validate_destination: system subdir (flat=False)")
-        else:
-            results.fail("validate_destination: system subdir (flat=False)",
-                         "valid", result.get("Game A (USA).zip"))
+        assert result.get("Game A (USA).zip") == "valid"
 
-        # Flat mode - file in dest root
-        flat_file = dest / "Flat Game (USA).zip"
+    def test_flat_mode(self, tmp_path):
+        flat_file = tmp_path / "Flat Game (USA).zip"
         flat_file.write_bytes(b"flat test data")
         flat_size = flat_file.stat().st_size
         result = validate_destination(
-            dest, "snes", flat=True,
-            expected_files={"Flat Game (USA).zip": flat_size}
+            tmp_path, "snes", flat=True,
+            expected_files={"Flat Game (USA).zip": flat_size},
         )
-        if result.get("Flat Game (USA).zip") == "valid":
-            results.ok("validate_destination: flat mode")
-        else:
-            results.fail("validate_destination: flat mode",
-                         "valid", result.get("Flat Game (USA).zip"))
+        assert result.get("Flat Game (USA).zip") == "valid"
 
 
 # =============================================================================
 # Clean Destination Tests
 # =============================================================================
 
-def test_clean_destination():
+class TestCleanDestination:
     """Test clean_destination function."""
-    print("\n" + "="*60)
-    print("CLEAN DESTINATION TESTS")
-    print("="*60)
 
-    # Remove files not in keep set
-    with tempfile.TemporaryDirectory() as tmpdir:
-        dest = Path(tmpdir)
-        sys_dir = dest / "nes"
+    def test_removes_files_not_in_keep(self, tmp_path):
+        sys_dir = tmp_path / "nes"
         sys_dir.mkdir()
         (sys_dir / "Keep (USA).zip").write_bytes(b"keep")
         (sys_dir / "Remove (USA).zip").write_bytes(b"remove")
         (sys_dir / "Also Remove (Japan).zip").write_bytes(b"remove2")
-
-        stats = clean_destination(dest, "nes", flat=False,
+        stats = clean_destination(tmp_path, "nes", flat=False,
                                   keep_files={"Keep (USA).zip"})
-        if stats['removed'] == 2 and (sys_dir / "Keep (USA).zip").exists():
-            results.ok("clean_destination: removes files not in keep set")
-        else:
-            results.fail("clean_destination: removes files not in keep set",
-                         "removed=2, Keep exists", f"removed={stats['removed']}")
+        assert stats['removed'] == 2
+        assert (sys_dir / "Keep (USA).zip").exists()
 
-    # Keep files that are in keep set
-    with tempfile.TemporaryDirectory() as tmpdir:
-        dest = Path(tmpdir)
-        sys_dir = dest / "nes"
+    def test_keeps_files_in_keep_set(self, tmp_path):
+        sys_dir = tmp_path / "nes"
         sys_dir.mkdir()
         (sys_dir / "Game A (USA).zip").write_bytes(b"a")
         (sys_dir / "Game B (USA).zip").write_bytes(b"b")
+        stats = clean_destination(
+            tmp_path, "nes", flat=False,
+            keep_files={"Game A (USA).zip", "Game B (USA).zip"},
+        )
+        assert stats['removed'] == 0
+        assert (sys_dir / "Game A (USA).zip").exists()
+        assert (sys_dir / "Game B (USA).zip").exists()
 
-        stats = clean_destination(dest, "nes", flat=False,
-                                  keep_files={"Game A (USA).zip", "Game B (USA).zip"})
-        kept = (sys_dir / "Game A (USA).zip").exists() and (sys_dir / "Game B (USA).zip").exists()
-        if stats['removed'] == 0 and kept:
-            results.ok("clean_destination: keeps files in keep set")
-        else:
-            results.fail("clean_destination: keeps files in keep set",
-                         "removed=0, all files kept",
-                         f"removed={stats['removed']}, kept={kept}")
-
-    # Empty directory -> no errors, 0 removed
-    with tempfile.TemporaryDirectory() as tmpdir:
-        dest = Path(tmpdir)
-        sys_dir = dest / "nes"
+    def test_empty_directory(self, tmp_path):
+        sys_dir = tmp_path / "nes"
         sys_dir.mkdir()
+        stats = clean_destination(tmp_path, "nes", flat=False,
+                                  keep_files=set())
+        assert stats['removed'] == 0 and stats['errors'] == 0
 
-        stats = clean_destination(dest, "nes", flat=False, keep_files=set())
-        if stats['removed'] == 0 and stats['errors'] == 0:
-            results.ok("clean_destination: empty directory -> 0 removed, 0 errors")
-        else:
-            results.fail("clean_destination: empty directory -> 0 removed, 0 errors",
-                         "removed=0, errors=0",
-                         f"removed={stats['removed']}, errors={stats['errors']}")
+    def test_nonexistent_directory(self, tmp_path):
+        stats = clean_destination(tmp_path, "nonexistent", flat=False,
+                                  keep_files=set())
+        assert stats['removed'] == 0 and stats['errors'] == 0
 
-    # Non-existent directory -> returns removed=0, errors=0
-    with tempfile.TemporaryDirectory() as tmpdir:
-        dest = Path(tmpdir)
-        stats = clean_destination(dest, "nonexistent", flat=False, keep_files=set())
-        if stats['removed'] == 0 and stats['errors'] == 0:
-            results.ok("clean_destination: non-existent dir -> 0 removed, 0 errors")
-        else:
-            results.fail("clean_destination: non-existent dir -> 0 removed, 0 errors",
-                         "removed=0, errors=0",
-                         f"removed={stats['removed']}, errors={stats['errors']}")
-
-    # System subdirectory used when flat=False
-    with tempfile.TemporaryDirectory() as tmpdir:
-        dest = Path(tmpdir)
-        sys_dir = dest / "genesis"
+    def test_system_subdir_isolation(self, tmp_path):
+        sys_dir = tmp_path / "genesis"
         sys_dir.mkdir()
         (sys_dir / "Game (USA).zip").write_bytes(b"data")
-        # Also put a file in dest root - should NOT be touched
-        (dest / "Root File.zip").write_bytes(b"root")
-
-        stats = clean_destination(dest, "genesis", flat=False, keep_files=set())
-        if stats['removed'] == 1 and (dest / "Root File.zip").exists():
-            results.ok("clean_destination: system subdir (flat=False)")
-        else:
-            results.fail("clean_destination: system subdir (flat=False)",
-                         "removed=1, root file untouched",
-                         f"removed={stats['removed']}")
+        (tmp_path / "Root File.zip").write_bytes(b"root")
+        stats = clean_destination(tmp_path, "genesis", flat=False,
+                                  keep_files=set())
+        assert stats['removed'] == 1
+        assert (tmp_path / "Root File.zip").exists()
 
 
 # =============================================================================
-# Backward Compat Config Loading Tests
+# Backward Compat Config Tests
 # =============================================================================
 
-def test_backward_compat_config():
+class TestBackwardCompatConfig:
     """Test backward compatibility for config loading."""
-    print("\n" + "="*60)
-    print("BACKWARD COMPAT CONFIG TESTS")
-    print("="*60)
 
-    # transfer_mode key loads as local_file_action
-    cfg = Config.from_dict({
-        'output': {'transfer_mode': 'move'}
-    })
-    if cfg.output.local_file_action == 'move':
-        results.ok("config compat: transfer_mode -> local_file_action")
-    else:
-        results.fail("config compat: transfer_mode -> local_file_action",
-                     "move", cfg.output.local_file_action)
+    def test_transfer_mode_to_local_file_action(self):
+        cfg = Config.from_dict({'output': {'transfer_mode': 'move'}})
+        assert cfg.output.local_file_action == 'move'
 
-    # transfer_mode: 'delete-dupes' maps to local_file_action: 'remove'
-    cfg = Config.from_dict({
-        'output': {'transfer_mode': 'delete-dupes'}
-    })
-    if cfg.output.local_file_action == 'remove':
-        results.ok("config compat: transfer_mode delete-dupes -> remove")
-    else:
-        results.fail("config compat: transfer_mode delete-dupes -> remove",
-                     "remove", cfg.output.local_file_action)
+    def test_delete_dupes_to_remove(self):
+        cfg = Config.from_dict({'output': {'transfer_mode': 'delete-dupes'}})
+        assert cfg.output.local_file_action == 'remove'
 
-    # Both local_file_action and transfer_mode -> local_file_action wins
-    cfg = Config.from_dict({
-        'output': {'local_file_action': 'symlink', 'transfer_mode': 'copy'}
-    })
-    if cfg.output.local_file_action == 'symlink':
-        results.ok("config compat: local_file_action wins over transfer_mode")
-    else:
-        results.fail("config compat: local_file_action wins over transfer_mode",
-                     "symlink", cfg.output.local_file_action)
+    def test_local_file_action_wins(self):
+        cfg = Config.from_dict({
+            'output': {'local_file_action': 'symlink', 'transfer_mode': 'copy'}
+        })
+        assert cfg.output.local_file_action == 'symlink'
 
 
 # =============================================================================
-# Integration Tests (with real files if available)
+# All Flag (no_filter) Tests
 # =============================================================================
 
-def test_real_roms(source_dir: str):
-    """Test with real ROM files if available."""
-    source_path = Path(source_dir)
-
-    if not source_path.exists():
-        print("\n" + "="*60)
-        print("INTEGRATION TESTS (SKIPPED - source not found)")
-        print("="*60)
-        return
-
-    print("\n" + "="*60)
-    print("INTEGRATION TESTS (with real ROMs)")
-    print("="*60)
-
-    # Find a system with ROMs
-    test_system = None
-    for system in ["nes", "snes", "genesis", "gba", "vectrex"]:
-        system_path = source_path / system
-        if system_path.exists() and any(system_path.iterdir()):
-            test_system = system
-            break
-
-    if not test_system:
-        print("  No ROM directories found, skipping integration tests")
-        return
-
-    system_path = source_path / test_system
-    rom_files = list(system_path.glob("*.zip"))[:10]  # Test with up to 10 ROMs
-
-    if rom_files:
-        # Parse all ROMs
-        parsed = [parse_rom_filename(f.name) for f in rom_files]
-
-        # Group by title
-        grouped = defaultdict(list)
-        for rom in parsed:
-            normalized = normalize_title(rom.base_title)
-            grouped[normalized].append(rom)
-
-        # Select best from a group
-        # Note: Many games may return None if they're unlicensed, pirate, beta, etc.
-        tested = 0
-        for title, roms in list(grouped.items()):
-            if tested >= 3:
-                break
-            best = select_best_rom(roms)
-            if best:
-                results.ok(f"Selection for '{title[:30]}...' -> {best.region}")
-                tested += 1
-            # Skip failures - many legitimate reasons for None (unlicensed, pirate, etc.)
-
-
-def test_series(source_dir: str, system: str, search_term: str):
-    """Test ROM selection for a specific series (legacy function)."""
-    source_path = Path(source_dir) / system
-
-    if not source_path.exists():
-        print(f"Directory not found: {source_path}")
-        return
-
-    # Find matching ROMs
-    matching_roms = []
-    for filename in os.listdir(source_path):
-        if search_term.lower() in filename.lower():
-            rom_info = parse_rom_filename(filename)
-            matching_roms.append(rom_info)
-
-    if not matching_roms:
-        print(f"No ROMs found matching '{search_term}' in {system}")
-        return
-
-    print(f"\n{'='*80}")
-    print(f"TESTING: '{search_term}' in {system.upper()}")
-    print(f"{'='*80}")
-    print(f"Found {len(matching_roms)} matching ROMs\n")
-
-    # Group by normalized title
-    grouped = defaultdict(list)
-    for rom in matching_roms:
-        normalized = normalize_title(rom.base_title)
-        grouped[normalized].append(rom)
-
-    print(f"Grouped into {len(grouped)} unique games:\n")
-
-    for title, roms in sorted(grouped.items()):
-        print(f"\n--- {title} ({len(roms)} ROMs) ---")
-
-        # Show all ROMs in this group
-        for rom in sorted(roms, key=lambda r: r.filename):
-            flags = []
-            if rom.is_beta: flags.append("BETA")
-            if rom.is_proto: flags.append("PROTO")
-            if rom.is_demo: flags.append("DEMO")
-            if rom.is_promo: flags.append("PROMO")
-            if rom.is_sample: flags.append("SAMPLE")
-            if rom.is_rerelease: flags.append("RERELEASE")
-            if rom.is_pirate: flags.append("PIRATE")
-            if rom.is_translation: flags.append("TRANSLATION")
-            if rom.is_compilation: flags.append("COMPILATION")
-            if rom.is_lock_on: flags.append("LOCK-ON")
-            if rom.is_bios: flags.append("BIOS")
-            if rom.has_hacks: flags.append("HACKED")
-            if not rom.is_english: flags.append("NON-EN")
-
-            flag_str = f" [{', '.join(flags)}]" if flags else ""
-            print(f"  {rom.filename}")
-            print(f"    Region: {rom.region}, Rev: {rom.revision}, English: {rom.is_english}{flag_str}")
-
-        # Show selected ROM
-        best = select_best_rom(roms)
-        if best:
-            print(f"\n  >>> SELECTED: {best.filename}")
-        else:
-            print(f"\n  >>> NO ROM SELECTED (all filtered out)")
-
-
-def test_all_flag():
+class TestAllFlag:
     """Test --all flag behavior (no_filter mode)."""
-    print("\n" + "="*60)
-    print("ALL FLAG (NO FILTER) TESTS")
-    print("="*60)
 
-    # Test filter_network_roms with no_filter=True keeps all ROMs (no 1G1R dedup)
-    test_urls = [
+    TEST_URLS = [
         "https://example.com/nes/Super Mario Bros. (USA).zip",
         "https://example.com/nes/Super Mario Bros. (Japan).zip",
         "https://example.com/nes/Super Mario Bros. (Europe).zip",
@@ -2025,50 +1260,40 @@ def test_all_flag():
         "https://example.com/nes/Pirate Game (USA) (Unl).zip",
     ]
 
-    # Without no_filter: 1G1R should reduce Super Mario Bros. to one version
-    filtered_normal, _ = _filter_network_roms_compat(
-        test_urls, "nes",
-        region_priority=DEFAULT_REGION_PRIORITY
-    )
-    # With no_filter: all ROMs should be kept (including betas, protos, unlicensed)
-    filtered_all, _ = _filter_network_roms_compat(
-        test_urls, "nes",
-        region_priority=DEFAULT_REGION_PRIORITY,
-        no_filter=True
-    )
-    if len(filtered_all) == len(test_urls):
-        results.ok("--all keeps all ROMs (no filtering)")
-    else:
-        results.fail("--all keeps all ROMs", str(len(test_urls)), str(len(filtered_all)))
+    def test_all_keeps_all_roms(self):
+        filtered, _ = _filter_compat(
+            self.TEST_URLS, "nes",
+            region_priority=DEFAULT_REGION_PRIORITY,
+            no_filter=True,
+        )
+        assert len(filtered) == len(self.TEST_URLS)
 
-    if len(filtered_all) > len(filtered_normal):
-        results.ok("--all returns more ROMs than normal filtering")
-    else:
-        results.fail("--all returns more ROMs", f">{len(filtered_normal)}", str(len(filtered_all)))
+    def test_all_returns_more_than_normal(self):
+        filtered_normal, _ = _filter_compat(
+            self.TEST_URLS, "nes",
+            region_priority=DEFAULT_REGION_PRIORITY,
+        )
+        filtered_all, _ = _filter_compat(
+            self.TEST_URLS, "nes",
+            region_priority=DEFAULT_REGION_PRIORITY,
+            no_filter=True,
+        )
+        assert len(filtered_all) > len(filtered_normal)
 
-    # Test that duplicate title variants are both kept with no_filter
-    dup_urls = [
-        "https://example.com/nes/Super Mario Bros. (USA).zip",
-        "https://example.com/nes/Super Mario Bros. (Japan).zip",
-    ]
-    filtered_all_dup, _ = _filter_network_roms_compat(
-        dup_urls, "nes",
-        region_priority=DEFAULT_REGION_PRIORITY,
-        no_filter=True
-    )
-    if len(filtered_all_dup) == 2:
-        results.ok("--all keeps both USA and Japan versions of same game")
-    else:
-        results.fail("--all keeps both regional versions", "2", str(len(filtered_all_dup)))
+    def test_all_keeps_both_regions(self):
+        dup_urls = [
+            "https://example.com/nes/Super Mario Bros. (USA).zip",
+            "https://example.com/nes/Super Mario Bros. (Japan).zip",
+        ]
+        filtered, _ = _filter_compat(
+            dup_urls, "nes",
+            region_priority=DEFAULT_REGION_PRIORITY,
+            no_filter=True,
+        )
+        assert len(filtered) == 2
 
-    # Test filter_roms_from_files with no_filter=True using temp files
-    with tempfile.TemporaryDirectory() as tmpdir:
-        rom_dir = Path(tmpdir) / "roms"
-        rom_dir.mkdir()
-        dest_dir = Path(tmpdir) / "dest"
-        dest_dir.mkdir()
-
-        # Create fake ROM files
+    def test_all_local_files(self, tmp_rom_dir):
+        rom_dir, dest_dir = tmp_rom_dir
         filenames = [
             "Super Mario Bros. (USA).zip",
             "Super Mario Bros. (Japan).zip",
@@ -2082,115 +1307,133 @@ def test_all_flag():
             p.write_bytes(b'\x00' * 100)
             rom_paths.append(p)
 
-        # Without no_filter: betas excluded, 1G1R dedup applied
-        selected_normal, _ = filter_roms_from_files(
-            rom_paths, str(dest_dir), "nes", dry_run=True,
-            region_priority=DEFAULT_REGION_PRIORITY,
-            best_version=True
-        )
-        # With no_filter: all ROMs kept
         selected_all, _ = filter_roms_from_files(
             rom_paths, str(dest_dir), "nes", dry_run=True,
             region_priority=DEFAULT_REGION_PRIORITY,
-            no_filter=True
+            no_filter=True,
         )
+        assert len(selected_all) == 5
 
-        if len(selected_all) == 5:
-            results.ok("filter_roms_from_files --all keeps all 5 ROMs")
-        else:
-            results.fail("filter_roms_from_files --all keeps all ROMs", "5", str(len(selected_all)))
+    def test_all_more_than_normal_local(self, tmp_rom_dir):
+        rom_dir, dest_dir = tmp_rom_dir
+        filenames = [
+            "Super Mario Bros. (USA).zip",
+            "Super Mario Bros. (Japan).zip",
+            "Zelda (USA).zip",
+            "Zelda (Europe).zip",
+            "Beta Game (USA) (Beta).zip",
+        ]
+        rom_paths = []
+        for fn in filenames:
+            p = rom_dir / fn
+            p.write_bytes(b'\x00' * 100)
+            rom_paths.append(p)
 
-        if len(selected_all) > len(selected_normal):
-            results.ok("filter_roms_from_files --all returns more than normal")
-        else:
-            results.fail("filter_roms_from_files --all vs normal",
-                        f">{len(selected_normal)}", str(len(selected_all)))
+        selected_normal, _ = filter_roms_from_files(
+            rom_paths, str(dest_dir), "nes", dry_run=True,
+            region_priority=DEFAULT_REGION_PRIORITY,
+            best_version=True,
+        )
+        selected_all, _ = filter_roms_from_files(
+            rom_paths, str(dest_dir), "nes", dry_run=True,
+            region_priority=DEFAULT_REGION_PRIORITY,
+            no_filter=True,
+        )
+        assert len(selected_all) > len(selected_normal)
 
-        # Verify beta is included in --all mode
-        all_filenames = {r.filename for r in selected_all}
-        if "Beta Game (USA) (Beta).zip" in all_filenames:
-            results.ok("--all includes beta ROMs")
-        else:
-            results.fail("--all includes betas", "Beta Game present", f"filenames: {all_filenames}")
+    def test_all_includes_betas_local(self, tmp_rom_dir):
+        rom_dir, dest_dir = tmp_rom_dir
+        filenames = [
+            "Super Mario Bros. (USA).zip",
+            "Beta Game (USA) (Beta).zip",
+        ]
+        rom_paths = []
+        for fn in filenames:
+            p = rom_dir / fn
+            p.write_bytes(b'\x00' * 100)
+            rom_paths.append(p)
 
-    # Test --all validation: conflicts with --top
-    # We just verify the validation logic by checking the parser would reject it
-    # (We can't easily invoke parser.error in tests, so test the attribute exists)
-    import argparse
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--all', action='store_true')
-    parser.add_argument('--top', default=None)
-    test_args = parser.parse_args(['--all', '--top', '10'])
-    if test_args.all and test_args.top is not None:
-        results.ok("--all + --top detected as conflict (validation logic exists)")
-    else:
-        results.fail("--all + --top conflict detection", "both set", "missing")
+        selected_all, _ = filter_roms_from_files(
+            rom_paths, str(dest_dir), "nes", dry_run=True,
+            region_priority=DEFAULT_REGION_PRIORITY,
+            no_filter=True,
+        )
+        all_fns = {r.filename for r in selected_all}
+        assert "Beta Game (USA) (Beta).zip" in all_fns
+
+    def test_all_top_conflict_detection(self):
+        parser = argparse.ArgumentParser()
+        parser.add_argument('--all', action='store_true')
+        parser.add_argument('--top', default=None)
+        test_args = parser.parse_args(['--all', '--top', '10'])
+        assert test_args.all and test_args.top is not None
 
 
-def test_english_only_flag():
+# =============================================================================
+# English-Only Flag Tests
+# =============================================================================
+
+class TestEnglishOnlyFlag:
     """Test --english-only flag filters non-English ROMs."""
-    print("\n" + "="*60)
-    print("ENGLISH-ONLY FLAG TESTS")
-    print("="*60)
 
-    # Test filter_network_roms with english_only=True
-    test_urls = [
+    TEST_URLS = [
         "https://example.com/snes/Super Mario World (USA).zip",
         "https://example.com/snes/Final Fantasy V (Japan).zip",
         "https://example.com/snes/Zelda (Europe).zip",
         "https://example.com/snes/Seiken Densetsu 3 (Japan) (T-En).zip",
     ]
 
-    # With english_only: Japan-only ROM should be excluded, T-En kept
-    filtered, _ = _filter_network_roms_compat(
-        test_urls, "snes",
-        region_priority=DEFAULT_REGION_PRIORITY,
-        english_only=True
-    )
-    filtered_names = [u.split('/')[-1] for u in filtered]
-    has_usa = any("Super Mario World" in n for n in filtered_names)
-    has_europe = any("Zelda" in n for n in filtered_names)
-    has_ten = any("T-En" in n for n in filtered_names)
-    has_japan_only = any("Final Fantasy V" in n for n in filtered_names)
+    def test_keeps_usa_network(self):
+        filtered, _ = _filter_compat(
+            self.TEST_URLS, "snes",
+            region_priority=DEFAULT_REGION_PRIORITY,
+            english_only=True,
+        )
+        names = [u.split('/')[-1] for u in filtered]
+        assert any("Super Mario World" in n for n in names)
 
-    if has_usa:
-        results.ok("english_only keeps USA ROM (network)")
-    else:
-        results.fail("english_only keeps USA ROM (network)", "present", "missing")
+    def test_keeps_europe_network(self):
+        filtered, _ = _filter_compat(
+            self.TEST_URLS, "snes",
+            region_priority=DEFAULT_REGION_PRIORITY,
+            english_only=True,
+        )
+        names = [u.split('/')[-1] for u in filtered]
+        assert any("Zelda" in n for n in names)
 
-    if has_europe:
-        results.ok("english_only keeps Europe ROM (network)")
-    else:
-        results.fail("english_only keeps Europe ROM (network)", "present", "missing")
+    def test_keeps_translation_network(self):
+        filtered, _ = _filter_compat(
+            self.TEST_URLS, "snes",
+            region_priority=DEFAULT_REGION_PRIORITY,
+            english_only=True,
+        )
+        names = [u.split('/')[-1] for u in filtered]
+        assert any("T-En" in n for n in names)
 
-    if has_ten:
-        results.ok("english_only keeps T-En translation ROM (network)")
-    else:
-        results.fail("english_only keeps T-En translation ROM (network)", "present", "missing")
+    def test_excludes_japan_only_network(self):
+        filtered, _ = _filter_compat(
+            self.TEST_URLS, "snes",
+            region_priority=DEFAULT_REGION_PRIORITY,
+            english_only=True,
+        )
+        names = [u.split('/')[-1] for u in filtered]
+        assert not any("Final Fantasy V" in n for n in names)
 
-    if not has_japan_only:
-        results.ok("english_only excludes Japan-only ROM (network)")
-    else:
-        results.fail("english_only excludes Japan-only ROM (network)", "excluded", "present")
+    def test_false_keeps_all_network(self):
+        filtered, _ = _filter_compat(
+            self.TEST_URLS, "snes",
+            region_priority=DEFAULT_REGION_PRIORITY,
+            english_only=False,
+        )
+        filtered_eng, _ = _filter_compat(
+            self.TEST_URLS, "snes",
+            region_priority=DEFAULT_REGION_PRIORITY,
+            english_only=True,
+        )
+        assert len(filtered) >= len(filtered_eng)
 
-    # Without english_only: all ROMs should be present
-    filtered_all, _ = _filter_network_roms_compat(
-        test_urls, "snes",
-        region_priority=DEFAULT_REGION_PRIORITY,
-        english_only=False
-    )
-    if len(filtered_all) >= len(filtered):
-        results.ok("english_only=False keeps all ROMs (network)")
-    else:
-        results.fail("english_only=False keeps all ROMs", f">={len(filtered)}", str(len(filtered_all)))
-
-    # Test filter_roms_from_files with english_only=True
-    with tempfile.TemporaryDirectory() as tmpdir:
-        rom_dir = Path(tmpdir) / "roms"
-        rom_dir.mkdir()
-        dest_dir = Path(tmpdir) / "dest"
-        dest_dir.mkdir()
-
+    def test_keeps_usa_local(self, tmp_rom_dir):
+        rom_dir, dest_dir = tmp_rom_dir
         filenames = [
             "Super Mario World (USA).zip",
             "Final Fantasy V (Japan).zip",
@@ -2206,108 +1449,111 @@ def test_english_only_flag():
         selected, _ = filter_roms_from_files(
             rom_paths, str(dest_dir), "snes", dry_run=True,
             region_priority=DEFAULT_REGION_PRIORITY,
-            best_version=True, english_only=True
+            best_version=True, english_only=True,
         )
-        selected_names = {r.filename for r in selected}
+        names = {r.filename for r in selected}
+        assert "Super Mario World (USA).zip" in names
 
-        if "Super Mario World (USA).zip" in selected_names:
-            results.ok("english_only keeps USA ROM (local)")
-        else:
-            results.fail("english_only keeps USA ROM (local)", "present", f"got: {selected_names}")
+    def test_excludes_japan_only_local(self, tmp_rom_dir):
+        rom_dir, dest_dir = tmp_rom_dir
+        filenames = [
+            "Super Mario World (USA).zip",
+            "Final Fantasy V (Japan).zip",
+            "Zelda (Europe).zip",
+            "Seiken Densetsu 3 (Japan) (T-En).zip",
+        ]
+        rom_paths = []
+        for fn in filenames:
+            p = rom_dir / fn
+            p.write_bytes(b'\x00' * 100)
+            rom_paths.append(p)
 
-        if "Final Fantasy V (Japan).zip" not in selected_names:
-            results.ok("english_only excludes Japan-only ROM (local)")
-        else:
-            results.fail("english_only excludes Japan-only ROM (local)", "excluded", "present")
+        selected, _ = filter_roms_from_files(
+            rom_paths, str(dest_dir), "snes", dry_run=True,
+            region_priority=DEFAULT_REGION_PRIORITY,
+            best_version=True, english_only=True,
+        )
+        names = {r.filename for r in selected}
+        assert "Final Fantasy V (Japan).zip" not in names
 
-        if "Seiken Densetsu 3 (Japan) (T-En).zip" in selected_names:
-            results.ok("english_only keeps T-En translation ROM (local)")
-        else:
-            results.fail("english_only keeps T-En ROM (local)", "present", f"got: {selected_names}")
+    def test_keeps_translation_local(self, tmp_rom_dir):
+        rom_dir, dest_dir = tmp_rom_dir
+        filenames = [
+            "Super Mario World (USA).zip",
+            "Final Fantasy V (Japan).zip",
+            "Zelda (Europe).zip",
+            "Seiken Densetsu 3 (Japan) (T-En).zip",
+        ]
+        rom_paths = []
+        for fn in filenames:
+            p = rom_dir / fn
+            p.write_bytes(b'\x00' * 100)
+            rom_paths.append(p)
 
-    # Test english_only with all-English ROMs (no-op)
-    english_urls = [
-        "https://example.com/nes/Super Mario Bros. (USA).zip",
-        "https://example.com/nes/Zelda (USA).zip",
-    ]
-    filtered_eng, _ = _filter_network_roms_compat(
-        english_urls, "nes",
-        region_priority=DEFAULT_REGION_PRIORITY,
-        english_only=True
-    )
-    if len(filtered_eng) == 2:
-        results.ok("english_only no-op when all ROMs are English")
-    else:
-        results.fail("english_only no-op", "2", str(len(filtered_eng)))
+        selected, _ = filter_roms_from_files(
+            rom_paths, str(dest_dir), "snes", dry_run=True,
+            region_priority=DEFAULT_REGION_PRIORITY,
+            best_version=True, english_only=True,
+        )
+        names = {r.filename for r in selected}
+        assert "Seiken Densetsu 3 (Japan) (T-En).zip" in names
+
+    def test_noop_when_all_english(self):
+        urls = [
+            "https://example.com/nes/Super Mario Bros. (USA).zip",
+            "https://example.com/nes/Zelda (USA).zip",
+        ]
+        filtered, _ = _filter_compat(
+            urls, "nes",
+            region_priority=DEFAULT_REGION_PRIORITY,
+            english_only=True,
+        )
+        assert len(filtered) == 2
 
 
-def test_multi_disc_games():
+# =============================================================================
+# Multi-Disc Game Tests
+# =============================================================================
+
+class TestMultiDiscGames:
     """Test multi-disc game handling (all discs selected together)."""
-    print("\n" + "="*60)
-    print("MULTI-DISC GAME TESTS")
-    print("="*60)
 
-    # Test disc_number parsing
-    rom1 = parse_rom_filename("Final Fantasy VII (USA) (Disc 1).bin")
-    if rom1.disc_number == 1:
-        results.ok("parse_rom_filename extracts disc_number=1")
-    else:
-        results.fail("disc_number=1", "1", str(rom1.disc_number))
+    @pytest.mark.parametrize("filename,expected_disc", [
+        ("Final Fantasy VII (USA) (Disc 1).bin", 1),
+        ("Final Fantasy VII (USA) (Disc 3).bin", 3),
+        ("Crash Bandicoot (USA).bin", 0),
+        ("Game (USA) (disc 2).bin", 2),
+    ], ids=["disc_1", "disc_3", "single_disc_0", "case_insensitive_disc_2"])
+    def test_disc_number_parsing(self, filename, expected_disc):
+        rom = parse_rom_filename(filename)
+        assert rom.disc_number == expected_disc
 
-    rom3 = parse_rom_filename("Final Fantasy VII (USA) (Disc 3).bin")
-    if rom3.disc_number == 3:
-        results.ok("parse_rom_filename extracts disc_number=3")
-    else:
-        results.fail("disc_number=3", "3", str(rom3.disc_number))
+    def test_collect_sibling_discs_3_usa(self):
+        disc1 = parse_rom_filename("Final Fantasy VII (USA) (Disc 1).bin")
+        disc2 = parse_rom_filename("Final Fantasy VII (USA) (Disc 2).bin")
+        disc3 = parse_rom_filename("Final Fantasy VII (USA) (Disc 3).bin")
+        disc1_jp = parse_rom_filename("Final Fantasy VII (Japan) (Disc 1).bin")
+        disc2_jp = parse_rom_filename("Final Fantasy VII (Japan) (Disc 2).bin")
+        group = [disc1, disc2, disc3, disc1_jp, disc2_jp]
 
-    # Non-disc game should have disc_number=0
-    rom_single = parse_rom_filename("Crash Bandicoot (USA).bin")
-    if rom_single.disc_number == 0:
-        results.ok("single-disc game has disc_number=0")
-    else:
-        results.fail("disc_number=0 for single", "0", str(rom_single.disc_number))
+        siblings = _collect_sibling_discs(disc1, group)
+        assert len(siblings) == 3
+        assert all("(USA)" in r.filename for r in siblings)
 
-    # Case insensitive disc tag
-    rom_lower = parse_rom_filename("Game (USA) (disc 2).bin")
-    if rom_lower.disc_number == 2:
-        results.ok("disc tag case insensitive")
-    else:
-        results.fail("disc case insensitive", "2", str(rom_lower.disc_number))
+    def test_sibling_discs_sorted(self):
+        disc1 = parse_rom_filename("Final Fantasy VII (USA) (Disc 1).bin")
+        disc2 = parse_rom_filename("Final Fantasy VII (USA) (Disc 2).bin")
+        disc3 = parse_rom_filename("Final Fantasy VII (USA) (Disc 3).bin")
+        group = [disc3, disc1, disc2]
+        siblings = _collect_sibling_discs(disc1, group)
+        assert [s.disc_number for s in siblings] == [1, 2, 3]
 
-    # Test _collect_sibling_discs helper
-    # _collect_sibling_discs imported from retro_refiner.filter
+    def test_single_disc_returns_self(self):
+        single = parse_rom_filename("Crash Bandicoot (USA).bin")
+        siblings = _collect_sibling_discs(single, [single])
+        assert len(siblings) == 1 and siblings[0] is single
 
-    disc1 = parse_rom_filename("Final Fantasy VII (USA) (Disc 1).bin")
-    disc2 = parse_rom_filename("Final Fantasy VII (USA) (Disc 2).bin")
-    disc3 = parse_rom_filename("Final Fantasy VII (USA) (Disc 3).bin")
-    disc1_jp = parse_rom_filename("Final Fantasy VII (Japan) (Disc 1).bin")
-    disc2_jp = parse_rom_filename("Final Fantasy VII (Japan) (Disc 2).bin")
-    group = [disc1, disc2, disc3, disc1_jp, disc2_jp]
-
-    siblings = _collect_sibling_discs(disc1, group)
-    sibling_fns = [r.filename for r in siblings]
-    if len(siblings) == 3 and all("(USA)" in fn for fn in sibling_fns):
-        results.ok("_collect_sibling_discs returns 3 USA discs")
-    else:
-        results.fail("sibling discs USA", "3 USA discs", str(sibling_fns))
-
-    # Siblings should be sorted by disc number
-    if siblings[0].disc_number == 1 and siblings[1].disc_number == 2 and siblings[2].disc_number == 3:
-        results.ok("sibling discs sorted by disc_number")
-    else:
-        results.fail("sibling disc order", "[1,2,3]",
-                     str([s.disc_number for s in siblings]))
-
-    # Single-disc game returns just itself
-    single = parse_rom_filename("Crash Bandicoot (USA).bin")
-    single_siblings = _collect_sibling_discs(single, [single])
-    if len(single_siblings) == 1 and single_siblings[0] is single:
-        results.ok("single-disc game returns [self]")
-    else:
-        results.fail("single-disc sibling", "1 item", str(len(single_siblings)))
-
-    # Test multi-disc with filter_network_roms
-    multi_disc_urls = [
+    MULTI_DISC_URLS = [
         "https://example.com/psx/Final Fantasy VII (USA) (Disc 1).bin",
         "https://example.com/psx/Final Fantasy VII (USA) (Disc 2).bin",
         "https://example.com/psx/Final Fantasy VII (USA) (Disc 3).bin",
@@ -2316,35 +1562,34 @@ def test_multi_disc_games():
         "https://example.com/psx/Final Fantasy VII (Japan) (Disc 3).bin",
         "https://example.com/psx/Crash Bandicoot (USA).bin",
     ]
-    filtered, _ = _filter_network_roms_compat(
-        multi_disc_urls, "psx",
-        region_priority=DEFAULT_REGION_PRIORITY
-    )
-    # Should get all 3 USA discs + Crash = 4
-    ff7_urls = [u for u in filtered if "Final Fantasy VII" in u]
-    crash_urls = [u for u in filtered if "Crash" in u]
-    if len(ff7_urls) == 3:
-        results.ok("filter_network_roms keeps all 3 discs of FF7")
-    else:
-        results.fail("network multi-disc FF7", "3 discs", str(len(ff7_urls)))
 
-    if all("(USA)" in u for u in ff7_urls):
-        results.ok("filter_network_roms selects USA discs (not Japan)")
-    else:
-        results.fail("network multi-disc region", "all USA", str(ff7_urls))
+    def test_network_keeps_all_3_ff7_discs(self):
+        filtered, _ = _filter_compat(
+            self.MULTI_DISC_URLS, "psx",
+            region_priority=DEFAULT_REGION_PRIORITY,
+        )
+        ff7_urls = [u for u in filtered if "Final Fantasy VII" in u]
+        assert len(ff7_urls) == 3
 
-    if len(crash_urls) == 1:
-        results.ok("filter_network_roms single-disc game unaffected")
-    else:
-        results.fail("network single-disc", "1", str(len(crash_urls)))
+    def test_network_selects_usa_discs(self):
+        filtered, _ = _filter_compat(
+            self.MULTI_DISC_URLS, "psx",
+            region_priority=DEFAULT_REGION_PRIORITY,
+        )
+        ff7_urls = [u for u in filtered if "Final Fantasy VII" in u]
+        assert all("(USA)" in u for u in ff7_urls)
 
-    # Test multi-disc with filter_roms_from_files using temp files
-    with tempfile.TemporaryDirectory() as tmpdir:
-        rom_dir = Path(tmpdir) / "roms"
-        rom_dir.mkdir()
-        dest_dir = Path(tmpdir) / "dest"
-        dest_dir.mkdir()
+    def test_network_single_disc_unaffected(self):
+        filtered, _ = _filter_compat(
+            self.MULTI_DISC_URLS, "psx",
+            region_priority=DEFAULT_REGION_PRIORITY,
+        )
+        crash_urls = [u for u in filtered if "Crash" in u]
+        assert len(crash_urls) == 1
 
+    @pytest.fixture
+    def local_multi_disc_selected(self, tmp_rom_dir):
+        rom_dir, dest_dir = tmp_rom_dir
         filenames = [
             "Final Fantasy VII (USA) (Disc 1).bin",
             "Final Fantasy VII (USA) (Disc 2).bin",
@@ -2358,622 +1603,487 @@ def test_multi_disc_games():
             p = rom_dir / fn
             p.write_bytes(b'\x00' * 100)
             rom_paths.append(p)
-
         selected, _ = filter_roms_from_files(
             rom_paths, str(dest_dir), "psx", dry_run=True,
             region_priority=DEFAULT_REGION_PRIORITY,
-            best_version=True
+            best_version=True,
         )
-        selected_names = {r.filename for r in selected}
+        return {r.filename for r in selected}
 
-        ff7_selected = [n for n in selected_names if "Final Fantasy VII" in n]
-        if len(ff7_selected) == 3:
-            results.ok("filter_roms_from_files keeps all 3 discs of FF7")
-        else:
-            results.fail("local multi-disc FF7", "3 discs", str(ff7_selected))
+    def test_local_keeps_all_3_ff7_discs(self, local_multi_disc_selected):
+        ff7 = [n for n in local_multi_disc_selected
+               if "Final Fantasy VII" in n]
+        assert len(ff7) == 3
 
-        if all("(USA)" in n for n in ff7_selected):
-            results.ok("filter_roms_from_files selects USA discs")
-        else:
-            results.fail("local multi-disc region", "all USA", str(ff7_selected))
+    def test_local_selects_usa_discs(self, local_multi_disc_selected):
+        ff7 = [n for n in local_multi_disc_selected
+               if "Final Fantasy VII" in n]
+        assert all("(USA)" in n for n in ff7)
 
-        if "Crash Bandicoot (USA).bin" in selected_names:
-            results.ok("filter_roms_from_files single-disc unaffected")
-        else:
-            results.fail("local single-disc", "present", str(selected_names))
+    def test_local_single_disc_unaffected(self, local_multi_disc_selected):
+        assert "Crash Bandicoot (USA).bin" in local_multi_disc_selected
 
 
-def test_tosec_parsing():
+# =============================================================================
+# TOSEC Parsing Tests
+# =============================================================================
+
+class TestTosecParsing:
     """Test TOSEC filename parsing and selection."""
-    print(f"\n{'-'*40}")
-    print("TOSEC FILENAME PARSING")
-    print(f"{'-'*40}")
 
-    # Basic TOSEC detection and title extraction
-    rom = parse_rom_filename("Aliens (1986)(Electric Dreams Software).zip")
-    if rom.base_title == "Aliens":
-        results.ok("TOSEC basic title extraction")
-    else:
-        results.fail("TOSEC title", "Aliens", rom.base_title)
+    def test_basic_title(self):
+        rom = parse_rom_filename("Aliens (1986)(Electric Dreams Software).zip")
+        assert rom.base_title == "Aliens"
 
-    # TOSEC year extraction
-    if rom.year == 1986:
-        results.ok("TOSEC year extraction")
-    else:
-        results.fail("TOSEC year", "1986", str(rom.year))
+    def test_year_extraction(self):
+        rom = parse_rom_filename("Aliens (1986)(Electric Dreams Software).zip")
+        assert rom.year == 1986
 
-    # TOSEC with no region/language = English by default
-    if rom.is_english:
-        results.ok("TOSEC no-tag defaults to English")
-    else:
-        results.fail("TOSEC english default", "True", str(rom.is_english))
+    def test_no_tag_english_default(self):
+        rom = parse_rom_filename("Aliens (1986)(Electric Dreams Software).zip")
+        assert rom.is_english
 
-    # TOSEC with US region
-    rom = parse_rom_filename("Pac-Man (1982)(Atari)(US).zip")
-    if rom.region == "USA" and rom.is_english:
-        results.ok("TOSEC US region =USA + English")
-    else:
-        results.fail("TOSEC US region", "USA/English", f"{rom.region}/{rom.is_english}")
+    def test_us_region(self):
+        rom = parse_rom_filename("Pac-Man (1982)(Atari)(US).zip")
+        assert rom.region == "USA" and rom.is_english
 
-    # TOSEC with JP region
-    rom = parse_rom_filename("Space Invaders (1980)(Taito)(JP).zip")
-    if rom.region == "Japan" and not rom.is_english:
-        results.ok("TOSEC JP region =Japan + not English")
-    else:
-        results.fail("TOSEC JP region", "Japan/False", f"{rom.region}/{rom.is_english}")
+    def test_jp_region(self):
+        rom = parse_rom_filename("Space Invaders (1980)(Taito)(JP).zip")
+        assert rom.region == "Japan" and not rom.is_english
 
-    # TOSEC with EU region
-    rom = parse_rom_filename("Tetris (1989)(Nintendo)(EU).zip")
-    if rom.region == "Europe":
-        results.ok("TOSEC EU region =Europe")
-    else:
-        results.fail("TOSEC EU region", "Europe", rom.region)
+    def test_eu_region(self):
+        rom = parse_rom_filename("Tetris (1989)(Nintendo)(EU).zip")
+        assert rom.region == "Europe"
 
-    # TOSEC with GB region (English)
-    rom = parse_rom_filename("Elite (1985)(Acornsoft)(GB).zip")
-    if rom.region == "Europe" and rom.is_english:
-        results.ok("TOSEC GB region =Europe + English")
-    else:
-        results.fail("TOSEC GB region", "Europe/True", f"{rom.region}/{rom.is_english}")
+    def test_gb_region(self):
+        rom = parse_rom_filename("Elite (1985)(Acornsoft)(GB).zip")
+        assert rom.region == "Europe" and rom.is_english
 
-    # TOSEC with explicit (en) language tag
-    rom = parse_rom_filename("Game (1990)(Publisher)(en).zip")
-    if rom.is_english:
-        results.ok("TOSEC explicit (en) tag =English")
-    else:
-        results.fail("TOSEC (en) tag", "True", str(rom.is_english))
+    def test_explicit_en_tag(self):
+        rom = parse_rom_filename("Game (1990)(Publisher)(en).zip")
+        assert rom.is_english
 
-    # TOSEC with non-English language only
-    rom = parse_rom_filename("Jeu (1990)(Publisher)(FR)(fr).zip")
-    if rom.region == "France" and not rom.is_english:
-        results.ok("TOSEC FR region + (fr) lang =not English")
-    else:
-        results.fail("TOSEC FR", "France/False", f"{rom.region}/{rom.is_english}")
+    def test_fr_not_english(self):
+        rom = parse_rom_filename("Jeu (1990)(Publisher)(FR)(fr).zip")
+        assert rom.region == "France" and not rom.is_english
 
-    # TOSEC revision in title
-    rom = parse_rom_filename("Hibernated 1 Director's Cut r13 (2022-08-14)(Puddle Soft).zip")
-    if rom.revision == 13 and rom.base_title == "Hibernated 1 Director's Cut":
-        results.ok("TOSEC revision extraction and title cleanup")
-    else:
-        results.fail("TOSEC revision", "13/Hibernated 1 Director's Cut",
-                     f"{rom.revision}/{rom.base_title}")
+    def test_revision_extraction(self):
+        rom = parse_rom_filename(
+            "Hibernated 1 Director's Cut r13 (2022-08-14)(Puddle Soft).zip")
+        assert rom.revision == 13
+        assert rom.base_title == "Hibernated 1 Director's Cut"
 
-    # TOSEC revision grouping: r9 and r13 same title
-    rom_r9 = parse_rom_filename("Hibernated 1 Director's Cut r9 (2022-08-14)(Puddle Soft).zip")
-    rom_r13 = parse_rom_filename("Hibernated 1 Director's Cut r13 (2022-08-14)(Puddle Soft).zip")
-    norm_r9 = normalize_title(rom_r9.base_title)
-    norm_r13 = normalize_title(rom_r13.base_title)
-    if norm_r9 == norm_r13:
-        results.ok("TOSEC revisions group to same normalized title")
-    else:
-        results.fail("TOSEC rev grouping", norm_r9, norm_r13)
+    def test_revision_grouping(self):
+        rom_r9 = parse_rom_filename(
+            "Hibernated 1 Director's Cut r9 (2022-08-14)(Puddle Soft).zip")
+        rom_r13 = parse_rom_filename(
+            "Hibernated 1 Director's Cut r13 (2022-08-14)(Puddle Soft).zip")
+        assert normalize_title(rom_r9.base_title) == \
+            normalize_title(rom_r13.base_title)
 
-    # TOSEC bad dump [b] =filtered out
-    rom = parse_rom_filename("Game (1990)(Publisher)[b].zip")
-    if rom.is_beta:
-        results.ok("TOSEC [b] bad dump =is_beta")
-    else:
-        results.fail("TOSEC [b]", "True", str(rom.is_beta))
+    def test_bad_dump_b(self):
+        rom = parse_rom_filename("Game (1990)(Publisher)[b].zip")
+        assert rom.is_beta
 
-    # TOSEC overdump [o] =filtered out
-    rom = parse_rom_filename("Game (1990)(Publisher)[o].zip")
-    if rom.is_beta:
-        results.ok("TOSEC [o] overdump =is_beta")
-    else:
-        results.fail("TOSEC [o]", "True", str(rom.is_beta))
+    def test_overdump_o(self):
+        rom = parse_rom_filename("Game (1990)(Publisher)[o].zip")
+        assert rom.is_beta
 
-    # TOSEC cracked [cr] =has_hacks
-    rom = parse_rom_filename("Game (1990)(Publisher)[cr].zip")
-    if rom.has_hacks:
-        results.ok("TOSEC [cr] cracked =has_hacks")
-    else:
-        results.fail("TOSEC [cr]", "True", str(rom.has_hacks))
+    def test_cracked_cr(self):
+        rom = parse_rom_filename("Game (1990)(Publisher)[cr].zip")
+        assert rom.has_hacks
 
-    # TOSEC verified [!] =higher revision
-    rom_plain = parse_rom_filename("Game (1990)(Publisher).zip")
-    rom_verified = parse_rom_filename("Game (1990)(Publisher)[!].zip")
-    if rom_verified.revision > rom_plain.revision:
-        results.ok("TOSEC [!] verified =higher revision")
-    else:
-        results.fail("TOSEC [!]", f">{rom_plain.revision}", str(rom_verified.revision))
+    def test_verified_higher_revision(self):
+        rom_plain = parse_rom_filename("Game (1990)(Publisher).zip")
+        rom_verified = parse_rom_filename("Game (1990)(Publisher)[!].zip")
+        assert rom_verified.revision > rom_plain.revision
 
-    # TOSEC demo detection (case-insensitive)
-    rom = parse_rom_filename("Game (1990)(Publisher)(demo-playable).zip")
-    if rom.is_demo:
-        results.ok("TOSEC (demo-playable) =is_demo")
-    else:
-        results.fail("TOSEC demo", "True", str(rom.is_demo))
+    def test_demo_playable(self):
+        rom = parse_rom_filename(
+            "Game (1990)(Publisher)(demo-playable).zip")
+        assert rom.is_demo
 
-    rom = parse_rom_filename("Game (1990)(Publisher)(Demo).zip")
-    if rom.is_demo:
-        results.ok("TOSEC (Demo) =is_demo")
-    else:
-        results.fail("TOSEC Demo", "True", str(rom.is_demo))
+    def test_demo_capitalized(self):
+        rom = parse_rom_filename("Game (1990)(Publisher)(Demo).zip")
+        assert rom.is_demo
 
-    # TOSEC date formats: YYYY-MM-DD and YYxx
-    rom = parse_rom_filename("Game (2022-08-14)(Publisher).zip")
-    if rom.year == 2022:
-        results.ok("TOSEC YYYY-MM-DD date format")
-    else:
-        results.fail("TOSEC date", "2022", str(rom.year))
+    def test_date_yyyy_mm_dd(self):
+        rom = parse_rom_filename("Game (2022-08-14)(Publisher).zip")
+        assert rom.year == 2022
 
-    rom = parse_rom_filename("Game (19xx)(Publisher).zip")
-    # 19xx shouldn't parse as a valid year (not 4 digits matching 1970-2030)
-    if rom.base_title == "Game":
-        results.ok("TOSEC 19xx date format detected as TOSEC")
-    else:
-        results.fail("TOSEC 19xx", "Game", rom.base_title)
+    def test_date_19xx(self):
+        rom = parse_rom_filename("Game (19xx)(Publisher).zip")
+        assert rom.base_title == "Game"
 
-    # TOSEC selection: prefer verified over bad dump
-    roms = [
-        parse_rom_filename("Game (1990)(Publisher)[b].zip"),
-        parse_rom_filename("Game (1990)(Publisher)[!].zip"),
-        parse_rom_filename("Game (1990)(Publisher).zip"),
-    ]
-    best = select_best_rom(roms)
-    if best and best.filename == "Game (1990)(Publisher)[!].zip":
-        results.ok("TOSEC selection prefers [!] verified dump")
-    else:
-        results.fail("TOSEC selection", "Game (1990)(Publisher)[!].zip",
-                     best.filename if best else "None")
+    def test_selection_prefers_verified(self):
+        roms = [
+            parse_rom_filename("Game (1990)(Publisher)[b].zip"),
+            parse_rom_filename("Game (1990)(Publisher)[!].zip"),
+            parse_rom_filename("Game (1990)(Publisher).zip"),
+        ]
+        best = select_best_rom(roms)
+        assert best is not None
+        assert best.filename == "Game (1990)(Publisher)[!].zip"
 
-    # TOSEC selection: higher revision wins
-    roms = [
-        parse_rom_filename("Hibernated 1 Director's Cut r9 (2022-08-14)(Puddle Soft).zip"),
-        parse_rom_filename("Hibernated 1 Director's Cut r13 (2022-08-14)(Puddle Soft).zip"),
-    ]
-    best = select_best_rom(roms)
-    if best and best.filename == "Hibernated 1 Director's Cut r13 (2022-08-14)(Puddle Soft).zip":
-        results.ok("TOSEC selection prefers higher revision")
-    else:
-        results.fail("TOSEC higher rev", "r13",
-                     best.filename if best else "None")
+    def test_selection_higher_revision(self):
+        roms = [
+            parse_rom_filename(
+                "Hibernated 1 Director's Cut r9 (2022-08-14)(Puddle Soft).zip"),
+            parse_rom_filename(
+                "Hibernated 1 Director's Cut r13 (2022-08-14)(Puddle Soft).zip"),
+        ]
+        best = select_best_rom(roms)
+        assert best is not None
+        assert best.filename == \
+            "Hibernated 1 Director's Cut r13 (2022-08-14)(Puddle Soft).zip"
 
-    # TOSEC selection: cracked version deprioritized
-    roms = [
-        parse_rom_filename("Game (1990)(Publisher)[cr].zip"),
-        parse_rom_filename("Game (1990)(Publisher).zip"),
-    ]
-    best = select_best_rom(roms)
-    if best and best.filename == "Game (1990)(Publisher).zip":
-        results.ok("TOSEC selection prefers non-cracked")
-    else:
-        results.fail("TOSEC non-cracked pref", "Game (1990)(Publisher).zip",
-                     best.filename if best else "None")
+    def test_selection_prefers_non_cracked(self):
+        roms = [
+            parse_rom_filename("Game (1990)(Publisher)[cr].zip"),
+            parse_rom_filename("Game (1990)(Publisher).zip"),
+        ]
+        best = select_best_rom(roms)
+        assert best is not None
+        assert best.filename == "Game (1990)(Publisher).zip"
 
-    # Ensure No-Intro filenames are NOT detected as TOSEC
-    rom = parse_rom_filename("Super Mario Bros. (USA).zip")
-    if rom.region == "USA" and rom.is_english:
-        results.ok("No-Intro filename not misdetected as TOSEC")
-    else:
-        results.fail("No-Intro detection", "USA/True", f"{rom.region}/{rom.is_english}")
+    def test_nointro_not_misdetected(self):
+        rom = parse_rom_filename("Super Mario Bros. (USA).zip")
+        assert rom.region == "USA" and rom.is_english
 
 
-def test_igdb():
+# =============================================================================
+# IGDB Integration Tests
+# =============================================================================
+
+class TestIgdb:
     """Test IGDB integration."""
-    print("\n" + "="*60)
-    print("IGDB INTEGRATION TESTS")
-    print("="*60)
 
-    # Test IGDB platform map loaded from systems.json
-    if isinstance(IGDB_PLATFORM_MAP, dict) and len(IGDB_PLATFORM_MAP) > 0:
-        results.ok("IGDB platform map loaded")
-    else:
-        results.fail("IGDB platform map loaded", ">0 entries", len(IGDB_PLATFORM_MAP))
+    def test_platform_map_loaded(self, sys_data):
+        assert isinstance(sys_data.igdb_platform_map, dict)
+        assert len(sys_data.igdb_platform_map) > 0
 
-    # Test known IGDB IDs
-    expected_ids = {
-        'nes': 18, 'snes': 19, 'n64': 4, 'genesis': 29,
-        'gameboy': 33, 'gba': 24, 'psx': 7, 'dreamcast': 23,
-    }
-    for system, expected_id in expected_ids.items():
-        actual_id = IGDB_PLATFORM_MAP.get(system)
-        if actual_id == expected_id:
-            results.ok(f"IGDB ID for {system} = {expected_id}")
-        else:
-            results.fail(f"IGDB ID for {system}", expected_id, actual_id)
+    @pytest.mark.parametrize("system,expected_id", [
+        ('nes', 18), ('snes', 19), ('n64', 4), ('genesis', 29),
+        ('gameboy', 33), ('gba', 24), ('psx', 7), ('dreamcast', 23),
+        ('gamecube', 21), ('wii', 5), ('ps2', 8), ('xbox', 11),
+        ('switch', 130), ('c64', 15),
+    ])
+    def test_igdb_id(self, system, expected_id, sys_data):
+        assert sys_data.igdb_platform_map.get(system) == expected_id
 
-    # Test systems without IGDB IDs don't appear in map
-    for system in ['actionmax', 'chip8', 'pico8']:
-        if system not in IGDB_PLATFORM_MAP:
-            results.ok(f"No IGDB ID for unmapped system {system}")
-        else:
-            results.fail(f"No IGDB ID for {system}", "not in map", IGDB_PLATFORM_MAP[system])
+    @pytest.mark.parametrize("system", ['actionmax', 'chip8', 'pico8'])
+    def test_unmapped_system(self, system, sys_data):
+        assert system not in sys_data.igdb_platform_map
 
-    # Test newly added systems have correct IDs
-    new_ids = {'gamecube': 21, 'wii': 5, 'ps2': 8, 'xbox': 11, 'switch': 130, 'c64': 15}
-    for system, expected_id in new_ids.items():
-        actual_id = IGDB_PLATFORM_MAP.get(system)
-        if actual_id == expected_id:
-            results.ok(f"IGDB ID for {system} = {expected_id}")
-        else:
-            results.fail(f"IGDB ID for {system}", expected_id, actual_id)
+    def test_cache_format_compatible(self):
+        sample_cache = {
+            'nes': {
+                'super mario bros': {'rating': 8.5, 'votes': 120,
+                                     'name': 'Super Mario Bros.'},
+            },
+        }
+        mario = sample_cache['nes']['super mario bros']
+        assert mario['rating'] == 8.5 and mario['votes'] == 120
 
-    # Test IGDB cache format structure
-    sample_cache = {
-        'nes': {
-            'super mario bros': {'rating': 8.5, 'votes': 120, 'name': 'Super Mario Bros.'},
-            'zelda': {'rating': 9.1, 'votes': 200, 'name': 'The Legend of Zelda'},
-        },
-        'snes': {
-            'super mario world': {'rating': 9.3, 'votes': 180, 'name': 'Super Mario World'},
-        },
-    }
-    # Verify cache structure matches what apply_top_n_filter expects
-    nes_ratings = sample_cache.get('nes', {})
-    mario = nes_ratings.get('super mario bros', {})
-    if mario.get('rating') == 8.5 and mario.get('votes') == 120:
-        results.ok("IGDB cache format compatible with rating functions")
-    else:
-        results.fail("IGDB cache format", "rating=8.5, votes=120", mario)
+    def test_auto_detect_combined_with_credentials(self):
+        source = None
+        has_creds = True
+        detected = 'combined' if source is None and has_creds else source or 'launchbox'
+        assert detected == 'combined'
 
-    # Test rating source auto-detection logic
-    class MockArgs:
-        """Mock args for testing rating source detection."""
-        def __init__(self, **kwargs):
-            for k, v in kwargs.items():
-                setattr(self, k, v)
+    def test_auto_detect_launchbox_without_credentials(self):
+        source = None
+        has_creds = False
+        detected = 'combined' if source is None and has_creds else source or 'launchbox'
+        assert detected == 'launchbox'
 
-    # With IGDB credentials -> combined
-    args = MockArgs(ratings_source=None, igdb_client_id='test', igdb_client_secret='test')
-    source = args.ratings_source
-    has_creds = args.igdb_client_id and args.igdb_client_secret
-    detected = 'combined' if source is None and has_creds else source or 'launchbox'
-    if detected == 'combined':
-        results.ok("Auto-detect combined with credentials")
-    else:
-        results.fail("Auto-detect combined with credentials", "combined", detected)
+    def test_explicit_override(self):
+        source = 'igdb'
+        has_creds = True
+        detected = 'combined' if source is None and has_creds else source or 'launchbox'
+        assert detected == 'igdb'
 
-    # Without credentials -> launchbox
-    args = MockArgs(ratings_source=None, igdb_client_id=None, igdb_client_secret=None)
-    source = args.ratings_source
-    has_creds = args.igdb_client_id and args.igdb_client_secret
-    detected = 'combined' if source is None and has_creds else source or 'launchbox'
-    if detected == 'launchbox':
-        results.ok("Auto-detect launchbox without credentials")
-    else:
-        results.fail("Auto-detect launchbox without credentials", "launchbox", detected)
+    def test_combine_ratings_vote_weighted_high_igdb(self):
+        igdb_cache = {
+            'nes': {
+                'super mario bros': {'rating': 8.9, 'votes': 1659,
+                                     'name': 'Super Mario Bros. 3'},
+            },
+        }
+        lb_cache = {
+            'nes': {
+                'super mario bros': {'rating': 9.5, 'votes': 41,
+                                     'name': 'Super Mario Bros. 3'},
+            },
+        }
+        combined = combine_ratings(igdb_cache, lb_cache)
+        mario = combined['nes']['super mario bros']
+        assert abs(mario['rating'] - 8.91) < 0.01
+        assert mario['votes'] == 1700
 
-    # Explicit override -> use that
-    args = MockArgs(ratings_source='igdb', igdb_client_id='test', igdb_client_secret='test')
-    source = args.ratings_source
-    has_creds = args.igdb_client_id and args.igdb_client_secret
-    detected = 'combined' if source is None and has_creds else source or 'launchbox'
-    if detected == 'igdb':
-        results.ok("Explicit igdb overrides combined default")
-    else:
-        results.fail("Explicit override", "igdb", detected)
+    def test_combine_ratings_vote_weighted_high_lb(self):
+        igdb_cache = {
+            'nes': {
+                'zelda': {'rating': 9.2, 'votes': 200,
+                          'name': 'The Legend of Zelda'},
+            },
+        }
+        lb_cache = {
+            'nes': {
+                'zelda': {'rating': 8.0, 'votes': 800,
+                          'name': 'The Legend of Zelda'},
+            },
+        }
+        combined = combine_ratings(igdb_cache, lb_cache)
+        zelda = combined['nes']['zelda']
+        assert abs(zelda['rating'] - 8.24) < 0.01
+        assert zelda['votes'] == 1000
 
-    # Test combine_ratings: vote-weighted averaging
-    igdb_cache = {
-        'nes': {
-            'super mario bros': {'rating': 8.9, 'votes': 1659, 'name': 'Super Mario Bros. 3'},
-            'zelda': {'rating': 9.2, 'votes': 200, 'name': 'The Legend of Zelda'},
-            'igdb only game': {'rating': 7.0, 'votes': 50, 'name': 'IGDB Only'},
-        },
-    }
-    lb_cache = {
-        'nes': {
-            'super mario bros': {'rating': 9.5, 'votes': 41, 'name': 'Super Mario Bros. 3'},
-            'zelda': {'rating': 8.0, 'votes': 800, 'name': 'The Legend of Zelda'},
-            'lb only game': {'rating': 6.0, 'votes': 10, 'name': 'LB Only'},
-        },
-        'snes': {
-            'chrono trigger': {'rating': 9.8, 'votes': 100, 'name': 'Chrono Trigger'},
-        },
-    }
-    combined = combine_ratings(igdb_cache, lb_cache)
-
-    # Both sources present -> vote-weighted average
-    mario = combined['nes']['super mario bros']
-    # Expected: (8.9*1659 + 9.5*41) / (1659+41) = (14765.1 + 389.5) / 1700 = 8.914...
-    if abs(mario['rating'] - 8.91) < 0.01 and mario['votes'] == 1700:
-        results.ok("Combined: vote-weighted average (high IGDB votes)")
-    else:
-        results.fail("Combined vote-weighted", "~8.91/1700",
-                    f"{mario['rating']}/{mario['votes']}")
-
-    zelda = combined['nes']['zelda']
-    # Expected: (9.2*200 + 8.0*800) / 1000 = (1840 + 6400) / 1000 = 8.24
-    if abs(zelda['rating'] - 8.24) < 0.01 and zelda['votes'] == 1000:
-        results.ok("Combined: vote-weighted average (high LB votes)")
-    else:
-        results.fail("Combined vote-weighted LB", "~8.24/1000",
-                    f"{zelda['rating']}/{zelda['votes']}")
-
-    # IGDB-only game preserved
-    if 'igdb only game' in combined['nes']:
+    def test_combine_ratings_igdb_only_preserved(self):
+        igdb_cache = {
+            'nes': {
+                'igdb only game': {'rating': 7.0, 'votes': 50,
+                                   'name': 'IGDB Only'},
+            },
+        }
+        combined = combine_ratings(igdb_cache, {})
         ig = combined['nes']['igdb only game']
-        if ig['rating'] == 7.0 and ig['votes'] == 50:
-            results.ok("Combined: IGDB-only game preserved")
-        else:
-            results.fail("IGDB-only preserved", "7.0/50", f"{ig['rating']}/{ig['votes']}")
-    else:
-        results.fail("IGDB-only preserved", "present", "missing")
+        assert ig['rating'] == 7.0 and ig['votes'] == 50
 
-    # LB-only game preserved
-    if 'lb only game' in combined['nes']:
+    def test_combine_ratings_lb_only_preserved(self):
+        lb_cache = {
+            'nes': {
+                'lb only game': {'rating': 6.0, 'votes': 10,
+                                 'name': 'LB Only'},
+            },
+        }
+        combined = combine_ratings({}, lb_cache)
         lb = combined['nes']['lb only game']
-        if lb['rating'] == 6.0 and lb['votes'] == 10:
-            results.ok("Combined: LB-only game preserved")
-        else:
-            results.fail("LB-only preserved", "6.0/10", f"{lb['rating']}/{lb['votes']}")
-    else:
-        results.fail("LB-only preserved", "present", "missing")
+        assert lb['rating'] == 6.0 and lb['votes'] == 10
 
-    # System only in LB preserved
-    if 'snes' in combined and 'chrono trigger' in combined['snes']:
-        results.ok("Combined: LB-only system preserved")
-    else:
-        results.fail("LB-only system", "snes present", "missing")
+    def test_combine_ratings_lb_only_system(self):
+        lb_cache = {
+            'snes': {
+                'chrono trigger': {'rating': 9.8, 'votes': 100,
+                                   'name': 'Chrono Trigger'},
+            },
+        }
+        combined = combine_ratings({}, lb_cache)
+        assert 'snes' in combined and 'chrono trigger' in combined['snes']
 
-    # Empty input handling
-    empty = combine_ratings({}, {})
-    if empty == {}:
-        results.ok("Combined: empty inputs -> empty result")
-    else:
-        results.fail("Combined empty", "{}", str(empty))
+    def test_combine_ratings_empty(self):
+        assert combine_ratings({}, {}) == {}
 
-    # Test boost_exclusive_ratings
-    test_ratings = {
-        'nes': {
-            'super mario bros': {'rating': 8.9, 'votes': 1659, 'name': 'Super Mario Bros.'},
-            'tetris': {'rating': 8.0, 'votes': 100, 'name': 'Tetris'},  # Also on GB
-        },
-        'gameboy': {
-            'tetris': {'rating': 8.4, 'votes': 131, 'name': 'Tetris'},  # Also on NES
-            'pokemon red version': {'rating': 8.0, 'votes': 586, 'name': 'Pokemon Red'},
-        },
-    }
-    boosted = boost_exclusive_ratings(test_ratings, boost=1.5)
+    def test_boost_nes_exclusive_capped(self):
+        test_ratings = {
+            'nes': {
+                'super mario bros': {'rating': 8.9, 'votes': 1659,
+                                     'name': 'Super Mario Bros.'},
+                'tetris': {'rating': 8.0, 'votes': 100, 'name': 'Tetris'},
+            },
+            'gameboy': {
+                'tetris': {'rating': 8.4, 'votes': 131, 'name': 'Tetris'},
+                'pokemon red version': {'rating': 8.0, 'votes': 586,
+                                        'name': 'Pokemon Red'},
+            },
+        }
+        boosted = boost_exclusive_ratings(test_ratings, boost=1.5)
+        assert abs(boosted['nes']['super mario bros']['rating'] - 10.0) < 0.01
 
-    # Mario is NES exclusive -> boosted
-    mario_b = boosted['nes']['super mario bros']
-    if abs(mario_b['rating'] - 10.0) < 0.01:  # 8.9 + 1.5 = 10.4 -> capped at 10.0
-        results.ok("Exclusives boost: NES-only game capped at 10.0")
-    else:
-        results.fail("Exclusives boost cap", 10.0, mario_b['rating'])
+    def test_boost_cross_platform_nes_unchanged(self):
+        test_ratings = {
+            'nes': {
+                'tetris': {'rating': 8.0, 'votes': 100, 'name': 'Tetris'},
+            },
+            'gameboy': {
+                'tetris': {'rating': 8.4, 'votes': 131, 'name': 'Tetris'},
+            },
+        }
+        boosted = boost_exclusive_ratings(test_ratings, boost=1.5)
+        assert boosted['nes']['tetris']['rating'] == 8.0
 
-    # Tetris is cross-platform -> NOT boosted on NES
-    tetris_nes = boosted['nes']['tetris']
-    if tetris_nes['rating'] == 8.0:
-        results.ok("Exclusives boost: cross-platform game unchanged (NES)")
-    else:
-        results.fail("Cross-platform unchanged NES", 8.0, tetris_nes['rating'])
+    def test_boost_cross_platform_gb_unchanged(self):
+        test_ratings = {
+            'nes': {
+                'tetris': {'rating': 8.0, 'votes': 100, 'name': 'Tetris'},
+            },
+            'gameboy': {
+                'tetris': {'rating': 8.4, 'votes': 131, 'name': 'Tetris'},
+            },
+        }
+        boosted = boost_exclusive_ratings(test_ratings, boost=1.5)
+        assert boosted['gameboy']['tetris']['rating'] == 8.4
 
-    # Tetris is cross-platform -> NOT boosted on GB
-    tetris_gb = boosted['gameboy']['tetris']
-    if tetris_gb['rating'] == 8.4:
-        results.ok("Exclusives boost: cross-platform game unchanged (GB)")
-    else:
-        results.fail("Cross-platform unchanged GB", 8.4, tetris_gb['rating'])
+    def test_boost_gb_exclusive(self):
+        test_ratings = {
+            'gameboy': {
+                'pokemon red version': {'rating': 8.0, 'votes': 586,
+                                        'name': 'Pokemon Red'},
+            },
+        }
+        boosted = boost_exclusive_ratings(test_ratings, boost=1.5)
+        assert abs(boosted['gameboy']['pokemon red version']['rating'] - 9.5) < 0.01
 
-    # Pokemon is GB exclusive -> boosted
-    pokemon_b = boosted['gameboy']['pokemon red version']
-    if abs(pokemon_b['rating'] - 9.5) < 0.01:  # 8.0 + 1.5
-        results.ok("Exclusives boost: GB-only game boosted to 9.5")
-    else:
-        results.fail("Exclusives boost GB", 9.5, pokemon_b['rating'])
+    def test_boost_votes_preserved(self):
+        test_ratings = {
+            'nes': {
+                'super mario bros': {'rating': 8.9, 'votes': 1659,
+                                     'name': 'Super Mario Bros.'},
+            },
+            'gameboy': {
+                'pokemon red version': {'rating': 8.0, 'votes': 586,
+                                        'name': 'Pokemon Red'},
+            },
+        }
+        boosted = boost_exclusive_ratings(test_ratings, boost=1.5)
+        assert boosted['nes']['super mario bros']['votes'] == 1659
+        assert boosted['gameboy']['pokemon red version']['votes'] == 586
 
-    # Votes preserved
-    if mario_b['votes'] == 1659 and pokemon_b['votes'] == 586:
-        results.ok("Exclusives boost: vote counts preserved")
-    else:
-        results.fail("Votes preserved", "1659/586",
-                    f"{mario_b['votes']}/{pokemon_b['votes']}")
+    def test_boost_zero_no_change(self):
+        test_ratings = {
+            'nes': {
+                'super mario bros': {'rating': 8.9, 'votes': 1659,
+                                     'name': 'Super Mario Bros.'},
+            },
+        }
+        no_boost = boost_exclusive_ratings(test_ratings, boost=0)
+        assert no_boost['nes']['super mario bros']['rating'] == 8.9
 
-    # Test with boost=0 (no change)
-    no_boost = boost_exclusive_ratings(test_ratings, boost=0)
-    if no_boost['nes']['super mario bros']['rating'] == 8.9:
-        results.ok("Exclusives boost=0: no change")
-    else:
-        results.fail("Boost=0", 8.9, no_boost['nes']['super mario bros']['rating'])
+    def test_igdb_rom_title_match(self):
+        igdb_name = "Super Mario Bros."
+        rom_info = parse_rom_filename("Super Mario Bros. (USA).zip")
+        assert normalize_title(igdb_name) == normalize_title(rom_info.base_title)
 
-    # Test normalize_title matching between IGDB names and ROM filenames
-    # IGDB uses clean names like "Super Mario Bros." while ROMs use "Super Mario Bros. (USA).zip"
-    igdb_name = "Super Mario Bros."
-    rom_name = "Super Mario Bros. (USA).zip"
-    rom_info = parse_rom_filename(rom_name)
-    igdb_normalized = normalize_title(igdb_name)
-    rom_normalized = normalize_title(rom_info.base_title)
-    if igdb_normalized == rom_normalized:
-        results.ok(f"IGDB/ROM title match: '{igdb_name}' == '{rom_info.base_title}'")
-    else:
-        results.fail("IGDB/ROM title match",
-                    igdb_normalized, rom_normalized)
+    def test_zelda_alttp_title_match(self):
+        igdb_name = "The Legend of Zelda: A Link to the Past"
+        rom_info = parse_rom_filename(
+            "Legend of Zelda, The - A Link to the Past (USA).sfc")
+        assert normalize_title(igdb_name) == normalize_title(rom_info.base_title)
 
-    # Test another title
-    igdb_name = "The Legend of Zelda: A Link to the Past"
-    rom_name = "Legend of Zelda, The - A Link to the Past (USA).sfc"
-    rom_info = parse_rom_filename(rom_name)
-    igdb_normalized = normalize_title(igdb_name)
-    rom_normalized = normalize_title(rom_info.base_title)
-    if igdb_normalized == rom_normalized:
-        results.ok(f"IGDB/ROM title match: Zelda ALTTP")
-    else:
-        results.fail("IGDB/ROM title match Zelda",
-                    igdb_normalized, rom_normalized)
+    def test_accent_matching_pokemon(self):
+        igdb_name = "Pok\u00e9mon Red Version"
+        rom_info = parse_rom_filename(
+            "Pokemon - Red Version (USA, Europe) (SGB Enhanced).gb")
+        assert normalize_title(igdb_name) == normalize_title(rom_info.base_title)
 
-    # Test accented title matching (Pokémon vs Pokemon)
-    igdb_name = "Pokémon Red Version"
-    rom_name = "Pokemon - Red Version (USA, Europe) (SGB Enhanced).gb"
-    rom_info = parse_rom_filename(rom_name)
-    igdb_normalized = normalize_title(igdb_name)
-    rom_normalized = normalize_title(rom_info.base_title)
-    if igdb_normalized == rom_normalized:
-        results.ok("IGDB/ROM accent match: Pokémon -> Pokemon")
-    else:
-        results.fail("IGDB/ROM accent match",
-                    rom_normalized, igdb_normalized)
+    def test_accent_stripping_e(self):
+        assert normalize_title("Caf\u00e9") == normalize_title("Cafe")
 
-    # Test other accented characters
-    if normalize_title("Café") == normalize_title("Cafe"):
-        results.ok("Accent stripping: é -> e")
-    else:
-        results.fail("Accent stripping", normalize_title("Cafe"), normalize_title("Café"))
+    def test_accent_stripping_u(self):
+        assert normalize_title("\u00dcber") == normalize_title("Uber")
 
-    if normalize_title("Über") == normalize_title("Uber"):
-        results.ok("Accent stripping: ü -> u")
-    else:
-        results.fail("Accent stripping ü", normalize_title("Uber"), normalize_title("Über"))
-
-    # Test IGDB config map entries
-    from argparse import Namespace
-    test_config = {'igdb_client_id': 'my_id', 'igdb_client_secret': 'my_secret',
-                   'ratings_source': 'igdb'}
-    test_args = Namespace(igdb_client_id=None, igdb_client_secret=None,
-                          ratings_source=None)
-    apply_config_to_args(test_args, test_config)
-    if test_args.igdb_client_id == 'my_id' and test_args.ratings_source == 'igdb':
-        results.ok("IGDB config map applies correctly")
-    else:
-        results.fail("IGDB config map", "my_id/igdb",
-                    f"{test_args.igdb_client_id}/{test_args.ratings_source}")
+    def test_igdb_config_map(self):
+        from argparse import Namespace
+        test_config = {
+            'igdb_client_id': 'my_id',
+            'igdb_client_secret': 'my_secret',
+            'ratings_source': 'igdb',
+        }
+        test_args = Namespace(
+            igdb_client_id=None, igdb_client_secret=None,
+            ratings_source=None,
+        )
+        apply_config_to_args(test_args, test_config)
+        assert test_args.igdb_client_id == 'my_id'
+        assert test_args.ratings_source == 'igdb'
 
 
-def test_download_throttle_backoff():
+# =============================================================================
+# Download Throttle Backoff Tests
+# =============================================================================
+
+class TestDownloadThrottleBackoff:
     """Test DownloadUI throttle detection and backoff."""
-    print("\n" + "="*60)
-    print("DOWNLOAD THROTTLE BACKOFF TESTS")
-    print("="*60)
 
-    # Create a DownloadUI with dummy files (won't actually download)
-    dummy_files = [
-        ('http://example.com/a.zip', Path('/tmp/a.zip')),
-        ('http://example.com/b.zip', Path('/tmp/b.zip')),
-        ('http://example.com/c.zip', Path('/tmp/c.zip')),
-        ('http://example.com/d.zip', Path('/tmp/d.zip')),
-    ]
-    ui = DownloadUI('test', dummy_files, parallel=8, connections=4)
+    @pytest.fixture
+    def dummy_ui(self):
+        dummy_files = [
+            ('http://example.com/a.zip', Path('/tmp/a.zip')),
+            ('http://example.com/b.zip', Path('/tmp/b.zip')),
+            ('http://example.com/c.zip', Path('/tmp/c.zip')),
+            ('http://example.com/d.zip', Path('/tmp/d.zip')),
+        ]
+        return DownloadUI('test', dummy_files, parallel=8, connections=4)
 
-    # Test 1: error_code and error_message fields initialized
-    for f in ui.files:
-        if f.get('error_code') is None and f.get('error_message') == '':
-            pass
-        else:
-            results.fail("File dict has error fields", "None/''",
-                        f"{f.get('error_code')}/{f.get('error_message')}")
-            break
-    else:
-        results.ok("File dict has error_code=None and error_message='' by default")
+    def test_error_fields_initialized(self, dummy_ui):
+        for f in dummy_ui.files:
+            assert f.get('error_code') is None
+            assert f.get('error_message') == ''
 
-    # Test 2: _has_throttle_errors returns False when no errors
-    if not ui._has_throttle_errors():
-        results.ok("No throttle errors when all files are queued")
-    else:
-        results.fail("No throttle errors when queued", False, True)
+    def test_no_throttle_when_queued(self, dummy_ui):
+        assert not dummy_ui._has_throttle_errors()
 
-    # Test 3: _has_throttle_errors returns True for timeout errors
-    ui.files[0]['status'] = ui.STATUS_FAILED
-    ui.files[0]['error_code'] = '2'  # timeout
-    ui.files[0]['error_message'] = 'Timeout'
-    if ui._has_throttle_errors():
-        results.ok("Throttle detected for error code 2 (timeout)")
-    else:
-        results.fail("Throttle for timeout", True, False)
+    def test_throttle_timeout(self, dummy_ui):
+        dummy_ui.files[0]['status'] = dummy_ui.STATUS_FAILED
+        dummy_ui.files[0]['error_code'] = '2'
+        dummy_ui.files[0]['error_message'] = 'Timeout'
+        assert dummy_ui._has_throttle_errors()
 
-    # Test 4: _has_throttle_errors returns True for HTTP 503
-    ui.files[0]['error_code'] = '20'  # HTTP 5xx
-    if ui._has_throttle_errors():
-        results.ok("Throttle detected for error code 20 (HTTP 5xx)")
-    else:
-        results.fail("Throttle for HTTP 5xx", True, False)
+    def test_throttle_http_5xx(self, dummy_ui):
+        dummy_ui.files[0]['status'] = dummy_ui.STATUS_FAILED
+        dummy_ui.files[0]['error_code'] = '20'
+        assert dummy_ui._has_throttle_errors()
 
-    # Test 5: _has_throttle_errors returns False for non-throttle errors
-    ui.files[0]['error_code'] = '3'  # resource not found (404)
-    if not ui._has_throttle_errors():
-        results.ok("No throttle for error code 3 (not found)")
-    else:
-        results.fail("No throttle for 404", False, True)
+    def test_no_throttle_404(self, dummy_ui):
+        dummy_ui.files[0]['status'] = dummy_ui.STATUS_FAILED
+        dummy_ui.files[0]['error_code'] = '3'
+        assert not dummy_ui._has_throttle_errors()
 
-    # Test 6: _get_throttle_summary returns error breakdown
-    ui.files[0]['error_code'] = '2'
-    ui.files[1]['status'] = ui.STATUS_FAILED
-    ui.files[1]['error_code'] = '2'
-    ui.files[2]['status'] = ui.STATUS_FAILED
-    ui.files[2]['error_code'] = '20'
-    summary = ui._get_throttle_summary()
-    if 'timeout=2' in summary and 'HTTP 5xx=1' in summary:
-        results.ok("Throttle summary shows error code counts")
-    else:
-        results.fail("Throttle summary", "timeout=2, HTTP 5xx=1", summary)
+    def test_throttle_summary(self, dummy_ui):
+        dummy_ui.files[0]['status'] = dummy_ui.STATUS_FAILED
+        dummy_ui.files[0]['error_code'] = '2'
+        dummy_ui.files[1]['status'] = dummy_ui.STATUS_FAILED
+        dummy_ui.files[1]['error_code'] = '2'
+        dummy_ui.files[2]['status'] = dummy_ui.STATUS_FAILED
+        dummy_ui.files[2]['error_code'] = '20'
+        summary = dummy_ui._get_throttle_summary()
+        assert 'timeout=2' in summary and 'HTTP 5xx=1' in summary
 
-    # Test 7: _mark_for_retry clears error fields
-    ui._mark_for_retry(['http://example.com/a.zip'])
-    if ui.files[0]['error_code'] is None and ui.files[0]['error_message'] == '':
-        results.ok("_mark_for_retry clears error fields")
-    else:
-        results.fail("Retry clears errors", "None/''",
-                    f"{ui.files[0]['error_code']}/{ui.files[0]['error_message']}")
+    def test_mark_for_retry_clears_errors(self, dummy_ui):
+        dummy_ui.files[0]['status'] = dummy_ui.STATUS_FAILED
+        dummy_ui.files[0]['error_code'] = '2'
+        dummy_ui.files[0]['error_message'] = 'Timeout'
+        dummy_ui._mark_for_retry(['http://example.com/a.zip'])
+        assert dummy_ui.files[0]['error_code'] is None
+        assert dummy_ui.files[0]['error_message'] == ''
 
-    # Test 8: THROTTLE_ERROR_CODES contains expected codes
-    expected_codes = {'2', '5', '6', '19', '20'}
-    if ui.THROTTLE_ERROR_CODES == expected_codes:
-        results.ok("THROTTLE_ERROR_CODES has correct values")
-    else:
-        results.fail("THROTTLE_ERROR_CODES", expected_codes, ui.THROTTLE_ERROR_CODES)
+    def test_throttle_error_codes(self, dummy_ui):
+        expected_codes = {'2', '5', '6', '19', '20'}
+        assert dummy_ui.THROTTLE_ERROR_CODES == expected_codes
 
-    # Test 9: Parallel backoff halves correctly
-    ui2 = DownloadUI('test', dummy_files, parallel=8, connections=4)
-    # Simulate throttle errors
-    for f in ui2.files:
-        f['status'] = ui2.STATUS_FAILED
-        f['error_code'] = '2'
-    # Check that _has_throttle_errors is True
-    if ui2._has_throttle_errors():
-        # Simulate backoff logic (same as in run())
-        new_parallel = max(1, ui2.parallel // 2)
-        ui2.parallel = new_parallel
-        if ui2.parallel == 4:
-            results.ok("Parallel halved from 8 to 4 on throttle")
-        else:
-            results.fail("Parallel halved", 4, ui2.parallel)
-    else:
-        results.fail("Throttle detected for backoff test", True, False)
+    def test_parallel_halved(self):
+        dummy_files = [
+            ('http://example.com/a.zip', Path('/tmp/a.zip')),
+        ]
+        ui = DownloadUI('test', dummy_files, parallel=8, connections=4)
+        for f in ui.files:
+            f['status'] = ui.STATUS_FAILED
+            f['error_code'] = '2'
+        assert ui._has_throttle_errors()
+        new_parallel = max(1, ui.parallel // 2)
+        assert new_parallel == 4
 
-    # Test 10: Parallel floors at 1
-    ui3 = DownloadUI('test', dummy_files, parallel=1, connections=4)
-    new_parallel = max(1, ui3.parallel // 2)
-    if new_parallel == 1:
-        results.ok("Parallel floors at 1 (no infinite reduction)")
-    else:
-        results.fail("Parallel floor", 1, new_parallel)
+    def test_parallel_floors_at_1(self):
+        dummy_files = [
+            ('http://example.com/a.zip', Path('/tmp/a.zip')),
+        ]
+        ui = DownloadUI('test', dummy_files, parallel=1, connections=4)
+        new_parallel = max(1, ui.parallel // 2)
+        assert new_parallel == 1
 
 
-def test_cross_platform_dedupe():
+# =============================================================================
+# Cross-Platform Dedup Tests
+# =============================================================================
+
+class TestCrossPlatformDedupe:
     """Test cross-platform deduplication features."""
-    print("\n" + "="*60)
-    print("CROSS-PLATFORM DEDUP TESTS")
-    print("="*60)
 
-    # Test 1: parse_pc_game_list with valid XML
-    with tempfile.TemporaryDirectory() as tmpdir:
-        xml_path = Path(tmpdir) / "test_pc_games.xml"
+    def test_parse_pc_game_list_xml(self, tmp_path):
+        xml_path = tmp_path / "test_pc_games.xml"
         xml_content = """<?xml version="1.0" standalone="yes"?>
 <LaunchBox>
-  <Playlist>
-    <Name>TestPlaylist</Name>
-  </Playlist>
+  <Playlist><Name>TestPlaylist</Name></Playlist>
   <PlaylistGame>
     <GameTitle>Resident Evil 4</GameTitle>
     <GamePlatform>Windows</GamePlatform>
@@ -2989,37 +2099,42 @@ def test_cross_platform_dedupe():
 </LaunchBox>"""
         xml_path.write_text(xml_content, encoding='utf-8')
         titles = parse_pc_game_list(xml_path)
-        if len(titles) == 3:
-            results.ok("parse_pc_game_list extracts 3 titles from XML")
-        else:
-            results.fail("parse_pc_game_list title count", 3, len(titles))
+        assert len(titles) == 3
+        assert normalize_title("Resident Evil 4") in titles
 
-        # Titles should be normalized
-        expected = normalize_title("Resident Evil 4")
-        if expected in titles:
-            results.ok("parse_pc_game_list normalizes titles")
-        else:
-            results.fail("parse_pc_game_list normalization", f"'{expected}' in titles", str(titles))
+    def test_parse_pc_game_list_missing_file(self):
+        titles = parse_pc_game_list(Path("/nonexistent/path.xml"))
+        assert len(titles) == 0
 
-    # Test 2: parse_pc_game_list with missing file
-    missing_titles = parse_pc_game_list(Path("/nonexistent/path.xml"))
-    if len(missing_titles) == 0:
-        results.ok("parse_pc_game_list returns empty set for missing file")
-    else:
-        results.fail("parse_pc_game_list missing file", 0, len(missing_titles))
+    @pytest.fixture
+    def exclude_titles_selected(self, tmp_rom_dir):
+        rom_dir, dest_dir = tmp_rom_dir
+        filenames = ["Resident Evil (USA).zip", "Zelda (USA).zip",
+                     "Mario (USA).zip"]
+        rom_paths = []
+        for fn in filenames:
+            p = rom_dir / fn
+            p.write_bytes(b'\x00' * 100)
+            rom_paths.append(p)
+        exclude = {normalize_title("Resident Evil")}
+        selected, _ = filter_roms_from_files(
+            rom_paths, str(dest_dir), "ps1", dry_run=True,
+            region_priority=DEFAULT_REGION_PRIORITY,
+            best_version=True, exclude_titles=exclude,
+        )
+        return selected
 
-    # Test 3: exclude_titles basic - ROM excluded when title is in exclude set
-    with tempfile.TemporaryDirectory() as tmpdir:
-        rom_dir = Path(tmpdir) / "roms"
-        rom_dir.mkdir()
-        dest_dir = Path(tmpdir) / "dest"
-        dest_dir.mkdir()
+    def test_exclude_titles_removes_claimed(self, exclude_titles_selected):
+        selected_titles = {normalize_title(r.base_title)
+                          for r in exclude_titles_selected}
+        assert normalize_title("Resident Evil") not in selected_titles
 
-        filenames = [
-            "Resident Evil (USA).zip",
-            "Zelda (USA).zip",
-            "Mario (USA).zip",
-        ]
+    def test_exclude_titles_keeps_unclaimed(self, exclude_titles_selected):
+        assert len(exclude_titles_selected) == 2
+
+    def test_exclude_titles_no_match(self, tmp_rom_dir):
+        rom_dir, dest_dir = tmp_rom_dir
+        filenames = ["Zelda (USA).zip", "Mario (USA).zip"]
         rom_paths = []
         for fn in filenames:
             p = rom_dir / fn
@@ -3030,54 +2145,12 @@ def test_cross_platform_dedupe():
         selected, _ = filter_roms_from_files(
             rom_paths, str(dest_dir), "ps1", dry_run=True,
             region_priority=DEFAULT_REGION_PRIORITY,
-            best_version=True, exclude_titles=exclude
+            best_version=True, exclude_titles=exclude,
         )
-        selected_titles = {normalize_title(r.base_title) for r in selected}
-        if normalize_title("Resident Evil") not in selected_titles:
-            results.ok("exclude_titles removes claimed title")
-        else:
-            results.fail("exclude_titles removes claimed title", "not in selected", str(selected_titles))
+        assert len(selected) == 2
 
-        if len(selected) == 2:
-            results.ok("exclude_titles keeps unclaimed titles")
-        else:
-            results.fail("exclude_titles keeps unclaimed", 2, len(selected))
-
-    # Test 4: exclude_titles no match - non-matching titles don't remove anything
-    with tempfile.TemporaryDirectory() as tmpdir:
-        rom_dir = Path(tmpdir) / "roms"
-        rom_dir.mkdir()
-        dest_dir = Path(tmpdir) / "dest"
-        dest_dir.mkdir()
-
-        filenames = [
-            "Zelda (USA).zip",
-            "Mario (USA).zip",
-        ]
-        rom_paths = []
-        for fn in filenames:
-            p = rom_dir / fn
-            p.write_bytes(b'\x00' * 100)
-            rom_paths.append(p)
-
-        exclude = {normalize_title("Resident Evil")}
-        selected, _ = filter_roms_from_files(
-            rom_paths, str(dest_dir), "ps1", dry_run=True,
-            region_priority=DEFAULT_REGION_PRIORITY,
-            best_version=True, exclude_titles=exclude
-        )
-        if len(selected) == 2:
-            results.ok("exclude_titles with no matches keeps all ROMs")
-        else:
-            results.fail("exclude_titles no match", 2, len(selected))
-
-    # Test 5: exclude_titles None and empty set don't affect behavior
-    with tempfile.TemporaryDirectory() as tmpdir:
-        rom_dir = Path(tmpdir) / "roms"
-        rom_dir.mkdir()
-        dest_dir = Path(tmpdir) / "dest"
-        dest_dir.mkdir()
-
+    def test_exclude_titles_none_and_empty(self, tmp_rom_dir):
+        rom_dir, dest_dir = tmp_rom_dir
         filenames = ["Zelda (USA).zip", "Mario (USA).zip"]
         rom_paths = []
         for fn in filenames:
@@ -3088,240 +2161,71 @@ def test_cross_platform_dedupe():
         selected_none, _ = filter_roms_from_files(
             rom_paths, str(dest_dir), "ps1", dry_run=True,
             region_priority=DEFAULT_REGION_PRIORITY,
-            best_version=True, exclude_titles=None
+            best_version=True, exclude_titles=None,
         )
         selected_empty, _ = filter_roms_from_files(
             rom_paths, str(dest_dir), "ps1", dry_run=True,
             region_priority=DEFAULT_REGION_PRIORITY,
-            best_version=True, exclude_titles=set()
+            best_version=True, exclude_titles=set(),
         )
-        if len(selected_none) == 2 and len(selected_empty) == 2:
-            results.ok("exclude_titles=None and empty set don't affect results")
-        else:
-            results.fail("exclude_titles None/empty", "2, 2",
-                        f"{len(selected_none)}, {len(selected_empty)}")
+        assert len(selected_none) == 2 and len(selected_empty) == 2
 
-    # Test 6: Title accumulation across systems (simulates main loop)
-    with tempfile.TemporaryDirectory() as tmpdir:
-        # System A: PS2
-        rom_dir_a = Path(tmpdir) / "roms_a"
+    @pytest.fixture
+    def dedup_accumulation(self, tmp_path):
+        rom_dir_a = tmp_path / "roms_a"
         rom_dir_a.mkdir()
-        dest_dir = Path(tmpdir) / "dest"
+        dest_dir = tmp_path / "dest"
         dest_dir.mkdir()
-
         for fn in ["Resident Evil (USA).zip", "Zelda (USA).zip"]:
             (rom_dir_a / fn).write_bytes(b'\x00' * 100)
 
-        # System B: PS1
-        rom_dir_b = Path(tmpdir) / "roms_b"
+        rom_dir_b = tmp_path / "roms_b"
         rom_dir_b.mkdir()
         for fn in ["Resident Evil (USA).zip", "Mario (USA).zip"]:
             (rom_dir_b / fn).write_bytes(b'\x00' * 100)
 
-        # Process system A first (higher priority)
         claimed = set()
         selected_a, _ = filter_roms_from_files(
             list(rom_dir_a.iterdir()), str(dest_dir), "ps2", dry_run=True,
             region_priority=DEFAULT_REGION_PRIORITY,
-            best_version=True, exclude_titles=claimed
+            best_version=True, exclude_titles=claimed,
         )
-        # Accumulate titles from system A
         for rom in selected_a:
             claimed.add(normalize_title(rom.base_title))
 
-        # Process system B with claimed titles
         selected_b, _ = filter_roms_from_files(
             list(rom_dir_b.iterdir()), str(dest_dir), "ps1", dry_run=True,
             region_priority=DEFAULT_REGION_PRIORITY,
-            best_version=True, exclude_titles=claimed
+            best_version=True, exclude_titles=claimed,
         )
+        return selected_a, selected_b
 
-        if len(selected_a) == 2:
-            results.ok("Dedup accumulation: system A selects all its ROMs")
-        else:
-            results.fail("Dedup accumulation system A", 2, len(selected_a))
+    def test_accumulation_system_a_selects_all(self, dedup_accumulation):
+        selected_a, _ = dedup_accumulation
+        assert len(selected_a) == 2
 
+    def test_accumulation_system_b_excludes_claimed(self, dedup_accumulation):
+        _, selected_b = dedup_accumulation
         selected_b_titles = {normalize_title(r.base_title) for r in selected_b}
-        if normalize_title("Resident Evil") not in selected_b_titles:
-            results.ok("Dedup accumulation: system B excludes claimed title")
-        else:
-            results.fail("Dedup accumulation excludes claimed", "RE not in B", str(selected_b_titles))
+        assert normalize_title("Resident Evil") not in selected_b_titles
 
-        if len(selected_b) == 1:
-            results.ok("Dedup accumulation: system B keeps only unclaimed title")
-        else:
-            results.fail("Dedup accumulation system B count", 1, len(selected_b))
+    def test_accumulation_system_b_keeps_unclaimed(self, dedup_accumulation):
+        _, selected_b = dedup_accumulation
+        assert len(selected_b) == 1
 
+    def test_article_preservation_dedupe(self):
+        assert normalize_title_for_dedupe("The Bully") != \
+            normalize_title_for_dedupe("Bully")
 
-def test_dedupe_analysis():
-    """Test standalone dedup analysis mode."""
-    print("\n" + "="*60)
-    print("DEDUP ANALYSIS TESTS")
-    print("="*60)
-    import argparse
-    import io
-    from contextlib import redirect_stdout
+    def test_standard_normalization_strips_articles(self):
+        assert normalize_title("The Bully") == normalize_title("Bully")
 
-    # Helper to create mock args
-    def make_args(**kwargs):
-        args = argparse.Namespace()
-        args.dedupe_priority = kwargs.get('dedupe_priority', 'ps2,psx')
-        args.dedupe_pc_lists = kwargs.get('dedupe_pc_lists', None)
-        args.verbose = kwargs.get('verbose', False)
-        return args
-
-    # Test 1: Basic flow with overlapping filenames
-    with tempfile.TemporaryDirectory() as tmpdir:
-        ps2_dir = Path(tmpdir) / "ps2"
-        ps2_dir.mkdir()
-        psx_dir = Path(tmpdir) / "psx"
-        psx_dir.mkdir()
-
-        for fn in ["Resident Evil (USA).zip", "Zelda (USA).zip"]:
-            (ps2_dir / fn).write_bytes(b'\x00' * 1000)
-        for fn in ["Resident Evil (USA).zip", "Mario (USA).zip"]:
-            (psx_dir / fn).write_bytes(b'\x00' * 2000)
-
-        detected = {
-            'ps2': list(ps2_dir.iterdir()),
-            'psx': list(psx_dir.iterdir()),
-        }
-        args = make_args(dedupe_priority='ps2,psx')
-        buf = io.StringIO()
-        with redirect_stdout(buf):
-            run_dedupe_analysis(detected, args)
-        results.ok("Dedup analysis: basic flow completes without error")
-
-    # Test 2: Priority ordering — PS2 claimed before PSX
-    with tempfile.TemporaryDirectory() as tmpdir:
-        ps2_dir = Path(tmpdir) / "ps2"
-        ps2_dir.mkdir()
-        psx_dir = Path(tmpdir) / "psx"
-        psx_dir.mkdir()
-
-        # Both systems have "Resident Evil"
-        (ps2_dir / "Resident Evil (USA).zip").write_bytes(b'\x00' * 1000)
-        (ps2_dir / "Zelda (USA).zip").write_bytes(b'\x00' * 1000)
-        (psx_dir / "Resident Evil (USA).zip").write_bytes(b'\x00' * 2000)
-        (psx_dir / "Mario (USA).zip").write_bytes(b'\x00' * 2000)
-
-        detected = {
-            'ps2': list(ps2_dir.iterdir()),
-            'psx': list(psx_dir.iterdir()),
-        }
-        args = make_args(dedupe_priority='ps2,psx')
-        buf = io.StringIO()
-        with redirect_stdout(buf):
-            run_dedupe_analysis(detected, args)
-        output = buf.getvalue()
-        # PS2 should have 0 duplicates (processed first), PSX should have 1
-        lines = [l for l in output.split('\n') if 'PSX' in l and '%' in l]
-        if lines and '1' in lines[0]:
-            results.ok("Dedup analysis: priority ordering — PSX shows duplicate from PS2")
-        else:
-            results.fail("Dedup analysis priority", "PSX shows 1 dupe", output)
-
-    # Test 3: PC seed causes removals from priority systems
-    with tempfile.TemporaryDirectory() as tmpdir:
-        ps2_dir = Path(tmpdir) / "ps2"
-        ps2_dir.mkdir()
-        (ps2_dir / "Resident Evil 4 (USA).zip").write_bytes(b'\x00' * 5000)
-        (ps2_dir / "Zelda (USA).zip").write_bytes(b'\x00' * 3000)
-
-        # Create PC game list XML
-        xml_path = Path(tmpdir) / "pc_games.xml"
-        xml_content = """<?xml version="1.0" standalone="yes"?>
-<LaunchBox>
-  <PlaylistGame>
-    <GameTitle>Resident Evil 4</GameTitle>
-    <GamePlatform>Windows</GamePlatform>
-  </PlaylistGame>
-</LaunchBox>"""
-        xml_path.write_text(xml_content, encoding='utf-8')
-
-        detected = {'ps2': list(ps2_dir.iterdir())}
-        args = make_args(dedupe_priority='pc,ps2', dedupe_pc_lists=[str(xml_path)])
-        buf = io.StringIO()
-        with redirect_stdout(buf):
-            run_dedupe_analysis(detected, args)
-        output = buf.getvalue()
-        # PS2 should show 1 duplicate (Resident Evil 4 is on PC)
-        lines = [l for l in output.split('\n') if 'PS2' in l and '%' in l]
-        if lines and '1' in lines[0]:
-            results.ok("Dedup analysis: PC seed causes duplicate in PS2")
-        else:
-            results.fail("Dedup analysis PC seed", "PS2 shows 1 dupe", output)
-
-    # Test 4: Arcade systems are excluded
-    with tempfile.TemporaryDirectory() as tmpdir:
-        mame_dir = Path(tmpdir) / "mame"
-        mame_dir.mkdir()
-        (mame_dir / "sf2.zip").write_bytes(b'\x00' * 1000)
-
-        snes_dir = Path(tmpdir) / "snes"
-        snes_dir.mkdir()
-        (snes_dir / "Street Fighter II (USA).zip").write_bytes(b'\x00' * 1000)
-
-        detected = {
-            'mame': list(mame_dir.iterdir()),
-            'snes': list(snes_dir.iterdir()),
-        }
-        args = make_args(dedupe_priority='snes')
-        buf = io.StringIO()
-        with redirect_stdout(buf):
-            run_dedupe_analysis(detected, args)
-        output = buf.getvalue()
-        # MAME should not appear in the table at all
-        if 'MAME' not in output:
-            results.ok("Dedup analysis: arcade systems excluded from analysis")
-        else:
-            results.fail("Dedup analysis arcade exclusion", "no MAME in output", output)
-
-    # Test 5: No overlap — systems with unique titles show 0 duplicates
-    with tempfile.TemporaryDirectory() as tmpdir:
-        ps2_dir = Path(tmpdir) / "ps2"
-        ps2_dir.mkdir()
-        (ps2_dir / "Zelda (USA).zip").write_bytes(b'\x00' * 1000)
-
-        psx_dir = Path(tmpdir) / "psx"
-        psx_dir.mkdir()
-        (psx_dir / "Mario (USA).zip").write_bytes(b'\x00' * 1000)
-
-        detected = {
-            'ps2': list(ps2_dir.iterdir()),
-            'psx': list(psx_dir.iterdir()),
-        }
-        args = make_args(dedupe_priority='ps2,psx')
-        buf = io.StringIO()
-        with redirect_stdout(buf):
-            run_dedupe_analysis(detected, args)
-        output = buf.getvalue()
-        # Both should show 0 duplicates — total should be 0
-        total_lines = [l for l in output.split('\n') if 'TOTAL' in l]
-        if total_lines and '0' in total_lines[0]:
-            results.ok("Dedup analysis: no overlap shows 0 duplicates")
-        else:
-            results.fail("Dedup analysis no overlap", "TOTAL shows 0", output)
-
-    # Test 6: Article preservation — "The Bully" (PC) should NOT match "Bully" (PS2)
-    if normalize_title_for_dedupe("The Bully") != normalize_title_for_dedupe("Bully"):
-        results.ok("Dedup normalization: 'The Bully' != 'Bully' (articles preserved)")
-    else:
-        results.fail("Dedup normalization articles", "different", "same")
-
-    # Verify regular normalize_title still strips articles (same-system grouping)
-    if normalize_title("The Bully") == normalize_title("Bully"):
-        results.ok("Standard normalization: 'The Bully' == 'Bully' (articles stripped)")
-    else:
-        results.fail("Standard normalization articles", "same", "different")
-
-    # Test 7: Article-aware PC seed — "The Bully" in PC list should not flag "Bully" on PS2
-    with tempfile.TemporaryDirectory() as tmpdir:
-        ps2_dir = Path(tmpdir) / "ps2"
+    def test_article_aware_pc_seed(self, tmp_path):
+        ps2_dir = tmp_path / "ps2"
         ps2_dir.mkdir()
         (ps2_dir / "Bully (USA).zip").write_bytes(b'\x00' * 5000)
 
-        xml_path = Path(tmpdir) / "pc_games.xml"
+        xml_path = tmp_path / "pc_games.xml"
         xml_content = """<?xml version="1.0" standalone="yes"?>
 <LaunchBox>
   <PlaylistGame>
@@ -3332,99 +2236,209 @@ def test_dedupe_analysis():
         xml_path.write_text(xml_content, encoding='utf-8')
 
         detected = {'ps2': list(ps2_dir.iterdir())}
-        args = make_args(dedupe_priority='pc,ps2', dedupe_pc_lists=[str(xml_path)])
+        args = argparse.Namespace(
+            dedupe_priority='pc,ps2',
+            dedupe_pc_lists=[str(xml_path)],
+            verbose=False,
+        )
         buf = io.StringIO()
         with redirect_stdout(buf):
             run_dedupe_analysis(detected, args)
         output = buf.getvalue()
-        # PS2 should show 0 duplicates — "Bully" != "The Bully"
         lines = [l for l in output.split('\n') if 'PS2' in l and '%' in l]
-        if lines and '0' in lines[0]:
-            results.ok("Dedup analysis: 'The Bully' (PC) does not match 'Bully' (PS2)")
-        else:
-            results.fail("Dedup analysis article false positive", "PS2 shows 0 dupes", output)
+        assert lines and '0' in lines[0], \
+            f"Expected PS2 0 dupes, got: {output}"
 
 
-def test_mame_romset_support():
+# =============================================================================
+# Dedup Analysis Tests
+# =============================================================================
+
+class TestDedupAnalysis:
+    """Test standalone dedup analysis mode."""
+
+    def test_basic_flow(self, tmp_path):
+        ps2_dir = tmp_path / "ps2"
+        ps2_dir.mkdir()
+        psx_dir = tmp_path / "psx"
+        psx_dir.mkdir()
+        for fn in ["Resident Evil (USA).zip", "Zelda (USA).zip"]:
+            (ps2_dir / fn).write_bytes(b'\x00' * 1000)
+        for fn in ["Resident Evil (USA).zip", "Mario (USA).zip"]:
+            (psx_dir / fn).write_bytes(b'\x00' * 2000)
+
+        detected = {
+            'ps2': list(ps2_dir.iterdir()),
+            'psx': list(psx_dir.iterdir()),
+        }
+        args = argparse.Namespace(
+            dedupe_priority='ps2,psx',
+            dedupe_pc_lists=None,
+            verbose=False,
+        )
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            run_dedupe_analysis(detected, args)
+        # No exception means success
+
+    def test_priority_ordering(self, tmp_path):
+        ps2_dir = tmp_path / "ps2"
+        ps2_dir.mkdir()
+        psx_dir = tmp_path / "psx"
+        psx_dir.mkdir()
+        (ps2_dir / "Resident Evil (USA).zip").write_bytes(b'\x00' * 1000)
+        (ps2_dir / "Zelda (USA).zip").write_bytes(b'\x00' * 1000)
+        (psx_dir / "Resident Evil (USA).zip").write_bytes(b'\x00' * 2000)
+        (psx_dir / "Mario (USA).zip").write_bytes(b'\x00' * 2000)
+
+        detected = {
+            'ps2': list(ps2_dir.iterdir()),
+            'psx': list(psx_dir.iterdir()),
+        }
+        args = argparse.Namespace(
+            dedupe_priority='ps2,psx',
+            dedupe_pc_lists=None,
+            verbose=False,
+        )
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            run_dedupe_analysis(detected, args)
+        output = buf.getvalue()
+        lines = [l for l in output.split('\n') if 'PSX' in l and '%' in l]
+        assert lines and '1' in lines[0]
+
+    def test_pc_seed_causes_dupe(self, tmp_path):
+        ps2_dir = tmp_path / "ps2"
+        ps2_dir.mkdir()
+        (ps2_dir / "Resident Evil 4 (USA).zip").write_bytes(b'\x00' * 5000)
+        (ps2_dir / "Zelda (USA).zip").write_bytes(b'\x00' * 3000)
+
+        xml_path = tmp_path / "pc_games.xml"
+        xml_content = """<?xml version="1.0" standalone="yes"?>
+<LaunchBox>
+  <PlaylistGame>
+    <GameTitle>Resident Evil 4</GameTitle>
+    <GamePlatform>Windows</GamePlatform>
+  </PlaylistGame>
+</LaunchBox>"""
+        xml_path.write_text(xml_content, encoding='utf-8')
+
+        detected = {'ps2': list(ps2_dir.iterdir())}
+        args = argparse.Namespace(
+            dedupe_priority='pc,ps2',
+            dedupe_pc_lists=[str(xml_path)],
+            verbose=False,
+        )
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            run_dedupe_analysis(detected, args)
+        output = buf.getvalue()
+        lines = [l for l in output.split('\n') if 'PS2' in l and '%' in l]
+        assert lines and '1' in lines[0]
+
+    def test_arcade_excluded(self, tmp_path):
+        mame_dir = tmp_path / "mame"
+        mame_dir.mkdir()
+        (mame_dir / "sf2.zip").write_bytes(b'\x00' * 1000)
+        snes_dir = tmp_path / "snes"
+        snes_dir.mkdir()
+        (snes_dir / "Street Fighter II (USA).zip").write_bytes(b'\x00' * 1000)
+
+        detected = {
+            'mame': list(mame_dir.iterdir()),
+            'snes': list(snes_dir.iterdir()),
+        }
+        args = argparse.Namespace(
+            dedupe_priority='snes',
+            dedupe_pc_lists=None,
+            verbose=False,
+        )
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            run_dedupe_analysis(detected, args)
+        output = buf.getvalue()
+        assert 'MAME' not in output
+
+    def test_no_overlap_zero_dupes(self, tmp_path):
+        ps2_dir = tmp_path / "ps2"
+        ps2_dir.mkdir()
+        (ps2_dir / "Zelda (USA).zip").write_bytes(b'\x00' * 1000)
+        psx_dir = tmp_path / "psx"
+        psx_dir.mkdir()
+        (psx_dir / "Mario (USA).zip").write_bytes(b'\x00' * 1000)
+
+        detected = {
+            'ps2': list(ps2_dir.iterdir()),
+            'psx': list(psx_dir.iterdir()),
+        }
+        args = argparse.Namespace(
+            dedupe_priority='ps2,psx',
+            dedupe_pc_lists=None,
+            verbose=False,
+        )
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            run_dedupe_analysis(detected, args)
+        output = buf.getvalue()
+        total_lines = [l for l in output.split('\n') if 'TOTAL' in l]
+        assert total_lines and '0' in total_lines[0]
+
+
+# =============================================================================
+# MAME ROM Set Format Tests
+# =============================================================================
+
+class TestMameRomSetSupport:
     """Test MAME ROM set format detection and dependency handling."""
-    print("\n" + "="*60)
-    print("MAME ROM SET FORMAT TESTS")
-    print("="*60)
 
-    # MameGameInfo imported from retro_refiner.mame
+    def _make_mame_game(self, name, description, year='1991',
+                        manufacturer='Test', category='Game',
+                        is_parent=True, parent_name='', is_bios=False,
+                        bios_name='', rom_files=None, region='World',
+                        **kwargs):
+        return MameGameInfo(
+            name=name, description=description, year=year,
+            manufacturer=manufacturer, category=category,
+            is_parent=is_parent, parent_name=parent_name,
+            is_bios=is_bios, is_device=False,
+            has_chd=False, chd_names=[], region=region,
+            bios_name=bios_name, rom_files=rom_files,
+        )
 
-    # Test new fields have correct defaults
-    game = MameGameInfo(
-        name='sf2', description='Street Fighter II', year='1991',
-        manufacturer='Capcom', category='Fighter', is_parent=True,
-        parent_name='', is_bios=False, is_device=False,
-        has_chd=False, chd_names=[], region='World'
-    )
-    if game.bios_name == '':
-        results.ok("MameGameInfo bios_name defaults to empty string")
-    else:
-        results.fail("MameGameInfo bios_name defaults to empty string",
-                     "''", repr(game.bios_name))
+    def test_bios_name_default(self):
+        game = self._make_mame_game('sf2', 'Street Fighter II')
+        assert game.bios_name == ''
 
-    if game.rom_files is None:
-        results.ok("MameGameInfo rom_files defaults to None")
-    else:
-        results.fail("MameGameInfo rom_files defaults to None",
-                     "None", repr(game.rom_files))
+    def test_rom_files_default(self):
+        game = self._make_mame_game('sf2', 'Street Fighter II')
+        assert game.rom_files is None
 
-    # Test explicit values
-    game2 = MameGameInfo(
-        name='mslug', description='Metal Slug', year='1996',
-        manufacturer='SNK', category='Shooter', is_parent=True,
-        parent_name='', is_bios=False, is_device=False,
-        has_chd=False, chd_names=[], region='World',
-        bios_name='neogeo', rom_files=['201-p1.p1', '201-s1.s1']
-    )
-    if game2.bios_name == 'neogeo':
-        results.ok("MameGameInfo bios_name can be set explicitly")
-    else:
-        results.fail("MameGameInfo bios_name can be set explicitly",
-                     "'neogeo'", repr(game2.bios_name))
+    def test_bios_name_explicit(self):
+        game = self._make_mame_game(
+            'mslug', 'Metal Slug',
+            bios_name='neogeo',
+            rom_files=['201-p1.p1', '201-s1.s1'],
+        )
+        assert game.bios_name == 'neogeo'
+        assert game.rom_files == ['201-p1.p1', '201-s1.s1']
 
-    if game2.rom_files == ['201-p1.p1', '201-s1.s1']:
-        results.ok("MameGameInfo rom_files can be set explicitly")
-    else:
-        results.fail("MameGameInfo rom_files can be set explicitly",
-                     "['201-p1.p1', '201-s1.s1']", repr(game2.rom_files))
+    def test_clone_with_bios(self):
+        clone = self._make_mame_game(
+            'mslug2', 'Metal Slug 2',
+            is_parent=False, parent_name='mslug',
+            bios_name='neogeo', rom_files=['263-p1.p1'],
+        )
+        assert clone.parent_name == 'mslug'
+        assert clone.bios_name == 'neogeo'
 
-    # Clone with BIOS dependency (cloneof != romof)
-    clone_with_bios = MameGameInfo(
-        name='mslug2', description='Metal Slug 2', year='1998',
-        manufacturer='SNK', category='Shooter', is_parent=False,
-        parent_name='mslug', is_bios=False, is_device=False,
-        has_chd=False, chd_names=[], region='World',
-        bios_name='neogeo', rom_files=['263-p1.p1']
-    )
-    if clone_with_bios.parent_name == 'mslug' and clone_with_bios.bios_name == 'neogeo':
-        results.ok("Clone with separate BIOS: parent_name and bios_name both set")
-    else:
-        results.fail("Clone with separate BIOS",
-                     "parent_name='mslug', bios_name='neogeo'",
-                     f"parent_name='{clone_with_bios.parent_name}', bios_name='{clone_with_bios.bios_name}'")
+    def test_parent_with_bios(self):
+        parent = self._make_mame_game(
+            'mslug', 'Metal Slug',
+            bios_name='neogeo', rom_files=['201-p1.p1'],
+        )
+        assert parent.is_parent and parent.bios_name == 'neogeo'
 
-    # Parent with BIOS dependency (romof only, no cloneof)
-    parent_with_bios = MameGameInfo(
-        name='mslug', description='Metal Slug', year='1996',
-        manufacturer='SNK', category='Shooter', is_parent=True,
-        parent_name='', is_bios=False, is_device=False,
-        has_chd=False, chd_names=[], region='World',
-        bios_name='neogeo', rom_files=['201-p1.p1']
-    )
-    if parent_with_bios.is_parent and parent_with_bios.bios_name == 'neogeo':
-        results.ok("Parent with BIOS: is_parent=True, bios_name set")
-    else:
-        results.fail("Parent with BIOS",
-                     "is_parent=True, bios_name='neogeo'",
-                     f"is_parent={parent_with_bios.is_parent}, bios_name='{parent_with_bios.bios_name}'")
-
-    # Integration test: parse_mame_dat() with cloneof/romof separation
-    # parse_mame_dat imported from retro_refiner.mame
-    test_xml = '''<?xml version="1.0"?>
+    MAME_DAT_XML = '''<?xml version="1.0"?>
 <datafile>
   <machine name="neogeo" isbios="yes">
     <description>Neo Geo BIOS</description>
@@ -3460,362 +2474,219 @@ def test_mame_romset_support():
   </machine>
 </datafile>'''
 
-    dat_file = Path(tempfile.mktemp(suffix='.xml'))
-    try:
-        dat_file.write_text(test_xml, encoding='utf-8')
-        parsed = parse_mame_dat(str(dat_file))
+    @pytest.fixture
+    def mame_dat_parsed(self, tmp_path):
+        dat_file = tmp_path / "test.xml"
+        dat_file.write_text(self.MAME_DAT_XML, encoding='utf-8')
+        return parse_mame_dat(str(dat_file))
 
-        # neogeo: BIOS, no cloneof, no romof → is_parent=True, bios_name=''
-        neo = parsed.get('neogeo')
-        if neo and neo.is_parent and neo.is_bios and neo.bios_name == '':
-            results.ok("parse_mame_dat: neogeo is parent BIOS, no bios_name")
-        else:
-            results.fail("parse_mame_dat: neogeo",
-                         "is_parent=True, is_bios=True, bios_name=''",
-                         f"is_parent={neo.is_parent if neo else '?'}, is_bios={neo.is_bios if neo else '?'}, bios_name='{neo.bios_name if neo else '?'}'")
+    def test_parse_dat_neogeo_is_parent_bios(self, mame_dat_parsed):
+        neo = mame_dat_parsed['neogeo']
+        assert neo.is_parent and neo.is_bios and neo.bios_name == ''
 
-        # mslug: romof=neogeo, no cloneof → is_parent=True, bios_name='neogeo'
-        ms = parsed.get('mslug')
-        if ms and ms.is_parent and ms.parent_name == '' and ms.bios_name == 'neogeo':
-            results.ok("parse_mame_dat: mslug is parent with bios_name='neogeo'")
-        else:
-            results.fail("parse_mame_dat: mslug",
-                         "is_parent=True, parent_name='', bios_name='neogeo'",
-                         f"is_parent={ms.is_parent if ms else '?'}, parent_name='{ms.parent_name if ms else '?'}', bios_name='{ms.bios_name if ms else '?'}'")
+    def test_parse_dat_mslug_parent_with_bios(self, mame_dat_parsed):
+        ms = mame_dat_parsed['mslug']
+        assert ms.is_parent and ms.parent_name == '' \
+            and ms.bios_name == 'neogeo'
 
-        # mslug2: cloneof=mslug, romof=neogeo → is_parent=False, parent_name='mslug', bios_name='neogeo'
-        ms2 = parsed.get('mslug2')
-        if ms2 and not ms2.is_parent and ms2.parent_name == 'mslug' and ms2.bios_name == 'neogeo':
-            results.ok("parse_mame_dat: mslug2 clone with parent + bios_name")
-        else:
-            results.fail("parse_mame_dat: mslug2",
-                         "is_parent=False, parent_name='mslug', bios_name='neogeo'",
-                         f"is_parent={ms2.is_parent if ms2 else '?'}, parent_name='{ms2.parent_name if ms2 else '?'}', bios_name='{ms2.bios_name if ms2 else '?'}'")
+    def test_parse_dat_mslug2_clone_with_bios(self, mame_dat_parsed):
+        ms2 = mame_dat_parsed['mslug2']
+        assert not ms2.is_parent and ms2.parent_name == 'mslug' \
+            and ms2.bios_name == 'neogeo'
 
-        # sf2ce: cloneof=sf2, romof=sf2 → parent_name='sf2', bios_name='' (romof == cloneof)
-        sf2ce = parsed.get('sf2ce')
-        if sf2ce and sf2ce.parent_name == 'sf2' and sf2ce.bios_name == '':
-            results.ok("parse_mame_dat: sf2ce clone, romof==cloneof means no bios_name")
-        else:
-            results.fail("parse_mame_dat: sf2ce",
-                         "parent_name='sf2', bios_name=''",
-                         f"parent_name='{sf2ce.parent_name if sf2ce else '?'}', bios_name='{sf2ce.bios_name if sf2ce else '?'}'")
+    def test_parse_dat_sf2ce_romof_equals_cloneof(self, mame_dat_parsed):
+        sf2ce = mame_dat_parsed['sf2ce']
+        assert sf2ce.parent_name == 'sf2' and sf2ce.bios_name == ''
 
-        # rom_files populated
-        sf2 = parsed.get('sf2')
-        if sf2 and sf2.rom_files and 'sf2.01' in sf2.rom_files and 'sf2.02' in sf2.rom_files:
-            results.ok("parse_mame_dat: sf2 rom_files populated from <rom> elements")
-        else:
-            results.fail("parse_mame_dat: sf2 rom_files",
-                         "['sf2.01', 'sf2.02']",
-                         repr(sf2.rom_files if sf2 else None))
+    def test_parse_dat_sf2_rom_files(self, mame_dat_parsed):
+        sf2 = mame_dat_parsed['sf2']
+        assert sf2.rom_files and 'sf2.01' in sf2.rom_files \
+            and 'sf2.02' in sf2.rom_files
 
-        ms_roms = parsed.get('mslug')
-        if ms_roms and ms_roms.rom_files and len(ms_roms.rom_files) == 2:
-            results.ok("parse_mame_dat: mslug has 2 rom_files")
-        else:
-            results.fail("parse_mame_dat: mslug rom_files count",
-                         "2 files", repr(ms_roms.rom_files if ms_roms else None))
-    finally:
-        if dat_file.exists():
-            dat_file.unlink()
+    def test_parse_dat_mslug_rom_files_count(self, mame_dat_parsed):
+        ms = mame_dat_parsed['mslug']
+        assert ms.rom_files and len(ms.rom_files) == 2
 
-    # detect_mame_set_format imported from retro_refiner.mame
-
-    # Test with no parent/clone pairs available → fallback to non-merged
-    games_no_clones = {
-        'pacman': MameGameInfo(
-            name='pacman', description='Pac-Man', year='1980',
-            manufacturer='Namco', category='Maze', is_parent=True,
-            parent_name='', is_bios=False, is_device=False,
-            has_chd=False, chd_names=[], region='World',
-            rom_files=['pacman.6e', 'pacman.6f']
-        ),
-    }
-    result = detect_mame_set_format(Path('/nonexistent'), games_no_clones, set())
-    if result == 'non-merged':
-        results.ok("detect_mame_set_format fallback: non-merged when no clones")
-    else:
-        results.fail("detect_mame_set_format fallback",
-                     "'non-merged'", repr(result))
-
-    # Test with empty available_roms → fallback
-    result2 = detect_mame_set_format(Path('/nonexistent'), games_no_clones, set())
-    if result2 == 'non-merged':
-        results.ok("detect_mame_set_format fallback: non-merged when no roms available")
-    else:
-        results.fail("detect_mame_set_format fallback (no roms)",
-                     "'non-merged'", repr(result2))
-
-    # Test actual detection with temp zip files
-    test_dir = Path(tempfile.mkdtemp())
-    try:
-        det_games = {
-            'sf2': MameGameInfo(
-                name='sf2', description='Street Fighter II', year='1991',
-                manufacturer='Capcom', category='Fighter', is_parent=True,
-                parent_name='', is_bios=False, is_device=False,
-                has_chd=False, chd_names=[], region='World',
-                rom_files=['sf2.01', 'sf2.02', 'sf2.03']
-            ),
-            'sf2ce': MameGameInfo(
-                name='sf2ce', description='SF2 CE', year='1992',
-                manufacturer='Capcom', category='Fighter', is_parent=False,
-                parent_name='sf2', is_bios=False, is_device=False,
-                has_chd=False, chd_names=[], region='World',
-                rom_files=['sf2ce.01']
+    def test_detect_format_fallback_no_clones(self):
+        games = {
+            'pacman': self._make_mame_game(
+                'pacman', 'Pac-Man',
+                rom_files=['pacman.6e', 'pacman.6f'],
             ),
         }
+        result = detect_mame_set_format(Path('/nonexistent'), games, set())
+        assert result == 'non-merged'
 
-        # Scenario: merged (no clone zip exists)
-        import zipfile as zf_mod
-        with zf_mod.ZipFile(test_dir / 'sf2.zip', 'w') as zf:
+    def test_detect_format_merged(self, tmp_path):
+        games = {
+            'sf2': self._make_mame_game(
+                'sf2', 'Street Fighter II',
+                rom_files=['sf2.01', 'sf2.02', 'sf2.03'],
+            ),
+            'sf2ce': self._make_mame_game(
+                'sf2ce', 'SF2 CE', is_parent=False, parent_name='sf2',
+                rom_files=['sf2ce.01'],
+            ),
+        }
+        with zf_mod.ZipFile(tmp_path / 'sf2.zip', 'w') as zf:
             zf.writestr('sf2.01', 'data')
             zf.writestr('sf2ce.01', 'data')
-        det_avail_merged = {'sf2'}
-        fmt = detect_mame_set_format(test_dir, det_games, det_avail_merged)
-        if fmt == 'merged':
-            results.ok("detect_mame_set_format: merged (no clone zip)")
-        else:
-            results.fail("detect_mame_set_format: merged",
-                         "'merged'", repr(fmt))
+        fmt = detect_mame_set_format(tmp_path, games, {'sf2'})
+        assert fmt == 'merged'
 
-        # Scenario: non-merged (clone zip contains parent ROMs)
-        with zf_mod.ZipFile(test_dir / 'sf2ce.zip', 'w') as zf:
+    def test_detect_format_non_merged(self, tmp_path):
+        games = {
+            'sf2': self._make_mame_game(
+                'sf2', 'Street Fighter II',
+                rom_files=['sf2.01', 'sf2.02', 'sf2.03'],
+            ),
+            'sf2ce': self._make_mame_game(
+                'sf2ce', 'SF2 CE', is_parent=False, parent_name='sf2',
+                rom_files=['sf2ce.01'],
+            ),
+        }
+        with zf_mod.ZipFile(tmp_path / 'sf2.zip', 'w') as zf:
+            zf.writestr('sf2.01', 'data')
+        with zf_mod.ZipFile(tmp_path / 'sf2ce.zip', 'w') as zf:
             zf.writestr('sf2ce.01', 'data')
             zf.writestr('sf2.01', 'data')
             zf.writestr('sf2.02', 'data')
-        det_avail_nm = {'sf2', 'sf2ce'}
-        fmt2 = detect_mame_set_format(test_dir, det_games, det_avail_nm)
-        if fmt2 == 'non-merged':
-            results.ok("detect_mame_set_format: non-merged (clone has parent ROMs)")
-        else:
-            results.fail("detect_mame_set_format: non-merged",
-                         "'non-merged'", repr(fmt2))
+        fmt = detect_mame_set_format(tmp_path, games, {'sf2', 'sf2ce'})
+        assert fmt == 'non-merged'
 
-        # Scenario: split (clone zip does NOT contain parent ROMs)
-        (test_dir / 'sf2ce.zip').unlink()
-        with zf_mod.ZipFile(test_dir / 'sf2ce.zip', 'w') as zf:
+    def test_detect_format_split(self, tmp_path):
+        games = {
+            'sf2': self._make_mame_game(
+                'sf2', 'Street Fighter II',
+                rom_files=['sf2.01', 'sf2.02', 'sf2.03'],
+            ),
+            'sf2ce': self._make_mame_game(
+                'sf2ce', 'SF2 CE', is_parent=False, parent_name='sf2',
+                rom_files=['sf2ce.01'],
+            ),
+        }
+        with zf_mod.ZipFile(tmp_path / 'sf2.zip', 'w') as zf:
+            zf.writestr('sf2.01', 'data')
+        with zf_mod.ZipFile(tmp_path / 'sf2ce.zip', 'w') as zf:
             zf.writestr('sf2ce.01', 'data')
-        fmt3 = detect_mame_set_format(test_dir, det_games, det_avail_nm)
-        if fmt3 == 'split':
-            results.ok("detect_mame_set_format: split (clone missing parent ROMs)")
-        else:
-            results.fail("detect_mame_set_format: split",
-                         "'split'", repr(fmt3))
-    finally:
-        shutil.rmtree(test_dir, ignore_errors=True)
+        fmt = detect_mame_set_format(tmp_path, games, {'sf2', 'sf2ce'})
+        assert fmt == 'split'
 
-    # Test dependency resolution helper
-    # build_mame_copy_set imported from retro_refiner.mame
+    @pytest.fixture
+    def mame_copy_set_games(self):
+        games = {
+            'sf2': self._make_mame_game(
+                'sf2', 'Street Fighter II',
+                rom_files=['sf2.01', 'sf2.02'],
+            ),
+            'sf2ce': self._make_mame_game(
+                'sf2ce', "Street Fighter II' CE",
+                is_parent=False, parent_name='sf2',
+                rom_files=['sf2ce.01'],
+            ),
+            'mslug': self._make_mame_game(
+                'mslug', 'Metal Slug',
+                bios_name='neogeo', rom_files=['201-p1.p1'],
+            ),
+            'neogeo': self._make_mame_game(
+                'neogeo', 'Neo Geo BIOS', is_bios=True,
+                rom_files=['sp-s2.sp1'],
+            ),
+        }
+        available = {'sf2', 'sf2ce', 'mslug', 'neogeo'}
+        return games, available
 
-    # Build test data: sf2 (parent) with clone sf2ce, neogeo BIOS
-    test_games = {
-        'sf2': MameGameInfo(
-            name='sf2', description='Street Fighter II', year='1991',
-            manufacturer='Capcom', category='Fighter', is_parent=True,
-            parent_name='', is_bios=False, is_device=False,
-            has_chd=False, chd_names=[], region='World',
-            bios_name='', rom_files=['sf2.01', 'sf2.02']
-        ),
-        'sf2ce': MameGameInfo(
-            name='sf2ce', description="Street Fighter II' CE", year='1992',
-            manufacturer='Capcom', category='Fighter', is_parent=False,
-            parent_name='sf2', is_bios=False, is_device=False,
-            has_chd=False, chd_names=[], region='World',
-            bios_name='', rom_files=['sf2ce.01']
-        ),
-        'mslug': MameGameInfo(
-            name='mslug', description='Metal Slug', year='1996',
-            manufacturer='SNK', category='Shooter', is_parent=True,
-            parent_name='', is_bios=False, is_device=False,
-            has_chd=False, chd_names=[], region='World',
-            bios_name='neogeo', rom_files=['201-p1.p1']
-        ),
-        'neogeo': MameGameInfo(
-            name='neogeo', description='Neo Geo BIOS', year='1990',
-            manufacturer='SNK', category='BIOS', is_parent=True,
-            parent_name='', is_bios=True, is_device=False,
-            has_chd=False, chd_names=[], region='World',
-            rom_files=['sp-s2.sp1']
-        ),
-    }
-    test_available = {'sf2', 'sf2ce', 'mslug', 'neogeo'}
+    def test_non_merged_selected_in_set(self, mame_copy_set_games):
+        games, available = mame_copy_set_games
+        selected = [games['sf2ce'], games['mslug']]
+        copy_set, _ = build_mame_copy_set(selected, games, available,
+                                          'non-merged')
+        assert 'sf2ce' in copy_set and 'mslug' in copy_set
 
-    # Non-merged: no parent dependencies, but BIOS zips still included
-    selected = [test_games['sf2ce'], test_games['mslug']]
-    copy_set, deps = build_mame_copy_set(selected, test_games, test_available, 'non-merged')
-    if 'sf2ce' in copy_set and 'mslug' in copy_set:
-        results.ok("Non-merged: selected games in copy set")
-    else:
-        results.fail("Non-merged copy set",
-                     "sf2ce and mslug in set", repr(copy_set))
-    if 'neogeo' in copy_set:
-        results.ok("Non-merged: BIOS neogeo included (emulator needs it)")
-    else:
-        results.fail("Non-merged: BIOS neogeo included",
-                     "neogeo in set", repr(copy_set))
-    if 'sf2' not in copy_set:
-        results.ok("Non-merged: parent sf2 NOT included (zips are self-contained)")
-    else:
-        results.fail("Non-merged: parent sf2 should not be included",
-                     "sf2 not in set", repr(copy_set))
+    def test_non_merged_bios_included(self, mame_copy_set_games):
+        games, available = mame_copy_set_games
+        selected = [games['sf2ce'], games['mslug']]
+        copy_set, _ = build_mame_copy_set(selected, games, available,
+                                          'non-merged')
+        assert 'neogeo' in copy_set
 
-    # Split: clone pulls in parent + BIOS chain
-    copy_set_s, deps_s = build_mame_copy_set(selected, test_games, test_available, 'split')
-    if 'sf2' in copy_set_s:
-        results.ok("Split: parent sf2 included for clone sf2ce")
-    else:
-        results.fail("Split: parent sf2 included",
-                     "sf2 in set", repr(copy_set_s))
-    if 'neogeo' in copy_set_s:
-        results.ok("Split: BIOS neogeo included for mslug")
-    else:
-        results.fail("Split: BIOS neogeo included",
-                     "neogeo in set", repr(copy_set_s))
+    def test_non_merged_parent_not_included(self, mame_copy_set_games):
+        games, available = mame_copy_set_games
+        selected = [games['sf2ce'], games['mslug']]
+        copy_set, _ = build_mame_copy_set(selected, games, available,
+                                          'non-merged')
+        assert 'sf2' not in copy_set
 
-    # Merged: clone maps to parent zip
-    test_available_merged = {'sf2', 'mslug', 'neogeo'}  # no sf2ce zip
-    copy_set_m, deps_m = build_mame_copy_set(selected, test_games, test_available_merged, 'merged')
-    if 'sf2' in copy_set_m:
-        results.ok("Merged: parent sf2 included for clone sf2ce")
-    else:
-        results.fail("Merged: parent sf2 included",
-                     "sf2 in set", repr(copy_set_m))
-    if 'sf2ce' not in copy_set_m:
-        results.ok("Merged: clone sf2ce not in copy set (no zip)")
-    else:
-        results.fail("Merged: clone sf2ce should not be in copy set",
-                     "sf2ce not in set", repr(copy_set_m))
+    def test_split_parent_included_for_clone(self, mame_copy_set_games):
+        games, available = mame_copy_set_games
+        selected = [games['sf2ce'], games['mslug']]
+        copy_set, _ = build_mame_copy_set(selected, games, available, 'split')
+        assert 'sf2' in copy_set
 
-    # Split: multiple clones of same parent → parent copied once (set dedup)
-    sf2hf = MameGameInfo(
-        name='sf2hf', description="Street Fighter II' HF", year='1992',
-        manufacturer='Capcom', category='Fighter', is_parent=False,
-        parent_name='sf2', is_bios=False, is_device=False,
-        has_chd=False, chd_names=[], region='USA',
-        bios_name='', rom_files=['sf2hf.01']
-    )
-    test_games['sf2hf'] = sf2hf
-    test_available.add('sf2hf')
-    selected2 = [test_games['sf2ce'], sf2hf]
-    copy_set2, _ = build_mame_copy_set(selected2, test_games, test_available, 'split')
-    if 'sf2' in copy_set2:
-        results.ok("Split: parent sf2 included once for multiple clones")
-    else:
-        results.fail("Split: parent dedup",
-                     "sf2 in set", repr(copy_set2))
+    def test_split_bios_included_for_mslug(self, mame_copy_set_games):
+        games, available = mame_copy_set_games
+        selected = [games['sf2ce'], games['mslug']]
+        copy_set, _ = build_mame_copy_set(selected, games, available, 'split')
+        assert 'neogeo' in copy_set
+
+    def test_merged_parent_included(self, mame_copy_set_games):
+        games, _ = mame_copy_set_games
+        available_merged = {'sf2', 'mslug', 'neogeo'}  # no sf2ce zip
+        selected = [games['sf2ce'], games['mslug']]
+        copy_set, _ = build_mame_copy_set(selected, games,
+                                          available_merged, 'merged')
+        assert 'sf2' in copy_set
+
+    def test_merged_clone_not_in_set(self, mame_copy_set_games):
+        games, _ = mame_copy_set_games
+        available_merged = {'sf2', 'mslug', 'neogeo'}
+        selected = [games['sf2ce'], games['mslug']]
+        copy_set, _ = build_mame_copy_set(selected, games,
+                                          available_merged, 'merged')
+        assert 'sf2ce' not in copy_set
+
+    def test_split_parent_dedup(self):
+        games = {
+            'sf2': self._make_mame_game(
+                'sf2', 'Street Fighter II',
+                rom_files=['sf2.01', 'sf2.02'],
+            ),
+            'sf2ce': self._make_mame_game(
+                'sf2ce', "Street Fighter II' CE",
+                is_parent=False, parent_name='sf2',
+                rom_files=['sf2ce.01'],
+            ),
+            'sf2hf': self._make_mame_game(
+                'sf2hf', "Street Fighter II' HF",
+                is_parent=False, parent_name='sf2',
+                rom_files=['sf2hf.01'], region='USA',
+            ),
+        }
+        available = {'sf2', 'sf2ce', 'sf2hf'}
+        selected = [games['sf2ce'], games['sf2hf']]
+        copy_set, _ = build_mame_copy_set(selected, games, available, 'split')
+        assert 'sf2' in copy_set
 
 
-def test_version():
+# =============================================================================
+# Version and Packaging Tests
+# =============================================================================
+
+class TestVersion:
     """Test version metadata."""
-    print("\n" + "="*60)
-    print("VERSION AND PACKAGING TESTS")
-    print("="*60)
 
-    # __version__ should exist and be a non-empty string
-    version = getattr(retro_refiner, '__version__', None)
-    if isinstance(version, str) and len(version) > 0:
-        results.ok("__version__ is a non-empty string")
-    else:
-        results.fail("__version__ is a non-empty string",
-                     "non-empty str", repr(version))
+    def test_version_string(self):
+        version = getattr(retro_refiner, '__version__', None)
+        assert isinstance(version, str) and len(version) > 0
 
-    # _get_base_path() should return a Path pointing to dir with data/
-    base_path = get_base_path()
-    if isinstance(base_path, Path):
-        results.ok("_get_base_path() returns a Path")
-    else:
-        results.fail("_get_base_path() returns a Path",
-                     "Path instance", type(base_path).__name__)
+    def test_base_path_returns_path(self):
+        assert isinstance(get_base_path(), Path)
 
-    if (base_path / 'data').is_dir():
-        results.ok("_get_base_path() contains data/ directory")
-    else:
-        results.fail("_get_base_path() contains data/ directory",
-                     "data/ exists", "not found")
+    def test_base_path_has_data_dir(self):
+        assert (get_base_path() / 'data').is_dir()
 
-    # _get_runtime_path() should return an absolute Path
-    runtime_path = get_runtime_path()
-    if isinstance(runtime_path, Path):
-        results.ok("_get_runtime_path() returns a Path")
-    else:
-        results.fail("_get_runtime_path() returns a Path",
-                     "Path instance", type(runtime_path).__name__)
+    def test_runtime_path_returns_path(self):
+        assert isinstance(get_runtime_path(), Path)
 
-    if runtime_path.is_absolute():
-        results.ok("_get_runtime_path() is absolute")
-    else:
-        results.fail("_get_runtime_path() is absolute",
-                     "absolute path", str(runtime_path))
-
-
-def main():
-    """Run all tests."""
-    print("\n" + "="*60)
-    print("RETRO-REFINER TEST SUITE")
-    print("="*60)
-
-    # Run unit tests
-    test_rom_parsing()
-    test_title_normalization()
-    test_rom_selection()
-    test_config_handling()
-    test_url_functions()
-    test_html_parsing()
-    test_pattern_matching()
-    test_network_rom_filtering()
-    test_edge_cases()
-    test_launchbox_platform_mapping()
-    test_launchbox_download_function()
-    test_build_ratings_cache()
-    test_apply_top_n_filter()
-    test_resolve_top_n()
-    test_apply_size_budget()
-    test_parse_size_arg()
-    test_system_detection()
-    test_systems_json()
-    test_playlist_generation()
-    test_all_flag()
-
-    test_english_only_flag()
-    test_multi_disc_games()
-    test_tosec_parsing()
-    test_igdb()
-    test_download_throttle_backoff()
-    test_cross_platform_dedupe()
-    test_dedupe_analysis()
-    test_mame_romset_support()
-    test_version()
-    test_validate_destination()
-    test_clean_destination()
-    test_backward_compat_config()
-
-    # Run integration tests with real files
-    source = r"C:\Users\atkin\Downloads\Roms"
-    test_real_roms(source)
-
-    # Print summary
-    success = results.summary()
-
-    # Optional: Run legacy series tests
-    if "--series" in sys.argv and Path(source).exists():
-        print("\n" + "="*60)
-        print("SERIES SELECTION TESTS")
-        print("="*60)
-        test_series(source, "genesis", "golden axe")
-        test_series(source, "snes", "final fantasy")
-        test_series(source, "snes", "super mario world")
-        test_series(source, "n64", "zelda")
-        test_series(source, "genesis", "sonic the hedgehog")
-        test_series(source, "nes", "super mario bros")
-
-    sys.exit(0 if success else 1)
-
-
-
-
-
-
-if __name__ == '__main__':
-    main()
+    def test_runtime_path_is_absolute(self):
+        assert get_runtime_path().is_absolute()
