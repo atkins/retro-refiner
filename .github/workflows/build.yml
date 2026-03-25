@@ -40,10 +40,10 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgirepository1.0-dev libcairo2-dev libwebkit2gtk-4.1-dev gir1.2-webkit2-4.1
+          sudo apt-get install -y libgirepository1.0-dev libcairo2-dev libwebkit2gtk-4.1-dev gir1.2-webkit2-4.1 patchelf
 
       - name: Install Python dependencies
-        run: pip install pyinstaller pywebview
+        run: pip install "nuitka[onefile]" pywebview httpx pyyaml humanize tenacity orjson beautifulsoup4
 
       - name: Inject version from tag
         shell: bash
@@ -54,22 +54,33 @@ jobs:
           rm -f retro_refiner/__init__.py.bak
 
       - name: Build executable
-        run: python -m PyInstaller --noconfirm retro-refiner.spec
+        run: >
+          python -m nuitka
+          --standalone --onefile
+          --assume-yes-for-downloads
+          --enable-plugin=no-qt
+          --include-data-dir=data=data
+          --include-data-dir=retro_refiner/ui/assets=retro_refiner/ui/assets
+          --windows-icon-from-ico=retro_refiner/ui/assets/icon.ico
+          --windows-console-mode=disable
+          --output-filename=${{ matrix.exe_name }}
+          --python-flag=-m
+          retro_refiner
 
       - name: Smoke test
         shell: bash
         run: |
-          ./dist/${{ matrix.exe_name }} --export-config > /dev/null
+          ./${{ matrix.exe_name }} --export-config > /dev/null
 
       - name: Rename artifact
         shell: bash
-        run: mv dist/${{ matrix.exe_name }} dist/${{ matrix.artifact }}
+        run: mv ${{ matrix.exe_name }} ${{ matrix.artifact }}
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}
-          path: dist/${{ matrix.artifact }}
+          path: ${{ matrix.artifact }}
 
   release:
     needs: build

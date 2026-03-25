@@ -45,8 +45,8 @@ Standalone tool that downloads DATs for all systems, detects missing title mappi
 
 ### Build executable
 ```bash
-pip install pyinstaller pywebview
-python -m PyInstaller --noconfirm retro-refiner.spec
+pip install "nuitka[onefile]" pywebview httpx pyyaml humanize tenacity orjson beautifulsoup4
+python -m nuitka --standalone --onefile --assume-yes-for-downloads --enable-plugin=no-qt --include-data-dir=data=data --include-data-dir=retro_refiner/ui/assets=retro_refiner/ui/assets --windows-icon-from-ico=retro_refiner/ui/assets/icon.ico --windows-console-mode=disable --output-filename=retro-refiner.exe --python-flag=-m retro_refiner
 ```
 
 ## Architecture
@@ -355,4 +355,4 @@ git tag v2026.03.19.0100 && git push origin v2026.03.19.0100
 
 ### Dependencies
 - **Runtime:** `pywebview`, `httpx`, `pyyaml`, `humanize`, `tenacity`, `orjson`, `beautifulsoup4`
-- **Build:** `pyinstaller`
+- **Build:** `nuitka[onefile]`
