@@ -1,6 +1,5 @@
 """Python API exposed to JavaScript via pywebview."""
 
-import json
 import re
 import threading
 import time
@@ -9,6 +8,7 @@ from collections import Counter
 from pathlib import Path
 from statistics import median
 
+import orjson
 import webview
 
 from retro_refiner.config import Config, load_config, save_config
@@ -56,16 +56,16 @@ class Api:
 
     def get_config(self) -> str:
         """Return current config as JSON."""
-        return json.dumps(self._config.to_dict())
+        return orjson.dumps(self._config.to_dict()).decode()
 
     def set_config(self, config_json: str):
         """Update config from JSON."""
-        data = json.loads(config_json)
+        data = orjson.loads(config_json)
         self._config = Config.from_dict(data)
 
     def get_systems(self) -> str:
         """Return list of known systems as JSON."""
-        return json.dumps(self._systems_data.known_systems)
+        return orjson.dumps(self._systems_data.known_systems).decode()
 
     def save_settings(self, path: str):
         """Save current config to file."""
@@ -74,12 +74,12 @@ class Api:
     def load_settings(self, path: str) -> str:
         """Load config from file and return as JSON."""
         self._config = load_config(Path(path))
-        return json.dumps(self._config.to_dict())
+        return orjson.dumps(self._config.to_dict()).decode()
 
     def get_default_config(self) -> str:
         """Reset config to defaults and return as JSON."""
         self._config = Config()
-        return json.dumps(self._config.to_dict())
+        return orjson.dumps(self._config.to_dict()).decode()
 
     def reset_and_restart(self):
         """Delete state file and cache, then restart the app."""
@@ -173,7 +173,7 @@ class Api:
                     tmp.unlink()
                     deleted.append(f'{tmp.name} (temp download)')
 
-        return json.dumps({'deleted': deleted})
+        return orjson.dumps({'deleted': deleted}).decode()
 
     def save_ui_state(self):
         """Auto-save current config to the default UI state file.
@@ -203,13 +203,13 @@ class Api:
             return '{}'
         try:
             self._config = load_config(path)
-            return json.dumps(self._config.to_dict())
+            return orjson.dumps(self._config.to_dict()).decode()
         except (OSError, ValueError):
             return '{}'
 
     def update_sources(self, sources_json: str):
         """Update sources list from JS."""
-        self._config.sources = json.loads(sources_json)
+        self._config.sources = orjson.loads(sources_json)
 
     def update_destination(self, dest: str):
         """Update destination from JS."""
@@ -291,14 +291,14 @@ class Api:
 
     def update_selection(self, selection_json: str):
         """Update selection config from JS."""
-        data = json.loads(selection_json)
+        data = orjson.loads(selection_json)
         for key, value in data.items():
             if hasattr(self._config.selection, key):
                 setattr(self._config.selection, key, value)
 
     def update_config_from_ui(self, ui_json: str):
         """Update full config from UI sidebar state."""
-        ui = json.loads(ui_json)
+        ui = orjson.loads(ui_json)
         self._config.sources = ui.get('sources', [])
         self._config.source_settings = ui.get('source_settings', {})
         self._config.destination = ui.get('destination') or None
@@ -2129,7 +2129,7 @@ class Api:
         """
         # Return cached picker state if it exists (preserves manual edits)
         if system in self._picker_state:
-            return json.dumps(self._picker_state[system])
+            return orjson.dumps(self._picker_state[system]).decode()
 
         from retro_refiner.filter import parse_rom_filename  # pylint: disable=import-outside-toplevel
 
@@ -2180,7 +2180,7 @@ class Api:
 
         # Cache for persistence across picker reopens
         self._picker_state[system] = roms
-        return json.dumps(roms)
+        return orjson.dumps(roms).decode()
 
     def get_all_roms(self) -> str:
         """Get all ROMs across all systems as JSON.
@@ -2189,18 +2189,18 @@ class Api:
         """
         all_roms = []
         for system in sorted(self._last_results):
-            roms = json.loads(self.get_system_roms(system))
+            roms = orjson.loads(self.get_system_roms(system))
             for rom in roms:
                 rom['system'] = system
                 all_roms.append(rom)
-        return json.dumps(all_roms)
+        return orjson.dumps(all_roms).decode()
 
     def update_rom_selection(self, system: str, selections_json: str):
         """Update which ROMs are selected for a system.
 
         selections_json is a JSON list of {filename, selected} dicts.
         """
-        selections = json.loads(selections_json)
+        selections = orjson.loads(selections_json)
         if system not in self._manual_selections:
             self._manual_selections[system] = {}
         for sel in selections:
@@ -2256,7 +2256,7 @@ class Api:
             if text:
                 self._log_buffer.append(text)
         if self._window:
-            payload = json.dumps({'type': event_type, 'data': data})
+            payload = orjson.dumps({'type': event_type, 'data': data}).decode()
             self._window.evaluate_js(
                 f'window.handlePythonEvent({payload})'
             )

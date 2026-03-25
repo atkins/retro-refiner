@@ -2,6 +2,9 @@
 # Specify a score threshold under which the program will exit with error
 fail-under=8.0
 
+# Allow pylint to load C extension modules for introspection
+extension-pkg-allow-list=orjson
+
 [MESSAGES CONTROL]
 # Disable specific warnings that don't apply well to this single-file script
 disable=
