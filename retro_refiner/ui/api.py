@@ -53,6 +53,7 @@ class Api:
     def set_window(self, window):
         """Store a reference to the pywebview window."""
         self._window = window
+        self._auto_check_for_updates()
 
     def get_config(self) -> str:
         """Return current config as JSON."""
@@ -84,8 +85,6 @@ class Api:
     def reset_and_restart(self):
         """Delete state file and cache, then restart the app."""
         import shutil  # pylint: disable=import-outside-toplevel
-        import subprocess as _sp  # pylint: disable=import-outside-toplevel
-        import sys as _sys  # pylint: disable=import-outside-toplevel
 
         self._skip_save = True  # prevent on_closing from rewriting state
         runtime = get_runtime_path()
@@ -116,18 +115,104 @@ class Api:
         if dat_dir.exists() and any(dat_dir.glob('*.dat')):
             shutil.rmtree(dat_dir, ignore_errors=True)
 
-        # Relaunch detached from parent's terminal
-        launch_kw = {'start_new_session': True}
-        if _sys.platform == 'win32':
-            launch_kw = {'creationflags': (
-                _sp.CREATE_NO_WINDOW | _sp.CREATE_NEW_PROCESS_GROUP)}
-        _sp.Popen(  # pylint: disable=consider-using-with
-            [_sys.executable, '-m', 'retro_refiner'],
-            stdout=_sp.DEVNULL, stderr=_sp.DEVNULL,
-            stdin=_sp.DEVNULL, **launch_kw,
-        )
+        # Relaunch app
+        from retro_refiner.updater import launch_and_exit  # pylint: disable=import-outside-toplevel
         if self._window:
             self._window.destroy()
+        launch_and_exit()
+
+    def check_for_updates(self, force=False):
+        """Check GitHub for a newer version. Returns JSON."""
+        from retro_refiner.updater import (  # pylint: disable=import-outside-toplevel
+            can_check_for_updates, check_for_update,
+            load_update_state, save_update_state, should_check,
+        )
+        if not can_check_for_updates():
+            return orjson.dumps(None).decode()
+
+        state = load_update_state()
+        if not force and not should_check(state):
+            return orjson.dumps(None).decode()
+
+        info = check_for_update()
+
+        from datetime import datetime, timezone  # pylint: disable=import-outside-toplevel
+        state['last_check'] = datetime.now(timezone.utc).isoformat()
+        save_update_state(state)
+
+        if not info:
+            return orjson.dumps(None).decode()
+
+        if state.get('dismissed_version') == info['version']:
+            return orjson.dumps(None).decode()
+
+        return orjson.dumps(info).decode()
+
+    def download_update(self, url, expected_size):
+        """Download update and apply it. Pushes progress events."""
+        def _do_download():
+            from retro_refiner.updater import (  # pylint: disable=import-outside-toplevel
+                download_update as dl_update, apply_update,
+            )
+            def on_progress(downloaded, total):
+                pct = int(downloaded / total * 100) if total else 0
+                self._push_event('update-progress', {
+                    'downloaded': downloaded, 'total': total, 'percent': pct,
+                })
+
+            self._push_event('update-downloading', {})
+
+            path = dl_update(url, expected_size, progress_callback=on_progress)
+            if not path:
+                self._push_event('update-error', {
+                    'message': 'Download failed or file size mismatch',
+                })
+                return
+
+            import sys as _sys  # pylint: disable=import-outside-toplevel
+            exe_path = Path(_sys.executable)
+            success = apply_update(path, exe_path)
+            if success:
+                self._push_event('update-ready', {})
+            else:
+                self._push_event('update-error', {
+                    'message': 'Failed to apply update (permission error?)',
+                })
+
+        t = threading.Thread(target=_do_download, daemon=True)
+        t.start()
+        return orjson.dumps({'status': 'started'}).decode()
+
+    def restart_app(self):
+        """Save state and restart with the updated executable."""
+        self._skip_save = False
+        self.save_ui_state()
+        from retro_refiner.updater import launch_and_exit  # pylint: disable=import-outside-toplevel
+        if self._window:
+            self._window.destroy()
+        launch_and_exit()
+
+    def dismiss_update(self, version):
+        """Dismiss the update banner for a specific version."""
+        from retro_refiner.updater import (  # pylint: disable=import-outside-toplevel
+            load_update_state, save_update_state,
+        )
+        state = load_update_state()
+        state['dismissed_version'] = version
+        save_update_state(state)
+        return orjson.dumps({'ok': True}).decode()
+
+    def _auto_check_for_updates(self):
+        """Background auto-check for updates on app launch."""
+        def _check():
+            time.sleep(3)  # Let GUI settle first
+            result_json = self.check_for_updates()
+            result = orjson.loads(result_json)
+            if result:
+                self._push_event('update-available', result)
+
+        t = threading.Thread(target=_check, daemon=True)
+        t.start()
 
     def clean_data(self) -> str:
         """Delete all cached and generated data files.

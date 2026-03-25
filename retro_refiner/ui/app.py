@@ -113,5 +113,9 @@ def start_app():
     )
     window.events.closing += on_closing
     window.events.shown += on_shown
+    # Run update recovery/cleanup before GUI starts
+    from retro_refiner.updater import startup_recovery  # pylint: disable=import-outside-toplevel
+    startup_recovery()
+
     api.set_window(window)
     webview.start(debug=False)
