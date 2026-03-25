@@ -795,3 +795,169 @@ def test_myrient_decoded_href_and_name_keys():
     sizes = extract_file_sizes_from_html(MYRIENT_HTML)
     assert "Super Mario World.zip" in sizes
     assert "Zelda.zip" in sizes
+
+
+# =============================================================================
+# _is_retryable_httpx tests
+# =============================================================================
+
+class TestIsRetryableHttpx:
+    """Tests for the retry predicate used by stream_download."""
+
+    @pytest.mark.parametrize("status_code", [500, 502, 503])
+    def test_server_errors_are_retryable(self, status_code):
+        import httpx
+        from retro_refiner.network import _is_retryable_httpx
+        request = httpx.Request("GET", "http://example.com/file.bin")
+        response = httpx.Response(status_code, request=request)
+        exc = httpx.HTTPStatusError(
+            f"{status_code} Server Error", request=request, response=response)
+        assert _is_retryable_httpx(exc) is True
+
+    @pytest.mark.parametrize("status_code", [400, 403, 404])
+    def test_client_errors_are_not_retryable(self, status_code):
+        import httpx
+        from retro_refiner.network import _is_retryable_httpx
+        request = httpx.Request("GET", "http://example.com/file.bin")
+        response = httpx.Response(status_code, request=request)
+        exc = httpx.HTTPStatusError(
+            f"{status_code} Client Error", request=request, response=response)
+        assert _is_retryable_httpx(exc) is False
+
+    def test_timeout_exception_is_retryable(self):
+        import httpx
+        from retro_refiner.network import _is_retryable_httpx
+        exc = httpx.TimeoutException("timed out")
+        assert _is_retryable_httpx(exc) is True
+
+    def test_connect_error_is_retryable(self):
+        import httpx
+        from retro_refiner.network import _is_retryable_httpx
+        exc = httpx.ConnectError("connection refused")
+        assert _is_retryable_httpx(exc) is True
+
+    def test_unrelated_exception_is_not_retryable(self):
+        from retro_refiner.network import _is_retryable_httpx
+        assert _is_retryable_httpx(ValueError("bad value")) is False
+        assert _is_retryable_httpx(RuntimeError("oops")) is False
+
+
+# =============================================================================
+# stream_download tests
+# =============================================================================
+
+class TestStreamDownload:
+    """Tests for stream_download with httpx.MockTransport."""
+
+    def test_happy_path_downloads_content(self, tmp_path):
+        """Successfully downloads file content."""
+        import httpx
+        from retro_refiner.network import stream_download
+
+        def handler(request):
+            return httpx.Response(200, content=b"hello world")
+
+        client = httpx.Client(transport=httpx.MockTransport(handler))
+        dest = tmp_path / "test.bin"
+        stream_download(client, "http://example.com/file.bin", dest)
+        assert dest.read_bytes() == b"hello world"
+        client.close()
+
+    def test_retries_on_500_then_succeeds(self, tmp_path):
+        """Fails twice with 500, succeeds on 3rd attempt."""
+        import httpx
+        from retro_refiner.network import stream_download
+
+        call_count = 0
+
+        def handler(request):
+            nonlocal call_count
+            call_count += 1
+            if call_count < 3:
+                return httpx.Response(500)
+            return httpx.Response(200, content=b"success data")
+
+        client = httpx.Client(transport=httpx.MockTransport(handler))
+        dest = tmp_path / "test.bin"
+        stream_download(client, "http://example.com/file.bin", dest)
+        assert dest.read_bytes() == b"success data"
+        assert call_count == 3
+        client.close()
+
+    def test_no_retry_on_404(self, tmp_path):
+        """404 error fails immediately without retrying."""
+        import httpx
+        from retro_refiner.network import stream_download
+
+        call_count = 0
+
+        def handler(request):
+            nonlocal call_count
+            call_count += 1
+            return httpx.Response(404)
+
+        client = httpx.Client(transport=httpx.MockTransport(handler))
+        dest = tmp_path / "test.bin"
+        with pytest.raises(httpx.HTTPStatusError) as exc_info:
+            stream_download(client, "http://example.com/missing.bin", dest)
+        assert exc_info.value.response.status_code == 404
+        assert call_count == 1
+        client.close()
+
+    def test_max_retries_exhausted_raises(self, tmp_path):
+        """3 consecutive 500 errors exhausts retries and raises."""
+        import httpx
+        from retro_refiner.network import stream_download
+
+        call_count = 0
+
+        def handler(request):
+            nonlocal call_count
+            call_count += 1
+            return httpx.Response(500)
+
+        client = httpx.Client(transport=httpx.MockTransport(handler))
+        dest = tmp_path / "test.bin"
+        with pytest.raises(httpx.HTTPStatusError) as exc_info:
+            stream_download(client, "http://example.com/file.bin", dest)
+        assert exc_info.value.response.status_code == 500
+        assert call_count == 3
+        client.close()
+
+    def test_large_content_streamed_correctly(self, tmp_path):
+        """Larger content is streamed and written completely."""
+        import httpx
+        from retro_refiner.network import stream_download
+
+        # 64KB of data -- larger than the 8192 chunk size
+        data = b"x" * 65536
+
+        def handler(request):
+            return httpx.Response(200, content=data)
+
+        client = httpx.Client(transport=httpx.MockTransport(handler))
+        dest = tmp_path / "large.bin"
+        stream_download(client, "http://example.com/large.bin", dest)
+        assert dest.read_bytes() == data
+        client.close()
+
+    def test_retry_on_502_then_succeeds(self, tmp_path):
+        """Single 502 followed by success -- verifies all 5xx codes retry."""
+        import httpx
+        from retro_refiner.network import stream_download
+
+        call_count = 0
+
+        def handler(request):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return httpx.Response(502)
+            return httpx.Response(200, content=b"recovered")
+
+        client = httpx.Client(transport=httpx.MockTransport(handler))
+        dest = tmp_path / "test.bin"
+        stream_download(client, "http://example.com/file.bin", dest)
+        assert dest.read_bytes() == b"recovered"
+        assert call_count == 2
+        client.close()
