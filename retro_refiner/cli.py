@@ -10,7 +10,7 @@ import urllib.parse
 from pathlib import Path
 
 from retro_refiner.config import Config, load_config, save_config
-from retro_refiner.network import format_size, is_url, validate_source
+from retro_refiner.network import format_size, is_url, stream_download, validate_source
 from retro_refiner.scanner import scan_local_sources, scan_network_source
 from retro_refiner.paths import get_runtime_path
 
@@ -306,34 +306,14 @@ def run_headless(args: list):
                     completed = 0
                     succeeded = set()
                     for url, tmp_path, _ in downloads:
-                        for attempt in range(3):
-                            try:
-                                with client.stream('GET', url) as resp:
-                                    resp.raise_for_status()
-                                    with open(tmp_path, 'wb') as f:
-                                        for chunk in resp.iter_bytes(
-                                                8192):
-                                            f.write(chunk)
-                                completed += 1
-                                succeeded.add(tmp_path)
-                                break
-                            except (httpx.TimeoutException,
-                                    httpx.ConnectError,
-                                    httpx.HTTPStatusError) as exc:
-                                if (isinstance(exc,
-                                               httpx.HTTPStatusError)
-                                        and exc.response.status_code
-                                        < 500):
-                                    fname = _url_to_filename(url)
-                                    print(f"    FAILED: {fname}: "
-                                          f"{exc}",
-                                          file=sys.stderr)
-                                    break  # don't retry 4xx
-                                if attempt == 2:
-                                    fname = _url_to_filename(url)
-                                    print(f"    FAILED: {fname}: "
-                                          f"{exc}",
-                                          file=sys.stderr)
+                        try:
+                            stream_download(client, url, tmp_path)
+                            completed += 1
+                            succeeded.add(tmp_path)
+                        except Exception as exc:  # pylint: disable=broad-except
+                            fname = _url_to_filename(url)
+                            print(f"    FAILED: {fname}: {exc}",
+                                  file=sys.stderr)
                     print(f"  {system.upper()}: downloaded "
                           f"{completed}/{len(downloads)} files")
 

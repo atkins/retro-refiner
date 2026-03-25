@@ -12,6 +12,7 @@ from statistics import median
 import webview
 
 from retro_refiner.config import Config, load_config, save_config
+from retro_refiner.network import stream_download
 from retro_refiner.paths import get_runtime_path
 from retro_refiner.systems import load_system_data
 
@@ -1648,23 +1649,12 @@ class Api:
         def _download_one(idx_url_path):
             idx, (url, dest_path) = idx_url_path
             dest_path.parent.mkdir(parents=True, exist_ok=True)
-            for attempt in range(3):
-                try:
-                    with client.stream('GET', url) as response:
-                        response.raise_for_status()
-                        with open(dest_path, 'wb') as f:
-                            for chunk in response.iter_bytes(8192):
-                                f.write(chunk)
-                    done_set.add(idx)
-                    return idx, None
-                except (httpx.TimeoutException, httpx.ConnectError,
-                        httpx.HTTPStatusError) as exc:
-                    if (isinstance(exc, httpx.HTTPStatusError)
-                            and exc.response.status_code < 500):
-                        return idx, str(exc)  # don't retry 4xx
-                    if attempt == 2:
-                        return idx, str(exc)
-            return idx, 'max retries'
+            try:
+                stream_download(client, url, dest_path)
+                done_set.add(idx)
+                return idx, None
+            except Exception as exc:  # pylint: disable=broad-except
+                return idx, str(exc)
 
         dl_t0 = time.monotonic()
         from concurrent.futures import ThreadPoolExecutor  # pylint: disable=import-outside-toplevel

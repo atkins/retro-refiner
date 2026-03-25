@@ -15,6 +15,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
+from tenacity import retry, retry_if_exception, stop_after_attempt
+
 # ---------------------------------------------------------------------------
 # Shutdown mechanism
 # ---------------------------------------------------------------------------
@@ -800,3 +802,33 @@ def save_scan_cache(cache_dir: Path, url: str,
             os.unlink(tmp_path)
         except (OSError, UnboundLocalError):
             pass
+
+
+# ---------------------------------------------------------------------------
+# Shared download helper with tenacity retry
+# ---------------------------------------------------------------------------
+
+def _is_retryable_httpx(exc):
+    """Return True if the httpx exception should trigger a retry."""
+    import httpx as _httpx  # pylint: disable=import-outside-toplevel
+    if isinstance(exc, _httpx.HTTPStatusError):
+        return exc.response.status_code >= 500
+    return isinstance(exc, (_httpx.TimeoutException, _httpx.ConnectError))
+
+
+@retry(
+    stop=stop_after_attempt(3),
+    retry=retry_if_exception(_is_retryable_httpx),
+    reraise=True,
+)
+def stream_download(client, url, dest_path):
+    """Stream a URL to a file with retry on transient errors.
+
+    Retries up to 3 times on 5xx, timeout, and connection errors.
+    Does NOT retry on 4xx client errors.
+    """
+    with client.stream('GET', url) as response:
+        response.raise_for_status()
+        with open(dest_path, 'wb') as f:
+            for chunk in response.iter_bytes(8192):
+                f.write(chunk)

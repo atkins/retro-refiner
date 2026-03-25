@@ -10,7 +10,6 @@ import re
 import shutil
 import sys
 import threading
-import time
 import unicodedata
 import urllib.error
 import urllib.request
@@ -18,6 +17,8 @@ import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Dict, List, Optional
+
+from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential
 
 from retro_refiner.paths import get_base_path
 from retro_refiner.systems import load_system_data
@@ -351,6 +352,26 @@ def fetch_ten_dat_listing() -> Dict[str, str]:
         return {}
 
 
+def _is_retryable_urllib(exc):
+    """Return True if the urllib exception should trigger a retry."""
+    if isinstance(exc, urllib.error.HTTPError):
+        return exc.code >= 500 or exc.code == 429
+    return isinstance(exc, (urllib.error.URLError, OSError))
+
+
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=2, min=2, max=6),
+    retry=retry_if_exception(_is_retryable_urllib),
+    reraise=True,
+)
+def _fetch_dat_zip(url, headers):
+    """Download and return DAT zip data with retry."""
+    req = urllib.request.Request(url, headers=headers)
+    with urllib.request.urlopen(req, timeout=60) as response:
+        return response.read()
+
+
 def download_ten_dat(system: str, dest_dir: Path, force: bool = False,
                      auth_header: Optional[str] = None,
                      listing_cache: Optional[Dict[str, str]] = None
@@ -387,39 +408,26 @@ def download_ten_dat(system: str, dest_dir: Path, force: bool = False,
     if auth_header:
         headers['Authorization'] = auth_header
 
-    max_retries = 3
-    for attempt in range(max_retries):
-        try:
-            req = urllib.request.Request(zip_url, headers=headers)
-            with urllib.request.urlopen(req, timeout=60) as response:
-                zip_data = response.read()
+    try:
+        zip_data = _fetch_dat_zip(zip_url, headers)
+    except urllib.error.HTTPError as exc:
+        if exc.code == 404:
+            return None
+        return None
+    except Exception:  # pylint: disable=broad-except
+        return None
 
-            with zipfile.ZipFile(io.BytesIO(zip_data)) as zf:
-                dat_files = [n for n in zf.namelist()
-                             if n.lower().endswith('.dat')]
-                if not dat_files:
-                    return None
+    with zipfile.ZipFile(io.BytesIO(zip_data)) as zf:
+        dat_files = [n for n in zf.namelist()
+                     if n.lower().endswith('.dat')]
+        if not dat_files:
+            return None
 
-                with zf.open(dat_files[0]) as src:
-                    with open(dat_path, 'wb') as dst:
-                        shutil.copyfileobj(src, dst)
+        with zf.open(dat_files[0]) as src:
+            with open(dat_path, 'wb') as dst:
+                shutil.copyfileobj(src, dst)
 
-            return dat_path
-
-        except urllib.error.HTTPError as exc:
-            if exc.code == 404:
-                return None
-            if attempt < max_retries - 1:
-                time.sleep((attempt + 1) * 2)
-            else:
-                return None
-        except Exception:  # pylint: disable=broad-except
-            if attempt < max_retries - 1:
-                time.sleep((attempt + 1) * 2)
-            else:
-                return None
-
-    return None
+    return dat_path
 
 
 # =============================================================================
