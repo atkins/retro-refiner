@@ -393,6 +393,56 @@
   }
   .btn-subtle:hover { background: var(--accent-hover); color: var(--text-primary); }
 
+  /* Update banner */
+  .update-banner {
+    display: none;
+    padding: 8px 16px;
+    background: var(--bg-stripe);
+    border-bottom: 1px solid var(--border-subtle);
+    font-size: 13px;
+    align-items: center;
+    gap: 8px;
+  }
+  .update-banner.visible { display: flex; }
+  .update-banner .update-text { flex: 1; }
+  .update-banner .btn-update {
+    background: var(--accent);
+    color: var(--text-on-accent);
+    border: none;
+    border-radius: 4px;
+    padding: 4px 12px;
+    cursor: pointer;
+    font-size: 12px;
+    white-space: nowrap;
+  }
+  .update-banner .btn-update:hover { opacity: 0.9; }
+  .update-banner .btn-dismiss {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 16px;
+    padding: 0 4px;
+  }
+  .update-banner a {
+    color: var(--accent);
+    text-decoration: underline;
+    cursor: pointer;
+    font-size: 12px;
+    white-space: nowrap;
+  }
+  .update-check-link {
+    color: var(--text-muted);
+    font-size: 11px;
+    cursor: pointer;
+    text-decoration: none;
+    margin-top: 4px;
+    display: inline-block;
+    width: 100%;
+    text-align: center;
+  }
+  .update-check-link:hover { color: var(--accent); }
+
   /* ===== Main panel ===== */
   .main { flex: 1; display: flex; flex-direction: column; background: var(--bg-primary); min-width: 0; }
 
@@ -933,11 +983,23 @@
       <button class="btn-subtle" onclick="loadConfig()" title="Load settings from a YAML or JSON file">Load</button>
       <button class="btn-subtle" onclick="resetApp()" title="Delete all settings, cache, and restart fresh">Reset</button>
     </div>
+    <div style="padding: 0 12px 6px; text-align: center;">
+      <span class="update-check-link" id="check-updates-link" onclick="manualCheckForUpdates()">Check for Updates</span>
+    </div>
 
   </div>
 
   <!-- ===== Main panel ===== -->
   <div class="main">
+
+    <!-- Update banner -->
+    <div class="update-banner" id="update-banner">
+      <span class="update-text" id="update-text"></span>
+      <a id="update-whats-new" href="#" style="display:none"
+         onclick="event.preventDefault(); if(window.pywebview) window.pywebview.api.open_url(this.dataset.url)">What's new?</a>
+      <button class="btn-update" id="update-action" style="display:none"></button>
+      <button class="btn-dismiss" id="update-dismiss" title="Dismiss" style="display:none">&times;</button>
+    </div>
 
     <!-- Status bar -->
     <div class="status-bar">
@@ -2352,7 +2414,89 @@ function _handleEventOriginal(event) {
   }
 }
 
+/* ---- Update Banner ---- */
+var _updateInfo = null;
+
+function showUpdateBanner(state, data) {
+  var banner = document.getElementById('update-banner');
+  var text = document.getElementById('update-text');
+  var action = document.getElementById('update-action');
+  var dismiss = document.getElementById('update-dismiss');
+  var whatsNew = document.getElementById('update-whats-new');
+  banner.classList.add('visible');
+
+  if (state === 'available') {
+    _updateInfo = data;
+    text.textContent = 'Update available: ' + data.version;
+    action.textContent = 'Download & Install';
+    action.style.display = '';
+    action.onclick = function() { startUpdateDownload(); };
+    dismiss.style.display = '';
+    dismiss.onclick = function() { dismissUpdate(data.version); };
+    if (data.html_url) {
+      whatsNew.style.display = '';
+      whatsNew.dataset.url = data.html_url;
+    }
+  } else if (state === 'downloading') {
+    text.textContent = 'Downloading update...';
+    action.style.display = 'none';
+    dismiss.style.display = 'none';
+    whatsNew.style.display = 'none';
+  } else if (state === 'progress') {
+    text.textContent = 'Downloading update... ' + (data.percent || 0) + '%';
+  } else if (state === 'ready') {
+    text.textContent = 'Update downloaded \u2014 restart to apply';
+    action.textContent = 'Restart Now';
+    action.style.display = '';
+    action.onclick = function() {
+      if (window.pywebview) window.pywebview.api.restart_app();
+    };
+    dismiss.style.display = 'none';
+    whatsNew.style.display = 'none';
+  } else if (state === 'error') {
+    text.textContent = 'Update failed: ' + (data.message || 'unknown error');
+    action.textContent = 'Retry';
+    action.style.display = '';
+    action.onclick = function() { startUpdateDownload(); };
+    dismiss.style.display = '';
+    dismiss.onclick = function() { banner.classList.remove('visible'); };
+    whatsNew.style.display = 'none';
+  }
+}
+
+function startUpdateDownload() {
+  if (!_updateInfo || !window.pywebview) return;
+  window.pywebview.api.download_update(_updateInfo.url, _updateInfo.size);
+}
+
+function dismissUpdate(version) {
+  document.getElementById('update-banner').classList.remove('visible');
+  if (window.pywebview) window.pywebview.api.dismiss_update(version);
+}
+
+function manualCheckForUpdates() {
+  var link = document.getElementById('check-updates-link');
+  if (!window.pywebview) return;
+  link.textContent = 'Checking...';
+  window.pywebview.api.check_for_updates(true).then(function(json) {
+    var result = JSON.parse(json);
+    if (result) {
+      showUpdateBanner('available', result);
+      link.textContent = 'Check for Updates';
+    } else {
+      link.textContent = 'Up to date';
+      setTimeout(function() { link.textContent = 'Check for Updates'; }, 3000);
+    }
+  });
+}
+
 window.handlePythonEvent = function(event) {
+  /* Update events */
+  if (event.type === 'update-available') { showUpdateBanner('available', event.data); return; }
+  if (event.type === 'update-downloading') { showUpdateBanner('downloading', event.data); return; }
+  if (event.type === 'update-progress') { showUpdateBanner('progress', event.data); return; }
+  if (event.type === 'update-ready') { showUpdateBanner('ready', event.data); return; }
+  if (event.type === 'update-error') { showUpdateBanner('error', event.data); return; }
   if (LogRenderer.handle(event)) return;
   _handleEventOriginal(event);
 };
