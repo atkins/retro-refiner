@@ -1294,7 +1294,8 @@ class Api:
                       if 1970 <= r.year <= 2030]
         # Only report year stats if >= 10% of ROMs have year data
         has_year_data = len(years_list) >= max(len(parsed) // 10, 3)
-        years = dict(Counter(years_list)) if has_year_data else {}
+        years = ({str(k): v for k, v in Counter(years_list).items()}
+                 if has_year_data else {})
         peak_year = (Counter(years_list).most_common(1)[0][0]
                      if has_year_data and years_list else 0)
         year_range = ([min(years_list), max(years_list)]
