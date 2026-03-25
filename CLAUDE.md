@@ -30,7 +30,7 @@ python tests/test_v2_paths.py        # 3 path tests
 python tests/test_v2_cli.py          # 36 CLI tests
 python tests/test_v2_integration.py  # 5 integration tests
 ```
-Note: `pytest` is not installed. Tests use a custom `TestResult` framework and are run directly. **519 tests total, all passing.**
+Note: `pytest` is not installed. Tests use a custom `TestResult` framework and are run directly. **524 tests total, all passing.**
 
 ### Lint
 ```bash
@@ -99,7 +99,6 @@ retro_refiner/
 ### Config System
 Single `Config` dataclass with nested sections (`SelectionConfig`, `NetworkConfig`, `OutputConfig`, `DeduplicationConfig`, `WindowConfig`, etc.). Same YAML format for GUI save/load and CLI `--run`. Note: `DeduperConfig` was renamed to `DeduplicationConfig` — field is `.deduplication` (not `.dedup`). `from_dict()` accepts legacy `dedup` key for backward compat.
 
-New fields:
 - `source_settings: Dict[str, dict]` — per-source recursive scan settings keyed by path
 - Auth credentials are **excluded** from state file persistence for security
 
@@ -154,7 +153,7 @@ data.folder_aliases       # Dict[str, str], megadrive → genesis
 The main run method is split into extracted helper methods:
 - `_validate_sources()` — source validation loop
 - `_scan_sources()` — network + local scanning, returns (all_urls, all_sizes, local_systems, all_systems) or None
-- `_filter_system()` — per-system filtering (network + local), returns (selected, excluded, size, source) tuple
+- `_filter_system()` — per-system filtering (network + local), returns (selected, excluded, size, source, source_size) tuple
 - `_compute_fanfare()` — ROM content analysis and tidbit generation
 - `_run_dedup()` — cross-system dedup pass
 - `_apply_budget_filters()` — budget/limit/size constraints
@@ -162,6 +161,7 @@ The main run method is split into extracted helper methods:
 - `_compute_system_stats()` — per-system verbose stats (regions, years, sizes, formats, revisions, languages)
 - `_write_run_logs()` — comprehensive log file output (4 file types) when log_dir configured
 - `_download_with_aria2c()` — aria2c batch download with redirect pre-resolution, file-polling progress, and curl fallback
+- `reset_and_restart()` — delete state/cache/DATs, relaunch app fresh
 - `clean_data()` — delete scan cache, DAT files, CRC cache, state file, temp downloads
 
 ### Structured Log Events
@@ -246,7 +246,7 @@ Module-level `_SYSTEM_ABBREVS` frozenset and `_display_name(system)` helper in a
 - **File Locations** (always visible): sources with drag-and-drop + per-source recursive toggle (works for both local and network sources), destination path picker with validate/CRC/clean options, local file action dropdown (hidden when all sources are URLs), multi-disc M3U + flatten toggles, system pills with All/None toggle
 - **Selection** (always visible): "Apply filters" toggle with sub-options (1G1R, English, protos, betas, unlicensed, adult — adult hidden when no arcade systems), region priority, patterns, year range. All options use mobile-style toggle switches (hybrid layout: primary full-width, secondary in 2-column grid).
 - **More Options** (collapsed): Deduplication (ordered priority pills, exclusion playlists), Budget & Limits, Advanced (network settings, DAT/CHD/cache toggles, scan depth, MAME version, ratings, EmulationStation/RetroArch/log directories, auth credentials)
-- **Footer**: Save/Load/Reset/Clean buttons
+- **Footer**: Save/Load/Reset buttons
 
 ### Path Pickers
 Clickable path-picker UI component (folder icon, truncated path, tooltip, × clear). Used for destination, RetroArch playlists, log dir, DAT dir. `setPathPicker()` / `clearPathPicker()` / `browsePathPicker()` helpers.
@@ -264,7 +264,7 @@ Handles structured events (system-start, filter-tick, system-complete, scan-summ
 Step indicators `[1/3] [2/3] [3/3]` (preview uses `[1/2] [2/2]`) with phase-specific stats:
 - **Scanning**: folders/s, ETA
 - **Filtering**: running totals (selected count, size), elapsed, ETA
-- **Downloading**: aria2c RPC with live speed (MB/s), elapsed, ETA; curl chunked; urllib per-file
+- **Downloading**: aria2c batch with file-polling (files/s), elapsed, ETA; curl chunked; urllib per-file
 - **Local transfers**: per-file progress via `transfer_files` callback
 
 ## Common Modification Points
@@ -323,7 +323,7 @@ All tests import from `retro_refiner.*` package — no monolith imports.
 - Dynamic values in `innerHTML` escaped via `escapeHtml()` — `textContent`/`createElement` preferred
 - Clipboard uses platform-native subprocesses, not tkinter
 - `cancel_run()` propagates shutdown to network operations
-- aria2c RPC uses random port (16000-32000) to prevent multi-instance conflicts
+- aria2c pre-resolves redirects via HEAD request to avoid encoded-character failures
 - Config snapshot at run start for thread safety (`Config.from_dict(self._config.to_dict())`)
 - `clean_data()` requires DAT file presence check before `rmtree`, plus user confirmation dialog
 - Empty scan results not cached (prevents stale 0-URL cache from blocking future scans)
