@@ -17,6 +17,10 @@ __pycache__/
 .eggs/
 dist/
 build/
+retro-refiner.exe
+retro_refiner.build/
+retro_refiner.dist/
+retro_refiner.onefile-build/
 
 # Virtual environments
 venv/
