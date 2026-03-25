@@ -14,17 +14,17 @@ from retro_refiner.config import Config, load_config, save_config
 # =============================================================================
 
 @pytest.mark.parametrize("size,expected", [
-    (0, "0 B"),
-    (512, "512 B"),
-    (1023, "1023 B"),
-    (1024, "1.0 KB"),
-    (1536, "1.5 KB"),
-    (1024 * 1024, "1.0 MB"),
-    (512 * 1024 * 1024, "512.0 MB"),
-    (1024 * 1024 * 1024, "1.00 GB"),
-    (2 * 1024 * 1024 * 1024, "2.00 GB"),
-    (1024 * 1024 * 1024 * 1024, "1.00 TB"),
-    (3 * 1024 * 1024 * 1024 * 1024, "3.00 TB"),
+    (0, "0 Bytes"),
+    (512, "512 Bytes"),
+    (1023, "1023 Bytes"),
+    (1024, "1.0 KiB"),
+    (1536, "1.5 KiB"),
+    (1024 * 1024, "1.0 MiB"),
+    (512 * 1024 * 1024, "512.0 MiB"),
+    (1024 * 1024 * 1024, "1.0 GiB"),
+    (2 * 1024 * 1024 * 1024, "2.0 GiB"),
+    (1024 * 1024 * 1024 * 1024, "1.0 TiB"),
+    (3 * 1024 * 1024 * 1024 * 1024, "3.0 TiB"),
 ])
 def test_format_size(size, expected):
     assert format_size(size) == expected
@@ -32,7 +32,7 @@ def test_format_size(size, expected):
 
 def test_format_size_just_under_1mb():
     size = 1024 * 1024 - 1
-    expected = f"{size / 1024:.1f} KB"
+    expected = "1024.0 KiB"
     assert format_size(size) == expected
 
 

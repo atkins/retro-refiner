@@ -246,22 +246,22 @@ def test_format_url_shorter_than_max():
 # =============================================================================
 
 @pytest.mark.parametrize("size,expected", [
-    (0, "0 B"),
-    (500, "500 B"),
-    (1023, "1023 B"),
-    (1024, "1.0 KB"),
-    (1536, "1.5 KB"),
-    (1048576, "1.0 MB"),
-    (1073741824, "1.00 GB"),
-    (1099511627776, "1.00 TB"),
-    (1, "1 B"),
+    (0, "0 Bytes"),
+    (500, "500 Bytes"),
+    (1023, "1023 Bytes"),
+    (1024, "1.0 KiB"),
+    (1536, "1.5 KiB"),
+    (1048576, "1.0 MiB"),
+    (1073741824, "1.0 GiB"),
+    (1099511627776, "1.0 TiB"),
+    (1, "1 Byte"),
 ])
 def test_format_size(size, expected):
     assert format_size(size) == expected
 
 
 def test_format_size_5gb():
-    assert "5.00 GB" in format_size(5 * 1024 * 1024 * 1024)
+    assert "5.0 GiB" in format_size(5 * 1024 * 1024 * 1024)
 
 
 # =============================================================================
@@ -745,7 +745,7 @@ def test_is_rom_file_double_extension():
 
 
 def test_format_size_negative():
-    assert "B" in format_size(-1)
+    assert "Byte" in format_size(-1)
 
 
 def test_parse_budget_size_float_gb():

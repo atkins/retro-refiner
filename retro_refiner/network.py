@@ -44,15 +44,8 @@ def reset_shutdown():
 
 def format_size(size_bytes: int) -> str:
     """Format a size in bytes to a human-readable string."""
-    if size_bytes < 1024:
-        return f"{size_bytes} B"
-    if size_bytes < 1024 * 1024:
-        return f"{size_bytes / 1024:.1f} KB"
-    if size_bytes < 1024 * 1024 * 1024:
-        return f"{size_bytes / (1024 * 1024):.1f} MB"
-    if size_bytes < 1024 ** 4:
-        return f"{size_bytes / (1024 * 1024 * 1024):.2f} GB"
-    return f"{size_bytes / (1024 ** 4):.2f} TB"
+    import humanize  # pylint: disable=import-outside-toplevel
+    return humanize.naturalsize(size_bytes, binary=True)
 
 
 def parse_budget_size(size_str):
