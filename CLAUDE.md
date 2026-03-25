@@ -22,12 +22,12 @@ python -m retro_refiner --export-config
 
 ### Run tests
 ```bash
-python -m pytest                     # 917 tests, ~1s
+python -m pytest                     # 1254 tests, ~1s
 python -m pytest -v                  # verbose output
 python -m pytest tests/test_selection.py  # just core tests
 python tests/test_smoke.py           # network smoke tests (slow, needs Myrient)
 ```
-Uses pytest. Config in `pyproject.toml`. Smoke tests excluded by default. **917 tests total, all passing.**
+Uses pytest. Config in `pyproject.toml`. Smoke tests excluded by default. **1254 tests total, all passing.**
 
 ### Lint
 ```bash
@@ -69,7 +69,7 @@ retro_refiner/
     filter.py         # parse_rom_filename, select_best_rom, filter_network_roms, filter_roms_from_files
     mame.py           # MameGameInfo, catver.ini parsing, category filtering, clone selection
     teknoparrot.py    # TeknoParrotGameInfo, version dedup, platform filtering
-    downloader.py     # DownloadUI, Aria2cRPC, aria2c/curl/urllib, adaptive auto-tune
+    downloader.py     # Stub — download code migrated to httpx
     transfer.py       # Copy/move/symlink/hardlink/remove, dest validation, dest cleaning, playlist gen, gamelist gen
     ratings.py        # IGDB + LaunchBox rating data, combine/boost ratings
     dedup.py          # Cross-system dedup analysis, exclusion playlist parsing
@@ -157,7 +157,7 @@ The main run method is split into extracted helper methods:
 - `_commit_system()` — per-system commit in 4 phases: (1) validate destination (skip files already present, optional CRC check), (2) download remote files directly to destination (uses `.rrdownload` temp files, renamed on completion for crash safety), (3) transfer local files via configured `local_file_action` (copy/move/symlink/hardlink/remove), (4) clean destination (remove unselected files if `clean_destination` enabled)
 - `_compute_system_stats()` — per-system verbose stats (regions, years, sizes, formats, revisions, languages)
 - `_write_run_logs()` — comprehensive log file output (4 file types) when log_dir configured
-- `_download_with_aria2c()` — aria2c batch download with redirect pre-resolution, file-polling progress, and curl fallback
+- `_download_batch()` — httpx streaming download with ThreadPoolExecutor parallelism, 3 retries, progress polling
 - `reset_and_restart()` — delete state/cache/DATs, relaunch app fresh
 - `clean_data()` — delete scan cache, DAT files, CRC cache, state file, temp downloads
 
@@ -261,7 +261,7 @@ Handles structured events (system-start, filter-tick, system-complete, scan-summ
 Step indicators `[1/3] [2/3] [3/3]` (preview uses `[1/2] [2/2]`) with phase-specific stats:
 - **Scanning**: folders/s, ETA
 - **Filtering**: running totals (selected count, size), elapsed, ETA
-- **Downloading**: aria2c batch with file-polling (files/s), elapsed, ETA; curl chunked; urllib per-file
+- **Downloading**: httpx streaming with ThreadPoolExecutor (files/s), elapsed, ETA
 - **Local transfers**: per-file progress via `transfer_files` callback
 
 ## Common Modification Points
@@ -285,9 +285,6 @@ All regex in hot paths (`parse_rom_filename`, `normalize_title`) are `_RE_*` mod
 
 ### Scan caching
 Network scan results cached for 24h in `cache/_scan_cache.json`. Keyed by source URL. Cleaned by `--clean`. Respects `--no-cache`. Atomic writes via temp file + `os.replace()`.
-
-### Adaptive auto-tune
-Download parallelism starts conservative for large files (parallel=4, conn=1) and ramps up by 1 every 60s of stability, backs off on errors.
 
 ### Archive.org compatibility
 Archive.org directory listings parse correctly via Pattern 2/3 in `parse_html_for_files_with_sizes`. Regex backtracking prevented by skipping Pattern 3 on pages without `<tr>` tags and capping scan to 200KB. Zip contents browsable via `/serve/{collection}/{system}.zip/` endpoint — individual ROM files inside zips have direct download URLs.
@@ -326,7 +323,6 @@ Test files (one per source module):
 - Dynamic values in `innerHTML` escaped via `escapeHtml()` — `textContent`/`createElement` preferred
 - Clipboard uses platform-native subprocesses, not tkinter
 - `cancel_run()` propagates shutdown to network operations
-- aria2c pre-resolves redirects via HEAD request to avoid encoded-character failures
 - Config snapshot at run start for thread safety (`Config.from_dict(self._config.to_dict())`)
 - `clean_data()` requires DAT file presence check before `rmtree`, plus user confirmation dialog
 - Empty scan results not cached (prevents stale 0-URL cache from blocking future scans)
@@ -335,7 +331,6 @@ Test files (one per source module):
 
 - Cross-platform: Windows, macOS, Linux
 - pywebview uses system WebView (Edge/WebKit) — no Chrome dependency
-- `DownloadUI` in `downloader.py` uses curses on Unix, falls back on Windows
 - Colors: `FORCE_COLOR=1` env var forces ANSI output; `NO_COLOR` disables
 - Path helpers handle PyInstaller `sys._MEIPASS` for bundled builds
 - **Window icon**: `icon.ico` / `icon.png` in `ui/assets/`. Set at runtime via Windows ctypes (`LoadImageW` + `SendMessageW`) in `app.py:_set_window_icon()`. Referenced in `retro-refiner.spec` for PyInstaller builds.
@@ -354,6 +349,5 @@ git tag v2026.03.19.0100 && git push origin v2026.03.19.0100
 ```
 
 ### Dependencies
-- **Runtime:** `pywebview` (only external dependency)
-- **Optional:** `aria2c`, `curl` (auto-detected for downloads)
+- **Runtime:** `pywebview`, `httpx`, `pyyaml`
 - **Build:** `pyinstaller`
