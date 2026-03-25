@@ -349,5 +349,5 @@ git tag v2026.03.19.0100 && git push origin v2026.03.19.0100
 ```
 
 ### Dependencies
-- **Runtime:** `pywebview`, `httpx`, `pyyaml`, `humanize`, `tenacity`
+- **Runtime:** `pywebview`, `httpx`, `pyyaml`, `humanize`, `tenacity`, `orjson`
 - **Build:** `pyinstaller`
