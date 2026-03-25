@@ -128,11 +128,18 @@ _RE_ROMAN_NUMERALS = [
 ]
 
 
-def normalize_title(title: str) -> str:
+def normalize_title(title: str, strip_articles: bool = True) -> str:
     """Normalize a ROM title for grouping.
 
     Lowercases, strips punctuation, converts Roman numerals to Arabic,
     and applies title mappings from data/title_mappings.json.
+
+    Args:
+        title: The ROM title to normalize.
+        strip_articles: If True (default), strip leading articles
+            (the/a/an) and handle "Title, The" patterns.  Set to
+            False for cross-platform dedupe to avoid false positives
+            like 'The Bully' colliding with 'Bully'.
     """
     normalized = title.lower()
 
@@ -140,9 +147,10 @@ def normalize_title(title: str) -> str:
     normalized = unicodedata.normalize('NFKD', normalized)
     normalized = ''.join(c for c in normalized if not unicodedata.combining(c))
 
-    # Handle "Title, The" pattern
-    normalized = _RE_ARTICLE_COMMA.sub(' ', normalized)
-    normalized = _RE_ARTICLE_START.sub('', normalized)
+    # Handle "Title, The" pattern (only when stripping articles)
+    if strip_articles:
+        normalized = _RE_ARTICLE_COMMA.sub(' ', normalized)
+        normalized = _RE_ARTICLE_START.sub('', normalized)
 
     # Normalize punctuation
     normalized = _RE_PUNCTUATION.sub(' ', normalized)
@@ -153,11 +161,10 @@ def normalize_title(title: str) -> str:
     for pattern, replacement in _RE_ROMAN_NUMERALS:
         normalized = pattern.sub(replacement, normalized)
 
-    # Apply title mappings
+    # Apply title mappings (O(1) dict lookup)
     title_mappings = load_title_mappings()
-    for variant, canonical in title_mappings.items():
-        if normalized == variant:
-            normalized = canonical
+    if normalized in title_mappings:
+        normalized = title_mappings[normalized]
 
     return normalized
 
@@ -168,20 +175,7 @@ def normalize_title_for_dedupe(title: str) -> str:
     Same as normalize_title() but skips article stripping to avoid false
     positives like 'The Bully' (DOS) colliding with 'Bully' (PS2).
     """
-    normalized = title.lower()
-    normalized = unicodedata.normalize('NFKD', normalized)
-    normalized = ''.join(c for c in normalized if not unicodedata.combining(c))
-    # Skip _RE_ARTICLE_COMMA and _RE_ARTICLE_START
-    normalized = _RE_PUNCTUATION.sub(' ', normalized)
-    normalized = _RE_WHITESPACE_NORM.sub(' ', normalized)
-    normalized = normalized.strip()
-    for pattern, replacement in _RE_ROMAN_NUMERALS:
-        normalized = pattern.sub(replacement, normalized)
-    title_mappings = load_title_mappings()
-    for variant, canonical in title_mappings.items():
-        if normalized == variant:
-            normalized = canonical
-    return normalized
+    return normalize_title(title, strip_articles=False)
 
 
 # =============================================================================

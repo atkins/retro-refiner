@@ -198,57 +198,89 @@ ROM_EXTENSIONS = (
 # HTML link extraction and parsing
 # ---------------------------------------------------------------------------
 
+# Pre-compiled patterns for extract_links_from_html()
+_RE_HREF = re.compile(
+    r'href\s*=\s*["\']?([^"\'<>\s]+)["\']?',
+    re.IGNORECASE
+)
+_RE_SRC = re.compile(
+    r'src\s*=\s*["\']([^"\'<>]+)["\']',
+    re.IGNORECASE
+)
+_RE_DATA_ATTR = re.compile(
+    r'data-(?:url|href|src|link|file)\s*=\s*["\']([^"\'<>]+)["\']',
+    re.IGNORECASE
+)
+_RE_URL_PATH = re.compile(
+    r'(?:^|\s|>)(/[^\s<>"\']+\.[a-zA-Z0-9]{2,4})(?:\s|<|$)',
+    re.MULTILINE
+)
+_RE_ONCLICK = re.compile(
+    r'on(?:click|mousedown)\s*=\s*["\'][^"\']*'
+    r'(?:location\.href\s*=\s*|window\.open\s*\()["\']([^"\']+)["\']',
+    re.IGNORECASE
+)
+_RE_TEXT_FILE = re.compile(
+    r'(?:^|\s)([A-Za-z0-9][\w\s\-\.\(\)\[\]]+\.(?:' +
+    '|'.join(ext[1:] for ext in ROM_EXTENSIONS) +
+    r'))(?:\s|$)',
+    re.IGNORECASE | re.MULTILINE
+)
+_RE_PRE_SECTION = re.compile(
+    r'<(?:pre|code|listing)[^>]*>(.*?)</(?:pre|code|listing)>',
+    re.IGNORECASE | re.DOTALL
+)
+
+# Pre-compiled patterns for extract_file_sizes_from_html()
+_RE_MYRIENT_SIZE = re.compile(
+    r'<td[^>]*class="link"[^>]*>\s*<a\s+href="([^"]+)"[^>]*>([^<]+)</a>\s*</td>\s*'
+    r'<td[^>]*class="size"[^>]*>\s*([\d.]+\s*[KMGT]i?B|[\d.]+|-)\s*</td>',
+    re.IGNORECASE
+)
+_RE_AUTOINDEX_SIZE = re.compile(
+    r'<a\s+href=["\']?([^"\'<>\s]+)["\']?[^>]*>([^<]+)</a>\s*'
+    r'(?:\d{1,2}[-/]\w{3}[-/]\d{2,4}\s+\d{1,2}:\d{2}'
+    r'|\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2})\s*'
+    r'([\d.]+\s*[KMGT]i?B?|\d+|-)',
+    re.IGNORECASE
+)
+_RE_TABLE_ROW_SIZE = re.compile(
+    r'<tr[^>]*>.*?<a\s+href=["\']?([^"\'<>\s]+)["\']?[^>]*>([^<]+)</a>.*?'
+    r'<td[^>]*>\s*([\d.]+\s*[KMGT]i?B?|\d+)\s*</td>.*?</tr>',
+    re.IGNORECASE | re.DOTALL
+)
+_RE_FTP_LISTING = re.compile(
+    r'[-drwx]{10}\s+\d+\s+\S+\s+\S+\s+(\d+)\s+\w+\s+\d+\s+[\d:]+\s+(\S+)',
+    re.MULTILINE
+)
+_RE_SIMPLE_SIZE = re.compile(
+    r'(\S+\.(?:zip|7z|rar|iso|chd|cue|bin))\s+(\d+)',
+    re.IGNORECASE
+)
+
+# Pre-compiled pattern for parse_size_string()
+_RE_SIZE_STRING = re.compile(r'^([\d.]+)\s*([KMGT])I?B?$')
+
+
 def extract_links_from_html(html: str) -> List[str]:
     """Extract all potential file/directory links from HTML content."""
     links = []
 
-    href_pattern = re.compile(
-        r'href\s*=\s*["\']?([^"\'<>\s]+)["\']?',
-        re.IGNORECASE
-    )
-    src_pattern = re.compile(
-        r'src\s*=\s*["\']([^"\'<>]+)["\']',
-        re.IGNORECASE
-    )
-    data_pattern = re.compile(
-        r'data-(?:url|href|src|link|file)\s*=\s*["\']([^"\'<>]+)["\']',
-        re.IGNORECASE
-    )
-    url_pattern = re.compile(
-        r'(?:^|\s|>)(/[^\s<>"\']+\.[a-zA-Z0-9]{2,4})(?:\s|<|$)',
-        re.MULTILINE
-    )
-    onclick_pattern = re.compile(
-        r'on(?:click|mousedown)\s*=\s*["\'][^"\']*'
-        r'(?:location\.href\s*=\s*|window\.open\s*\()["\']([^"\']+)["\']',
-        re.IGNORECASE
-    )
-    text_file_pattern = re.compile(
-        r'(?:^|\s)([A-Za-z0-9][\w\s\-\.\(\)\[\]]+\.(?:' +
-        '|'.join(ext[1:] for ext in ROM_EXTENSIONS) +
-        r'))(?:\s|$)',
-        re.IGNORECASE | re.MULTILINE
-    )
-
-    for match in href_pattern.finditer(html):
+    for match in _RE_HREF.finditer(html):
         links.append(match.group(1))
-    for match in src_pattern.finditer(html):
+    for match in _RE_SRC.finditer(html):
         link = match.group(1)
         if any(link.lower().endswith(ext) for ext in ROM_EXTENSIONS):
             links.append(link)
-    for match in data_pattern.finditer(html):
+    for match in _RE_DATA_ATTR.finditer(html):
         links.append(match.group(1))
-    for match in onclick_pattern.finditer(html):
+    for match in _RE_ONCLICK.finditer(html):
         links.append(match.group(1))
-    for match in url_pattern.finditer(html):
+    for match in _RE_URL_PATH.finditer(html):
         links.append(match.group(1))
 
-    pre_sections = re.findall(
-        r'<(?:pre|code|listing)[^>]*>(.*?)</(?:pre|code|listing)>',
-        html, re.IGNORECASE | re.DOTALL
-    )
-    for section in pre_sections:
-        for match in text_file_pattern.finditer(section):
+    for section in _RE_PRE_SECTION.findall(html):
+        for match in _RE_TEXT_FILE.finditer(section):
             links.append(match.group(1))
 
     return links
@@ -291,7 +323,7 @@ def parse_size_string(size_str: str) -> int:
     except ValueError:
         pass
 
-    match = re.match(r'^([\d.]+)\s*([KMGT])I?B?$', size_str)
+    match = _RE_SIZE_STRING.match(size_str)
     if not match:
         return 0
 
@@ -318,14 +350,8 @@ def extract_file_sizes_from_html(html: str) -> Dict[str, int]:
     sizes: Dict[str, int] = {}
 
     # Pattern 1: Myrient/structured table format
-    myrient_pattern = re.compile(
-        r'<td[^>]*class="link"[^>]*>\s*<a\s+href="([^"]+)"[^>]*>([^<]+)</a>\s*</td>\s*'
-        r'<td[^>]*class="size"[^>]*>\s*([\d.]+\s*[KMGT]i?B|[\d.]+|-)\s*</td>',
-        re.IGNORECASE
-    )
-
     myrient_matched = False
-    for match in myrient_pattern.finditer(html):
+    for match in _RE_MYRIENT_SIZE.finditer(html):
         myrient_matched = True
         href = match.group(1)
         filename = match.group(2).strip()
@@ -342,15 +368,7 @@ def extract_file_sizes_from_html(html: str) -> Dict[str, int]:
         return sizes
 
     # Pattern 2: Apache/nginx autoindex format
-    autoindex_pattern = re.compile(
-        r'<a\s+href=["\']?([^"\'<>\s]+)["\']?[^>]*>([^<]+)</a>\s*'
-        r'(?:\d{1,2}[-/]\w{3}[-/]\d{2,4}\s+\d{1,2}:\d{2}'
-        r'|\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2})\s*'
-        r'([\d.]+\s*[KMGT]i?B?|\d+|-)',
-        re.IGNORECASE
-    )
-
-    for match in autoindex_pattern.finditer(html):
+    for match in _RE_AUTOINDEX_SIZE.finditer(html):
         href = match.group(1)
         size_str = match.group(3).strip()
         if size_str != '-':
@@ -367,15 +385,9 @@ def extract_file_sizes_from_html(html: str) -> Dict[str, int]:
     # Pattern 3: Generic table format with size in separate cell
     # Only attempt on pages that have table rows (skip large non-table pages)
     if '<tr' in html[:50000]:
-        table_row_pattern = re.compile(
-            r'<tr[^>]*>.*?<a\s+href=["\']?([^"\'<>\s]+)["\']?[^>]*>([^<]+)</a>.*?'
-            r'<td[^>]*>\s*([\d.]+\s*[KMGT]i?B?|\d+)\s*</td>.*?</tr>',
-            re.IGNORECASE | re.DOTALL
-        )
-
         # Limit to first 200KB to avoid catastrophic backtracking
         search_html = html[:200000] if len(html) > 200000 else html
-        for match in table_row_pattern.finditer(search_html):
+        for match in _RE_TABLE_ROW_SIZE.finditer(search_html):
             href = match.group(1)
             filename = match.group(2).strip()
             size_str = match.group(3).strip()
@@ -387,27 +399,14 @@ def extract_file_sizes_from_html(html: str) -> Dict[str, int]:
                 sizes[filename] = size
 
     # Pattern 4: Pre/listing block with sizes (FTP-style)
-    pre_sections = re.findall(
-        r'<(?:pre|code|listing)[^>]*>(.*?)</(?:pre|code|listing)>',
-        html, re.IGNORECASE | re.DOTALL
-    )
-
-    for section in pre_sections:
-        ftp_pattern = re.compile(
-            r'[-drwx]{10}\s+\d+\s+\S+\s+\S+\s+(\d+)\s+\w+\s+\d+\s+[\d:]+\s+(\S+)',
-            re.MULTILINE
-        )
-        for match in ftp_pattern.finditer(section):
+    for section in _RE_PRE_SECTION.findall(html):
+        for match in _RE_FTP_LISTING.finditer(section):
             size = int(match.group(1))
             filename = match.group(2)
             if size > 0:
                 sizes[filename] = size
 
-        simple_pattern = re.compile(
-            r'(\S+\.(?:zip|7z|rar|iso|chd|cue|bin))\s+(\d+)',
-            re.IGNORECASE
-        )
-        for match in simple_pattern.finditer(section):
+        for match in _RE_SIMPLE_SIZE.finditer(section):
             filename = match.group(1)
             size = int(match.group(2))
             if size > 0:

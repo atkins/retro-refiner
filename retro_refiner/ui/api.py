@@ -440,7 +440,7 @@ class Api:
 
             # Import core modules
             from retro_refiner.network import (  # pylint: disable=import-outside-toplevel
-                is_url, validate_source, format_size,
+                is_url, validate_source,
             )
             from retro_refiner.scanner import (  # pylint: disable=import-outside-toplevel
                 scan_local_sources, scan_network_source,
@@ -496,11 +496,12 @@ class Api:
                 elapsed = time.monotonic() - filter_t0
                 eta = self._eta_str(elapsed, sys_idx - 1, num_systems)
                 elapsed_s = self._elapsed_str(elapsed)
+                from retro_refiner.network import format_size as _fmt  # pylint: disable=import-outside-toplevel
                 msg = (f'{self._step_prefix(2)}'
                        f'Filtering {sys_idx}/{num_systems}: '
                        f'{_display_name(system)} '
                        f'\u2502 {total_selected:,} selected '
-                       f'\u2502 {format_size(total_size)} '
+                       f'\u2502 {_fmt(total_size)} '
                        f'\u2502 {elapsed_s}{eta}')
                 self._push_event('progress', {
                     'phase': 'filtering',
@@ -511,7 +512,7 @@ class Api:
                 counts = self._filter_system(
                     system, all_urls.get(system, []),
                     local_systems.get(system, []),
-                    config, all_sizes, format_size)
+                    config, all_sizes)
                 total_selected += counts[0]
                 total_excluded += counts[1]
                 total_size += counts[2]
@@ -614,7 +615,7 @@ class Api:
 
             self._compute_fanfare(
                 config, total_selected, total_excluded,
-                total_size, run_start, all_systems, format_size,
+                total_size, run_start, all_systems,
                 total_source_size)
 
             # Write log files if log directory configured
@@ -622,7 +623,7 @@ class Api:
                 self._write_run_logs(
                     config, all_systems, all_sizes,
                     total_selected, total_excluded, total_size,
-                    total_source_size, run_start, format_size,
+                    total_source_size, run_start,
                     commit)
 
             label = 'Commit' if commit else 'Preview'
@@ -886,12 +887,13 @@ class Api:
         return all_urls, all_sizes, local_systems, all_systems
 
     def _filter_system(self, system, urls, local_files,
-                       config, all_sizes, format_size):
+                       config, all_sizes):
         """Filter ROMs for a single system.
 
         Returns (selected_count, excluded_count, selected_size,
         source_count, source_size) tuple.
         """
+        from retro_refiner.network import format_size  # pylint: disable=import-outside-toplevel
         source_count = len(urls) + len(local_files)
 
         # Compute sizes
@@ -1269,11 +1271,11 @@ class Api:
 
     def _write_run_logs(self, config, all_systems, _all_sizes,
                         total_selected, total_excluded, total_size,
-                        total_source_size, run_start, format_size,
+                        total_source_size, run_start,
                         commit):
         """Write comprehensive log files to the configured log directory."""
         from retro_refiner.filter import parse_rom_filename  # pylint: disable=import-outside-toplevel
-        from retro_refiner.network import get_filename_from_url  # pylint: disable=import-outside-toplevel
+        from retro_refiner.network import format_size, get_filename_from_url  # pylint: disable=import-outside-toplevel
         from datetime import datetime  # pylint: disable=import-outside-toplevel
 
         log_dir = Path(config.advanced.log_dir)
@@ -1442,7 +1444,7 @@ class Api:
         })
 
     def _compute_fanfare(self, _config, total_selected, total_excluded,
-                         total_size, run_start, all_systems, format_size,
+                         total_size, run_start, all_systems,
                          total_source_size=0):
         """Compute and emit fanfare statistics from the run results."""
         total_systems = len(all_systems)
@@ -1450,7 +1452,7 @@ class Api:
         elapsed_str = self._elapsed_str(elapsed_secs)
 
         from retro_refiner.filter import parse_rom_filename  # pylint: disable=import-outside-toplevel
-        from retro_refiner.network import get_filename_from_url  # pylint: disable=import-outside-toplevel
+        from retro_refiner.network import format_size, get_filename_from_url  # pylint: disable=import-outside-toplevel
         tidbits = []
         all_roms = []
         rom_file_sizes = {}  # filename -> size

@@ -25,6 +25,10 @@ from retro_refiner.network import (
 )
 from retro_refiner.systems import load_system_data
 
+# Pre-compiled patterns for system detection
+_RE_ALPHANUM = re.compile(r'[^a-z0-9]')
+_RE_INNER_EXT = re.compile(r'\.([a-z0-9]{2,4})$', re.IGNORECASE)
+
 
 # ---------------------------------------------------------------------------
 # Progress bar (simplified — no Style/Console dependency)
@@ -129,9 +133,9 @@ def detect_system_from_path(path: str) -> Optional[str]:
             if dat_name in part_lower:
                 return system
 
-        part_normalized = re.sub(r'[^a-z0-9]', '', part_lower)
+        part_normalized = _RE_ALPHANUM.sub('', part_lower)
         for alias, system in sysdata.sorted_aliases:
-            alias_normalized = re.sub(r'[^a-z0-9]', '', alias)
+            alias_normalized = _RE_ALPHANUM.sub('', alias)
             if len(alias_normalized) >= 4 and alias_normalized in part_normalized:
                 return system
 
@@ -548,9 +552,7 @@ def _detect_system_from_extension(filename: str) -> Optional[str]:
     # For archives, check inner extension (e.g., "Game.nes.zip")
     if ext in ('.zip', '.7z', '.rar'):
         name_without_archive = filename[:-len(ext)]
-        inner_match = re.search(
-            r'\.([a-z0-9]{2,4})$', name_without_archive, re.IGNORECASE
-        )
+        inner_match = _RE_INNER_EXT.search(name_without_archive)
         if inner_match:
             inner_ext = '.' + inner_match.group(1).lower()
             if inner_ext in sysdata.extension_to_system:
