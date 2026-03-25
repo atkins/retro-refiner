@@ -236,10 +236,7 @@ def run_headless(args: list):
     if not commit:
         print("\nDry run complete. Use --commit to download/transfer files.")
     else:
-        from retro_refiner.downloader import (  # pylint: disable=import-outside-toplevel
-            get_download_tool, download_batch_with_aria2c,
-            download_batch_with_curl, DownloadUI,
-        )
+        import httpx  # pylint: disable=import-outside-toplevel
         from retro_refiner.transfer import (  # pylint: disable=import-outside-toplevel
             validate_destination, clean_destination,
         )
@@ -249,98 +246,115 @@ def run_headless(args: list):
         if config.output.local_file_action != 'remove':
             dest_dir.mkdir(parents=True, exist_ok=True)
 
-        # Check if DownloadUI can be used (requires aria2c + TTY)
-        tool = get_download_tool()
-        use_interactive = (tool == 'aria2c' and sys.stdout.isatty())
-
         print(f"\nCommitting to {dest_dir}...")
-        for system in sorted(system_selected_urls):
-            sys_urls = system_selected_urls[system]
-            if not sys_urls:
-                continue
-
-            if config.output.local_file_action == 'remove':
-                continue
-
-            flat = config.output.flat
-            target_dir = dest_dir if flat else dest_dir / system
-            target_dir.mkdir(parents=True, exist_ok=True)
-
-            # Build expected file set with sizes
-            expected = {}
-            for url in sys_urls:
-                fname = _url_to_filename(url)
-                expected[fname] = all_sizes.get(url, 0)
-
-            # Phase 1: Validate destination
-            skip_files = set()
-            if config.output.validate_destination:
-                validation = validate_destination(
-                    dest_dir, system, flat, expected,
-                    crc_check=config.output.crc_validation)
-                skip_files = {fn for fn, st in validation.items()
-                              if st == 'valid'}
-                invalid_files = {fn for fn, st in validation.items()
-                                 if st == 'invalid'}
-                if skip_files:
-                    print(f"  {system.upper()}: {len(skip_files)} "
-                          f"files already in destination, skipping")
-                for fname in invalid_files:
-                    (target_dir / fname).unlink(missing_ok=True)
-
-            # Phase 2: Download directly to destination
-            downloads = []
-            for url in sys_urls:
-                fname = _url_to_filename(url)
-                if fname in skip_files:
+        client = httpx.Client(
+            follow_redirects=True,
+            timeout=60,
+            headers={
+                'User-Agent':
+                    'Mozilla/5.0 (compatible; Retro-Refiner/1.0)',
+            },
+        )
+        try:
+            for system in sorted(system_selected_urls):
+                sys_urls = system_selected_urls[system]
+                if not sys_urls:
                     continue
-                dest_path = target_dir / fname
-                tmp_path = target_dir / (fname + '.rrdownload')
-                downloads.append((url, tmp_path, dest_path))
 
-            if downloads:
-                # Build batch as (url, tmp_path) for downloaders
-                batch = [(url, tmp) for url, tmp, _ in downloads]
-                if use_interactive:
-                    ui_dl = DownloadUI(
-                        system_name=system,
-                        files=batch,
-                        parallel=config.network.parallel,
-                        connections=config.network.connections or 4,
-                        resume=config.network.resume_downloads,
-                    )
-                    completed = ui_dl.run()
-                    print()
-                    print(f"  {system.upper()}: downloaded "
-                          f"{len(completed)}/{len(downloads)} files")
-                else:
+                if config.output.local_file_action == 'remove':
+                    continue
+
+                flat = config.output.flat
+                target_dir = dest_dir if flat else dest_dir / system
+                target_dir.mkdir(parents=True, exist_ok=True)
+
+                # Build expected file set with sizes
+                expected = {}
+                for url in sys_urls:
+                    fname = _url_to_filename(url)
+                    expected[fname] = all_sizes.get(url, 0)
+
+                # Phase 1: Validate destination
+                skip_files = set()
+                if config.output.validate_destination:
+                    validation = validate_destination(
+                        dest_dir, system, flat, expected,
+                        crc_check=config.output.crc_validation)
+                    skip_files = {fn for fn, st in validation.items()
+                                  if st == 'valid'}
+                    invalid_files = {fn for fn, st in validation.items()
+                                     if st == 'invalid'}
+                    if skip_files:
+                        print(f"  {system.upper()}: {len(skip_files)} "
+                              f"files already in destination, skipping")
+                    for fname in invalid_files:
+                        (target_dir / fname).unlink(missing_ok=True)
+
+                # Phase 2: Download directly to destination
+                downloads = []
+                for url in sys_urls:
+                    fname = _url_to_filename(url)
+                    if fname in skip_files:
+                        continue
+                    dest_path = target_dir / fname
+                    tmp_path = target_dir / (fname + '.rrdownload')
+                    downloads.append((url, tmp_path, dest_path))
+
+                if downloads:
                     print(f"  {system.upper()}: downloading "
                           f"{len(downloads)} files...")
-                    if tool == 'aria2c':
-                        download_batch_with_aria2c(
-                            batch,
-                            parallel=config.network.parallel)
-                    elif tool == 'curl':
-                        download_batch_with_curl(
-                            batch,
-                            parallel=config.network.parallel)
-                    else:
-                        _download_urllib(batch)
+                    completed = 0
+                    succeeded = set()
+                    for url, tmp_path, _ in downloads:
+                        for attempt in range(3):
+                            try:
+                                with client.stream('GET', url) as resp:
+                                    resp.raise_for_status()
+                                    with open(tmp_path, 'wb') as f:
+                                        for chunk in resp.iter_bytes(
+                                                8192):
+                                            f.write(chunk)
+                                completed += 1
+                                succeeded.add(tmp_path)
+                                break
+                            except (httpx.TimeoutException,
+                                    httpx.ConnectError,
+                                    httpx.HTTPStatusError) as exc:
+                                if (isinstance(exc,
+                                               httpx.HTTPStatusError)
+                                        and exc.response.status_code
+                                        < 500):
+                                    fname = _url_to_filename(url)
+                                    print(f"    FAILED: {fname}: "
+                                          f"{exc}",
+                                          file=sys.stderr)
+                                    break  # don't retry 4xx
+                                if attempt == 2:
+                                    fname = _url_to_filename(url)
+                                    print(f"    FAILED: {fname}: "
+                                          f"{exc}",
+                                          file=sys.stderr)
+                    print(f"  {system.upper()}: downloaded "
+                          f"{completed}/{len(downloads)} files")
 
-                # Rename completed downloads
-                for _, tmp_path, final_path in downloads:
-                    if tmp_path.exists():
-                        tmp_path.rename(final_path)
+                    # Rename only successfully completed downloads
+                    for _, tmp_path, final_path in downloads:
+                        if tmp_path in succeeded:
+                            tmp_path.rename(final_path)
+                        elif tmp_path.exists():
+                            tmp_path.unlink()
 
-            # Phase 3: Clean destination
-            if config.output.clean_destination:
-                keep = set(expected.keys())
-                clean_stats = clean_destination(
-                    dest_dir, system, flat, keep)
-                if clean_stats['removed']:
-                    print(f"  {system.upper()}: cleaned "
-                          f"{clean_stats['removed']} "
-                          f"files from destination")
+                # Phase 3: Clean destination
+                if config.output.clean_destination:
+                    keep = set(expected.keys())
+                    clean_stats = clean_destination(
+                        dest_dir, system, flat, keep)
+                    if clean_stats['removed']:
+                        print(f"  {system.upper()}: cleaned "
+                              f"{clean_stats['removed']} "
+                              f"files from destination")
+        finally:
+            client.close()
 
         print("\nCommit complete.")
 
@@ -503,18 +517,3 @@ def _url_to_filename(url):
     """Extract filename from URL."""
     return urllib.parse.unquote(
         url.split('?')[0].split('#')[0].split('/')[-1])
-
-
-def _download_urllib(batch):
-    """Download files using urllib as fallback."""
-    import urllib.request as urllib_req  # pylint: disable=import-outside-toplevel
-    import shutil  # pylint: disable=import-outside-toplevel
-    for dl_url, dl_path in batch:
-        try:
-            req = urllib_req.Request(
-                dl_url, headers={'User-Agent': 'Mozilla/5.0'})
-            with urllib_req.urlopen(req, timeout=60) as resp:
-                with open(dl_path, 'wb') as f_out:
-                    shutil.copyfileobj(resp, f_out)
-        except Exception:  # pylint: disable=broad-except
-            pass

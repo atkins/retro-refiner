@@ -22,11 +22,6 @@ from retro_refiner.mame import (
 from retro_refiner.teknoparrot import (
     filter_teknoparrot_network_roms, parse_teknoparrot_filename,
 )
-from retro_refiner.downloader import (
-    get_download_tool, calculate_autotune_settings,
-    Aria2cRPC, DownloadUI,
-    AUTOTUNE_SMALL, AUTOTUNE_MEDIUM, AUTOTUNE_LARGE,
-)
 from retro_refiner.transfer import transfer_files
 from retro_refiner.ui.api import _parse_size_string
 from retro_refiner.ratings import (
@@ -298,48 +293,6 @@ def test_parse_teknoparrot_filename():
         "House of the Dead 4 (1.00) [Sega Lindbergh] [TP].zip")
     assert info is not None
     assert info.base_title
-
-
-# =============================================================================
-# Downloader Module Tests
-# =============================================================================
-
-def test_get_download_tool_valid():
-    tool = get_download_tool()
-    assert tool in ('aria2c', 'curl', None)
-
-
-@pytest.mark.parametrize("sizes,expected", [
-    ([], AUTOTUNE_MEDIUM),
-    ([1024, 2048, 4096], AUTOTUNE_SMALL),
-    ([500_000_000, 600_000_000], AUTOTUNE_LARGE),
-])
-def test_autotune_settings(sizes, expected):
-    assert calculate_autotune_settings(sizes) == expected
-
-
-def test_aria2c_rpc_url():
-    rpc = Aria2cRPC(port=6800, secret='test')
-    assert rpc.url == 'http://localhost:6800/jsonrpc'
-
-
-def test_download_ui_construction():
-    ui = DownloadUI(
-        system_name='snes',
-        files=[('http://example.com/game.sfc', Path('/tmp/game.sfc'))],
-        parallel=4, connections=2,
-    )
-    assert ui.system_name == 'snes'
-    assert len(ui.files) == 1
-
-
-def test_download_ui_files_start_queued():
-    ui = DownloadUI(
-        system_name='snes',
-        files=[('http://example.com/game.sfc', Path('/tmp/game.sfc'))],
-        parallel=4, connections=2,
-    )
-    assert ui.files[0]['status'] == DownloadUI.STATUS_QUEUED
 
 
 # =============================================================================

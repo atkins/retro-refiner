@@ -50,7 +50,6 @@ from retro_refiner.network import (
     ROM_EXTENSIONS, parse_size_string,
 )
 from retro_refiner.systems import load_system_data
-from retro_refiner.downloader import DownloadUI
 from retro_refiner.transfer import (
     generate_m3u_playlist, generate_gamelist_xml,
     validate_destination, clean_destination,
@@ -1987,90 +1986,6 @@ class TestIgdb:
         apply_config_to_args(test_args, test_config)
         assert test_args.igdb_client_id == 'my_id'
         assert test_args.ratings_source == 'igdb'
-
-
-# =============================================================================
-# Download Throttle Backoff Tests
-# =============================================================================
-
-class TestDownloadThrottleBackoff:
-    """Test DownloadUI throttle detection and backoff."""
-
-    @pytest.fixture
-    def dummy_ui(self):
-        dummy_files = [
-            ('http://example.com/a.zip', Path('/tmp/a.zip')),
-            ('http://example.com/b.zip', Path('/tmp/b.zip')),
-            ('http://example.com/c.zip', Path('/tmp/c.zip')),
-            ('http://example.com/d.zip', Path('/tmp/d.zip')),
-        ]
-        return DownloadUI('test', dummy_files, parallel=8, connections=4)
-
-    def test_error_fields_initialized(self, dummy_ui):
-        for f in dummy_ui.files:
-            assert f.get('error_code') is None
-            assert f.get('error_message') == ''
-
-    def test_no_throttle_when_queued(self, dummy_ui):
-        assert not dummy_ui._has_throttle_errors()
-
-    def test_throttle_timeout(self, dummy_ui):
-        dummy_ui.files[0]['status'] = dummy_ui.STATUS_FAILED
-        dummy_ui.files[0]['error_code'] = '2'
-        dummy_ui.files[0]['error_message'] = 'Timeout'
-        assert dummy_ui._has_throttle_errors()
-
-    def test_throttle_http_5xx(self, dummy_ui):
-        dummy_ui.files[0]['status'] = dummy_ui.STATUS_FAILED
-        dummy_ui.files[0]['error_code'] = '20'
-        assert dummy_ui._has_throttle_errors()
-
-    def test_no_throttle_404(self, dummy_ui):
-        dummy_ui.files[0]['status'] = dummy_ui.STATUS_FAILED
-        dummy_ui.files[0]['error_code'] = '3'
-        assert not dummy_ui._has_throttle_errors()
-
-    def test_throttle_summary(self, dummy_ui):
-        dummy_ui.files[0]['status'] = dummy_ui.STATUS_FAILED
-        dummy_ui.files[0]['error_code'] = '2'
-        dummy_ui.files[1]['status'] = dummy_ui.STATUS_FAILED
-        dummy_ui.files[1]['error_code'] = '2'
-        dummy_ui.files[2]['status'] = dummy_ui.STATUS_FAILED
-        dummy_ui.files[2]['error_code'] = '20'
-        summary = dummy_ui._get_throttle_summary()
-        assert 'timeout=2' in summary and 'HTTP 5xx=1' in summary
-
-    def test_mark_for_retry_clears_errors(self, dummy_ui):
-        dummy_ui.files[0]['status'] = dummy_ui.STATUS_FAILED
-        dummy_ui.files[0]['error_code'] = '2'
-        dummy_ui.files[0]['error_message'] = 'Timeout'
-        dummy_ui._mark_for_retry(['http://example.com/a.zip'])
-        assert dummy_ui.files[0]['error_code'] is None
-        assert dummy_ui.files[0]['error_message'] == ''
-
-    def test_throttle_error_codes(self, dummy_ui):
-        expected_codes = {'2', '5', '6', '19', '20'}
-        assert dummy_ui.THROTTLE_ERROR_CODES == expected_codes
-
-    def test_parallel_halved(self):
-        dummy_files = [
-            ('http://example.com/a.zip', Path('/tmp/a.zip')),
-        ]
-        ui = DownloadUI('test', dummy_files, parallel=8, connections=4)
-        for f in ui.files:
-            f['status'] = ui.STATUS_FAILED
-            f['error_code'] = '2'
-        assert ui._has_throttle_errors()
-        new_parallel = max(1, ui.parallel // 2)
-        assert new_parallel == 4
-
-    def test_parallel_floors_at_1(self):
-        dummy_files = [
-            ('http://example.com/a.zip', Path('/tmp/a.zip')),
-        ]
-        ui = DownloadUI('test', dummy_files, parallel=1, connections=4)
-        new_parallel = max(1, ui.parallel // 2)
-        assert new_parallel == 1
 
 
 # =============================================================================
