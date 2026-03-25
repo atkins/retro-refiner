@@ -33,8 +33,9 @@ def get_current_version() -> str:
 
 
 def is_frozen() -> bool:
-    """Return True if running as a PyInstaller frozen executable."""
-    return getattr(sys, 'frozen', False)
+    """Return True if running as a bundled executable (PyInstaller or Nuitka)."""
+    from retro_refiner.paths import is_bundled  # pylint: disable=import-outside-toplevel
+    return is_bundled()
 
 
 def _normalize_version(tag: str) -> str:
