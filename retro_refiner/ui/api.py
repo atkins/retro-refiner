@@ -1630,70 +1630,82 @@ class Api:
         })
 
     def _download_batch(self, downloads, parallel, system):
-        """Download files using best available tool with progress events."""
-        from retro_refiner.downloader import (  # pylint: disable=import-outside-toplevel
-            get_download_tool,
-        )
+        """Download files using httpx with ThreadPoolExecutor."""
+        import httpx  # pylint: disable=import-outside-toplevel
 
         total = len(downloads)
-        tool = get_download_tool()
         fail_count = 0
         display = _display_name(system)
 
-        if tool == 'aria2c':
-            fail_count = self._download_with_aria2c(
-                downloads, parallel, display)
-        elif tool == 'curl':
-            from retro_refiner.downloader import download_batch_with_curl  # pylint: disable=import-outside-toplevel
-            # Chunk curl for progress updates
-            chunk_size = max(parallel, 4)
-            dl_t0 = time.monotonic()
-            for start in range(0, total, chunk_size):
-                if not self._running:
-                    break
-                chunk = downloads[start:start + chunk_size]
-                done = min(start + len(chunk), total)
-                elapsed = time.monotonic() - dl_t0
-                eta = self._eta_str(elapsed, start, total)
-                self._push_event('progress', {
-                    'phase': 'download',
-                    'message': (f'{self._step_prefix(3)}'
-                                f'{display}: {done}/{total}'
-                                f'{eta}'),
-                    'current': done, 'total': total,
-                })
-                download_batch_with_curl(
-                    chunk, parallel=parallel)
-                for _url, dl_path in chunk:
-                    if (not dl_path.exists()
-                            or dl_path.stat().st_size == 0):
-                        fail_count += 1
-        else:
-            # urllib fallback with per-file progress
-            import urllib.request as urllib_req  # pylint: disable=import-outside-toplevel
-            import shutil as _shutil  # pylint: disable=import-outside-toplevel
-            dl_t0 = time.monotonic()
-            for idx, (dl_url, dl_path) in enumerate(downloads, 1):
-                if not self._running:
-                    break
-                elapsed = time.monotonic() - dl_t0
-                eta = self._eta_str(elapsed, idx - 1, total)
-                self._push_event('progress', {
-                    'phase': 'download',
-                    'message': (f'{self._step_prefix(3)}'
-                                f'{display}: {idx}/{total}'
-                                f'{eta}'),
-                    'current': idx, 'total': total,
-                })
+        client = httpx.Client(
+            follow_redirects=True,
+            timeout=60,
+            headers={'User-Agent': 'Mozilla/5.0 (compatible; Retro-Refiner/1.0)'},
+        )
+
+        done_set = set()
+
+        def _download_one(idx_url_path):
+            idx, (url, dest_path) = idx_url_path
+            dest_path.parent.mkdir(parents=True, exist_ok=True)
+            for attempt in range(3):
                 try:
-                    req = urllib_req.Request(
-                        dl_url,
-                        headers={'User-Agent': 'Mozilla/5.0'})
-                    with urllib_req.urlopen(req, timeout=60) as resp:
-                        with open(dl_path, 'wb') as f_out:
-                            _shutil.copyfileobj(resp, f_out)
-                except Exception:  # pylint: disable=broad-except
-                    fail_count += 1
+                    with client.stream('GET', url) as response:
+                        response.raise_for_status()
+                        with open(dest_path, 'wb') as f:
+                            for chunk in response.iter_bytes(8192):
+                                f.write(chunk)
+                    done_set.add(idx)
+                    return idx, None
+                except (httpx.TimeoutException, httpx.ConnectError,
+                        httpx.HTTPStatusError) as exc:
+                    if (isinstance(exc, httpx.HTTPStatusError)
+                            and exc.response.status_code < 500):
+                        return idx, str(exc)  # don't retry 4xx
+                    if attempt == 2:
+                        return idx, str(exc)
+            return idx, 'max retries'
+
+        dl_t0 = time.monotonic()
+        from concurrent.futures import ThreadPoolExecutor  # pylint: disable=import-outside-toplevel
+
+        try:
+            with ThreadPoolExecutor(max_workers=parallel) as executor:
+                futures = {
+                    executor.submit(_download_one, (i, d)): i
+                    for i, d in enumerate(downloads)
+                }
+
+                # Progress polling in main thread
+                while not all(f.done() for f in futures):
+                    if not self._running:
+                        executor.shutdown(wait=False, cancel_futures=True)
+                        break
+                    completed = len(done_set)
+                    elapsed = time.monotonic() - dl_t0
+                    eta = self._eta_str(elapsed, completed, total)
+                    rate = completed / max(elapsed, 0.1)
+                    elapsed_s = self._elapsed_str(elapsed)
+                    msg = (f'{self._step_prefix(3)}'
+                           f'{display}: {completed}/{total} '
+                           f'\u2502 {rate:.1f} files/s '
+                           f'\u2502 {elapsed_s}'
+                           f'{eta}')
+                    self._push_event('progress', {
+                        'phase': 'download',
+                        'message': msg,
+                        'current': completed,
+                        'total': total,
+                    })
+                    time.sleep(1.0)
+
+                # Collect errors
+                for future in futures:
+                    _idx, error = future.result()
+                    if error:
+                        fail_count += 1
+        finally:
+            client.close()
 
         if fail_count:
             self._push_event('log', {
@@ -1705,181 +1717,6 @@ class Api:
             'text': f'  {display}: downloaded {total - fail_count}'
                     f'/{total} files\n',
         })
-
-    def _download_with_aria2c(self, downloads, parallel, display):
-        """Download with aria2c batch mode and curl fallback.
-
-        Pre-resolves redirects via a single HEAD request, then runs
-        aria2c with direct URLs and file-polling progress. Falls back
-        to chunked curl for any failures.
-        """
-        import subprocess as _sp  # pylint: disable=import-outside-toplevel
-        import sys  # pylint: disable=import-outside-toplevel
-        import tempfile as _tmp  # pylint: disable=import-outside-toplevel
-        _no_window = ({"creationflags": _sp.CREATE_NO_WINDOW}
-                      if sys.platform == 'win32' else {})
-
-        total = len(downloads)
-
-        # Pre-resolve redirects: one HEAD request to learn the
-        # redirect host, then rewrite all URLs. This avoids aria2c's
-        # redirect handling which fails with encoded special chars.
-        resolved = list(downloads)
-        try:
-            import urllib.request as _ureq  # pylint: disable=import-outside-toplevel
-            from urllib.parse import urlparse as _urlparse  # pylint: disable=import-outside-toplevel
-            sample_url = downloads[0][0]
-            req = _ureq.Request(
-                sample_url, method='HEAD',
-                headers={'User-Agent': 'Mozilla/5.0'})
-            with _ureq.urlopen(req, timeout=10) as resp:
-                orig_host = _urlparse(sample_url).netloc
-                final_host = _urlparse(resp.url).netloc
-                if final_host != orig_host:
-                    self._push_event('log', {
-                        'text': f'  {display}: resolved redirect '
-                                f'{orig_host} -> {final_host}\n',
-                        'className': 'log-muted',
-                    })
-                    resolved = [
-                        (u.replace(orig_host, final_host, 1), p)
-                        for u, p in downloads]
-        except Exception:  # pylint: disable=broad-except
-            pass  # fall through with original URLs
-
-        # Write aria2c input file
-        with _tmp.NamedTemporaryFile(
-                mode='w', suffix='.txt', delete=False,
-                encoding='utf-8') as tmp:
-            input_file = tmp.name
-            for url, dest_path in resolved:
-                dest_path.parent.mkdir(parents=True, exist_ok=True)
-                tmp.write(f"{url}\n")
-                tmp.write(f"  dir={dest_path.parent}\n")
-                tmp.write(f"  out={dest_path.name}\n")
-
-        cmd = [
-            'aria2c',
-            '-q', '--console-log-level=error',
-            '-j', str(parallel),
-            '-x', str(min(parallel, 8)),
-            '-s', str(min(parallel, 8)),
-            '--connect-timeout=15', '--timeout=60',
-            '--max-tries=3', '--retry-wait=3',
-            '--file-allocation=none',
-            '--allow-overwrite=true',
-            '--auto-file-renaming=false',
-            '-i', input_file,
-        ]
-
-        fail_count = 0
-        proc = None
-        try:
-            proc = _sp.Popen(  # pylint: disable=consider-using-with
-                cmd, stdout=_sp.DEVNULL, stderr=_sp.DEVNULL,
-                **_no_window)
-
-            # Poll output files for progress
-            dl_t0 = time.monotonic()
-            last_completed = 0
-            done_set = set()
-            while self._running:
-                if proc.poll() is not None:
-                    break
-
-                for i, (_, p) in enumerate(downloads):
-                    if i not in done_set and p.exists() \
-                            and p.stat().st_size > 0:
-                        done_set.add(i)
-                completed = len(done_set)
-
-                elapsed = time.monotonic() - dl_t0
-                if completed != last_completed:
-                    last_completed = completed
-                eta = self._eta_str(elapsed, completed, total)
-                rate = completed / max(elapsed, 0.1)
-                elapsed_s = self._elapsed_str(elapsed)
-                msg = (f'{self._step_prefix(3)}'
-                       f'{display}: {completed}/{total} '
-                       f'\u2502 {rate:.1f} files/s '
-                       f'\u2502 {elapsed_s}'
-                       f'{eta}')
-                self._push_event('progress', {
-                    'phase': 'download',
-                    'message': msg,
-                    'current': completed,
-                    'total': total,
-                })
-
-                time.sleep(1.0)
-
-        except Exception as exc:  # pylint: disable=broad-except
-            self._push_event('log', {
-                'text': f'  {display}: aria2c error: {exc}\n',
-                'className': 'log-warning',
-            })
-        finally:
-            if proc and proc.poll() is None:
-                proc.terminate()
-                try:
-                    proc.wait(timeout=5)
-                except _sp.TimeoutExpired:
-                    proc.kill()
-            try:
-                Path(input_file).unlink()
-            except OSError:
-                pass
-
-        # Retry failures with curl (handles redirects that aria2c can't)
-        failed = [(u, p) for u, p in downloads
-                  if not p.exists() or p.stat().st_size == 0]
-        if failed and self._running:
-            from retro_refiner.downloader import (  # pylint: disable=import-outside-toplevel
-                download_batch_with_curl,
-            )
-            self._push_event('log', {
-                'text': f'  {display}: retrying {len(failed)} '
-                        f'files with curl...\n',
-            })
-            chunk_size = max(parallel, 4)
-            dl_t0 = time.monotonic()
-            for i in range(0, len(failed), chunk_size):
-                if not self._running:
-                    break
-                chunk = failed[i:i + chunk_size]
-                done = min(i + len(chunk), len(failed))
-                elapsed = time.monotonic() - dl_t0
-                eta = self._eta_str(elapsed, i, len(failed))
-                self._push_event('progress', {
-                    'phase': 'download',
-                    'message': (f'{self._step_prefix(3)}'
-                                f'{display}: curl '
-                                f'{done}/{len(failed)}'
-                                f'{eta}'),
-                    'current': done,
-                    'total': len(failed),
-                })
-                download_batch_with_curl(
-                    chunk, parallel=parallel)
-
-            # Remove any error pages curl may have saved
-            for _u, p in failed:
-                if p.exists() and p.stat().st_size < 4096:
-                    try:
-                        with open(p, 'rb') as chk:
-                            content = chk.read()
-                            if (content[:6] in (b'<html>', b'<!DOCT')
-                                    and b'</html>' in content):
-                                p.unlink()
-                    except OSError:
-                        pass
-
-        # Count remaining failures
-        for _url, dl_path in downloads:
-            if not dl_path.exists() or dl_path.stat().st_size == 0:
-                fail_count += 1
-
-        return fail_count
 
     def _url_to_filename(self, url):
         """Extract filename from URL."""
