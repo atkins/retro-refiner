@@ -303,13 +303,21 @@ When `log_dir` is configured, writes 4 file types per run:
 
 Tests use pytest with `assert` statements. Run `python -m pytest` from the project root.
 
-Test files:
-- `tests/test_selection.py` — 319 tests: ROM parsing, selection, filtering, config, playlists, transfers, MAME, TeknoParrot, dedup, ratings
-- `tests/test_v2_*.py` — 203 tests across 5 files covering v2 modules, config, systems, paths, CLI
-- `tests/test_network.py` — 209 tests: URL utils, size parsing, HTML parsing (all 5 patterns), SSRF validation, scan cache
-- `tests/test_scanner_dat_transfer.py` — 80 tests: system detection, local scanning, DAT parsing (XML+ClrMamePro), title normalization, CRC, validate/clean destination, file transfers, playlist generation
-- `tests/test_api.py` — 106 tests: display names, ETA/elapsed formatting, config management, clean_data, system stats, UI state, picker, run state
-- `tests/test_smoke.py` — network smoke tests (excluded from default run, needs Myrient)
+Test files (one per source module):
+- `tests/test_filter.py` — ROM parsing, selection, 1G1R, filtering, dedup, ratings, filter_roms_from_files
+- `tests/test_network.py` — URL utils, size parsing, HTML parsing (5 patterns), SSRF, scan cache
+- `tests/test_mame.py` — catver.ini parsing, MAME DAT, category filtering, clone selection
+- `tests/test_teknoparrot.py` — TP filename/version parsing, platform filtering, version dedup
+- `tests/test_dat.py` — DAT parsing (XML+ClrMamePro), title normalization, CRC cache
+- `tests/test_api.py` — display names, config management, clean_data, system stats, picker
+- `tests/test_transfer.py` — validate/clean destination, file transfers, playlist generation
+- `tests/test_scanner.py` — system detection, local scanning
+- `tests/test_config.py` — Config dataclass, YAML, backward compat
+- `tests/test_modules.py` — module import smoke tests
+- `tests/test_systems.py` — system data loading
+- `tests/test_paths.py` — path helpers
+- `tests/test_cli.py` — CLI runner
+- `tests/test_smoke.py` — network smoke tests (excluded by default)
 
 ## Security
 
