@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from retro_refiner.config import (
-    parse_yaml, _parse_yaml_value, _dump_yaml_value,
+    parse_yaml,
     Config, SelectionConfig, BudgetConfig, NetworkConfig, OutputConfig,
     AdvancedConfig, ThemeConfig, AuthConfig, DeduplicationConfig,
     DEFAULT_REGION_PRIORITY,
@@ -70,7 +70,7 @@ def test_yaml_empty_content():
 
 def test_yaml_empty_value_becomes_empty_list():
     data = parse_yaml("items:\nother: val")
-    assert data.get('items') == []
+    assert data.get('items') is None  # pyyaml: empty key = None
     assert data.get('other') == 'val'
 
 
@@ -83,42 +83,6 @@ def test_yaml_multiple_lists():
     data = parse_yaml("a:\n  - x\nb:\n  - y")
     assert data.get('a') == ['x']
     assert data.get('b') == ['y']
-
-
-# =============================================================================
-# _parse_yaml_value Tests
-# =============================================================================
-
-def test_parse_yaml_value_empty_string():
-    assert _parse_yaml_value('') is None
-
-
-def test_parse_yaml_value_integer():
-    assert _parse_yaml_value('42') == 42
-
-
-def test_parse_yaml_value_plain_string():
-    assert _parse_yaml_value('hello') == 'hello'
-
-
-# =============================================================================
-# _dump_yaml_value Tests
-# =============================================================================
-
-@pytest.mark.parametrize("value,expected", [
-    (None, 'null'),
-    (True, 'true'),
-    (False, 'false'),
-    (42, '42'),
-    (3.14, '3.14'),
-    ('hello', 'hello'),
-    ('true', '"true"'),
-    ('#e94560', '"#e94560"'),
-    ('key: val', '"key: val"'),
-    ('', '""'),
-])
-def test_dump_yaml_value(value, expected):
-    assert _dump_yaml_value(value) == expected
 
 
 # =============================================================================
