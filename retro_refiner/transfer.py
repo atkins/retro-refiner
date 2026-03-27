@@ -8,6 +8,7 @@ import shutil
 from pathlib import Path
 from typing import Callable, Dict, List, Optional
 
+from retro_refiner.log import logger
 from retro_refiner.models import ProgressEvent
 
 
@@ -35,6 +36,7 @@ def transfer_files(files: List[Path], dest_dir: Path, mode: str = 'copy',
     target_dir.mkdir(parents=True, exist_ok=True)
 
     stats: Dict[str, int] = {'transferred': 0, 'skipped': 0, 'errors': 0}
+    logger.debug("Transferring {} files to {} (mode={})", len(files), target_dir, mode)
 
     for i, src in enumerate(files):
         if on_progress:
@@ -60,9 +62,12 @@ def transfer_files(files: List[Path], dest_dir: Path, mode: str = 'copy',
             else:
                 shutil.copy2(src, dst)
             stats['transferred'] += 1
-        except OSError:
+        except OSError as exc:
+            logger.error("Transfer failed for {}: {}", src.name, exc)
             stats['errors'] += 1
 
+    logger.debug("Transfer complete: {} transferred, {} skipped, {} errors",
+                 stats['transferred'], stats['skipped'], stats['errors'])
     return stats
 
 
@@ -87,6 +92,7 @@ def validate_destination(dest_dir: Path, system: Optional[str],
         Dict of filename -> status ('valid', 'invalid', 'missing').
     """
     target_dir = dest_dir if (flat or not system) else dest_dir / system
+    logger.debug("Validating {} expected files in {}", len(expected_files), target_dir)
     result = {}
     for filename, expected_size in expected_files.items():
         filepath = target_dir / filename
@@ -108,6 +114,10 @@ def validate_destination(dest_dir: Path, system: Optional[str],
                 result[filename] = 'invalid'
                 continue
         result[filename] = 'valid'
+    valid = sum(1 for v in result.values() if v == 'valid')
+    invalid = sum(1 for v in result.values() if v == 'invalid')
+    missing = sum(1 for v in result.values() if v == 'missing')
+    logger.debug("Validation: {} valid, {} invalid, {} missing", valid, invalid, missing)
     return result
 
 
@@ -135,9 +145,13 @@ def clean_destination(dest_dir: Path, system: Optional[str],
         if filepath.is_file() and filepath.name not in keep_files:
             try:
                 filepath.unlink()
+                logger.debug("Cleaned: {}", filepath.name)
                 stats['removed'] += 1
-            except OSError:
+            except OSError as exc:
+                logger.error("Failed to clean {}: {}", filepath.name, exc)
                 stats['errors'] += 1
+    if stats['removed']:
+        logger.debug("Cleaned {} files from {}", stats['removed'], target_dir)
     return stats
 
 
@@ -161,6 +175,7 @@ def generate_m3u_playlist(system: str, rom_files: List[Path],
     with open(playlist_path, 'w', encoding='utf-8') as f:
         for rom in sorted(rom_files, key=lambda x: x.name.lower()):
             f.write(f"{rom.name}\n")
+    logger.debug("Generated M3U playlist: {} ({} entries)", playlist_path, len(rom_files))
     return playlist_path
 
 
@@ -193,6 +208,7 @@ def generate_gamelist_xml(_system: str, rom_files: List[Path],
 
     with open(gamelist_path, 'w', encoding='utf-8') as f:
         f.write('\n'.join(lines))
+    logger.debug("Generated gamelist.xml: {} ({} entries)", gamelist_path, len(rom_files))
     return gamelist_path
 
 
@@ -239,4 +255,6 @@ def generate_retroarch_playlist(system: str, rom_files: List[Path],
     playlist_dir.mkdir(parents=True, exist_ok=True)
     with open(playlist_path, 'w', encoding='utf-8') as f:
         json.dump(playlist, f, indent=2)
+    logger.debug("Generated RetroArch playlist: {} ({} entries)",
+                 playlist_path, len(entries))
     return playlist_path

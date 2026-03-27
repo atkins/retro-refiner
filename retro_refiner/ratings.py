@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Callable, List, Optional
 
 from retro_refiner.dat import RomInfo, normalize_title
+from retro_refiner.log import logger
 from retro_refiner.systems import load_system_data
 
 
@@ -316,9 +317,14 @@ def build_ratings_cache(xml_path: Path, cache_path: Path = None,
             if on_progress and total_file_size > 0:
                 on_progress(bytes_read, total_file_size, game_count)
 
+    total_rated = sum(len(v) for v in cache.values())
+    logger.debug("Ratings parsed: {} games, {} rated across {} systems",
+                 game_count, total_rated, len(cache))
+
     if cache_path:
         with open(cache_path, 'w', encoding='utf-8') as f:
             json.dump(cache, f)
+        logger.debug("Ratings cache saved to {}", cache_path)
 
     return cache
 
@@ -350,8 +356,10 @@ def download_launchbox_data(dat_dir: Path, force: bool = False,
     zip_path = launchbox_dir / "Metadata.zip"
 
     if xml_path.exists() and not force:
+        logger.debug("LaunchBox data cached at {}", xml_path)
         return xml_path
 
+    logger.info("Downloading LaunchBox metadata from {}", LAUNCHBOX_METADATA_URL)
     try:
         req = urllib.request.Request(
             LAUNCHBOX_METADATA_URL,
@@ -376,9 +384,11 @@ def download_launchbox_data(dat_dir: Path, force: bool = False,
             zf.extract('Metadata.xml', launchbox_dir)
 
         zip_path.unlink()
+        logger.info("LaunchBox metadata extracted to {}", xml_path)
         return xml_path
 
-    except Exception:  # pylint: disable=broad-except
+    except Exception as exc:  # pylint: disable=broad-except
+        logger.error("LaunchBox download failed: {}", exc)
         if zip_path.exists():
             zip_path.unlink()
         return None
