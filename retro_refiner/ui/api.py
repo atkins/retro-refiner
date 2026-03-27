@@ -714,6 +714,16 @@ class Api:
                                     system, rom_files, sys_dir,
                                     ra_path)
 
+            # Recompute totals after budget/dedup filters
+            total_selected = 0
+            total_size = 0
+            for system in all_systems:
+                sys_data = self._last_results.get(system, {})
+                sys_urls = sys_data.get('selected_urls', [])
+                total_selected += len(sys_urls)
+                total_size += sum(all_sizes.get(u, 0) for u in sys_urls)
+            total_excluded = total_source - total_selected
+
             # Push summary
             self._push_event('summary', {
                 'total_selected': total_selected,
@@ -2083,21 +2093,21 @@ class Api:
 
     def _apply_budget_filters(self, config, all_systems, all_sizes):
         """Apply --limit, --top, and --size budget filters after filtering."""
-        # --limit: simple total cap across systems
+        # --limit: cap per system
         if config.budget.limit:
-            remaining = config.budget.limit
+            limit = config.budget.limit
             for system in sorted(all_systems):
                 sys_data = self._last_results.get(system, {})
                 sys_urls = sys_data.get('selected_urls', [])
                 if not sys_urls:
                     continue
-                if remaining <= 0:
-                    sys_data['selected_urls'] = []
-                elif len(sys_urls) > remaining:
-                    sys_data['selected_urls'] = sys_urls[:remaining]
-                    remaining = 0
-                else:
-                    remaining -= len(sys_urls)
+                if len(sys_urls) > limit:
+                    before = len(sys_urls)
+                    sys_data['selected_urls'] = sys_urls[:limit]
+                    self._push_event('log', {
+                        'text': f'  {system.upper()}: limit '
+                                f'{before} -> {limit}\n',
+                    })
 
         # --top and --size require ratings data
         if config.budget.top or config.budget.size:
