@@ -1642,7 +1642,7 @@ class Api:
             if len(years) > 50:
                 decades = Counter(
                     (y // 10) * 10 for y in years)
-                decades_dict = dict(decades)
+                decades_dict = {str(k): v for k, v in decades.items()}
                 peak = decades.most_common(1)[0]
                 tidbits.append(
                     f"\u266B Peak decade: {peak[0]}s "
