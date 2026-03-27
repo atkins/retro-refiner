@@ -848,8 +848,6 @@
       <div class="section-body hidden">
         <div class="field-label">Top N per system</div>
         <input type="number" id="opt-top" placeholder="e.g. 50" min="0" title="Keep only the top N highest-rated games per system">
-        <div class="field-label">Max ROMs per system</div>
-        <input type="number" id="opt-limit" placeholder="e.g. 100" min="0" title="Hard cap on number of ROMs per system">
         <div class="field-label">Size budget</div>
         <input type="text" id="opt-size" placeholder="e.g. 50GB" title="Maximum total download size (e.g. 10GB, 500MB)">
         <div class="toggle-row" style="margin-top:4px">
@@ -1559,7 +1557,7 @@ function restoreUiState(cfg) {
 
   /* Budget */
   document.getElementById('opt-top').value = bud.top || '';
-  document.getElementById('opt-limit').value = bud.limit || '';
+  // opt-limit removed (merged into top-N)
   document.getElementById('opt-size').value = bud.size || '';
   document.getElementById('opt-include-unrated').checked = !!bud.include_unrated;
   document.getElementById('opt-prefer-exclusives').value = bud.prefer_exclusives || '';
@@ -1654,7 +1652,7 @@ function gatherUiState() {
     year_to: document.getElementById('opt-year-to').value || '',
     /* Budget */
     top: document.getElementById('opt-top').value || '',
-    limit: document.getElementById('opt-limit').value || '',
+    limit: '',
     size: document.getElementById('opt-size').value || '',
     include_unrated: document.getElementById('opt-include-unrated').checked,
     prefer_exclusives: document.getElementById('opt-prefer-exclusives').value || '',

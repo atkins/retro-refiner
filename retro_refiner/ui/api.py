@@ -2092,24 +2092,7 @@ class Api:
             })
 
     def _apply_budget_filters(self, config, all_systems, all_sizes):
-        """Apply --limit, --top, and --size budget filters after filtering."""
-        # --limit: cap per system
-        if config.budget.limit:
-            limit = config.budget.limit
-            for system in sorted(all_systems):
-                sys_data = self._last_results.get(system, {})
-                sys_urls = sys_data.get('selected_urls', [])
-                if not sys_urls:
-                    continue
-                if len(sys_urls) > limit:
-                    before = len(sys_urls)
-                    sys_data['selected_urls'] = sys_urls[:limit]
-                    self._push_event('log', {
-                        'text': f'  {system.upper()}: limit '
-                                f'{before} -> {limit}\n',
-                    })
-
-        # --top and --size require ratings data
+        """Apply --top and --size budget filters after filtering."""
         if config.budget.top or config.budget.size:
             self._apply_ratings_budget(config, all_systems, all_sizes)
 
