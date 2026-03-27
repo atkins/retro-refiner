@@ -10,6 +10,7 @@ dependencies = [
     "tenacity",
     "orjson",
     "beautifulsoup4",
+    "loguru",
 ]
 
 [project.optional-dependencies]

@@ -53,6 +53,8 @@ PC-Windows.xml
 logs/
 
 # Retro-Refiner generated data
+retro-refiner.log
+retro-refiner.log.*
 dat_files/
 cache/
 refined/
