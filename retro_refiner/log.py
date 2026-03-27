@@ -7,19 +7,23 @@ Two log channels:
 All modules should import logger from here:
     from retro_refiner.log import logger
 """
-from loguru import logger
+import sys
 
-from retro_refiner.paths import get_runtime_path
+from loguru import logger
 
 # Remove loguru's default stderr handler
 logger.remove()
 
-# Always-on file sink — debug level, rotating, next to the executable
-logger.add(
-    get_runtime_path() / 'retro-refiner.log',
-    level='DEBUG',
-    rotation='10 MB',
-    retention=3,
-    format='{time:YYYY-MM-DD HH:mm:ss} | {level:<8} | {module}:{function}:{line} | {message}',
-    encoding='utf-8',
-)
+# Skip file sink during tests — don't pollute the production log
+if 'pytest' not in sys.modules:
+    from retro_refiner.paths import get_runtime_path  # pylint: disable=ungrouped-imports
+
+    logger.add(
+        get_runtime_path() / 'retro-refiner.log',
+        level='DEBUG',
+        rotation='10 MB',
+        retention=3,
+        format='{time:YYYY-MM-DD HH:mm:ss} | {level:<8} | '
+               '{module}:{function}:{line} | {message}',
+        encoding='utf-8',
+    )
