@@ -686,7 +686,7 @@ def filter_network_roms(system, urls, config, url_sizes=None,
                  system, len(selected_urls), len(excluded_list))
 
     for url in selected_urls[:20]:
-        logger.debug("  SELECTED: {}", url.split('/')[-1])
+        logger.debug("  SELECTED: {}", get_filename_from_url(url))
     if len(selected_urls) > 20:
         logger.debug("  ... and {} more selected",
                      len(selected_urls) - 20)
