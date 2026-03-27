@@ -55,8 +55,7 @@ python -m nuitka --standalone --onefile --assume-yes-for-downloads --enable-plug
 ```
 tools/
     analyze_title_mappings.py  # Title mapping analyzer (standalone)
-    mapping_review.txt         # Review candidates from last analyzer run
-docs/plans/                    # Design docs and implementation plans
+jobs/                          # Predefined job configurations (YAML)
 retro_refiner/
     __init__.py       # Version, key exports (Config, load_config, SystemData, etc.)
     __main__.py       # Entry point: GUI default, --run for headless
@@ -70,7 +69,6 @@ retro_refiner/
     filter.py         # parse_rom_filename, select_best_rom, filter_network_roms, filter_roms_from_files
     mame.py           # MameGameInfo, catver.ini parsing, category filtering, clone selection
     teknoparrot.py    # TeknoParrotGameInfo, version dedup, platform filtering
-    downloader.py     # Stub — download code migrated to httpx
     transfer.py       # Copy/move/symlink/hardlink/remove, dest validation, dest cleaning, playlist gen, gamelist gen
     ratings.py        # IGDB + LaunchBox rating data, combine/boost ratings
     dedup.py          # Cross-system dedup analysis, exclusion playlist parsing

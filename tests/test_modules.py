@@ -47,7 +47,6 @@ from retro_refiner.cli import _parse_size_string as cli_parse_size_string
     "filter",
     "mame",
     "teknoparrot",
-    "downloader",
     "transfer",
     "config",
     "updater",
