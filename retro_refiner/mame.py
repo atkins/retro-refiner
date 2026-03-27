@@ -19,7 +19,6 @@ from typing import Callable, Dict, List, Optional, Tuple
 from retro_refiner.log import logger
 
 
-
 # =============================================================================
 # Dataclass
 # =============================================================================

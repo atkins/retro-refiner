@@ -5,7 +5,6 @@ replaced by optional callbacks and plain stderr for errors.
 """
 import json
 import re
-import sys
 import urllib.error
 import urllib.request
 import xml.etree.ElementTree as ET
@@ -266,11 +265,9 @@ def parse_teknoparrot_dat(dat_path: str) -> dict:
                 )
 
     except ET.ParseError as exc:
-        print(f"TeknoParrot: Error parsing DAT file: {exc}",
-              file=sys.stderr)
+        logger.error("TeknoParrot: Error parsing DAT file: {}", exc)
     except Exception as exc:  # pylint: disable=broad-except
-        print(f"TeknoParrot: Error reading DAT file: {exc}",
-              file=sys.stderr)
+        logger.error("TeknoParrot: Error reading DAT file: {}", exc)
 
     return games
 

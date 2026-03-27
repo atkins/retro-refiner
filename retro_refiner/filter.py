@@ -689,7 +689,7 @@ def filter_network_roms(system, urls, config, url_sizes=None,
         logger.debug("  SELECTED: {}", get_filename_from_url(url))
     for exc in excluded_list:
         logger.debug("  EXCLUDED: {} ({})", exc.filename, exc.reason)
-    if dict(breakdown):
+    if breakdown:
         logger.debug("Filter breakdown for {}: {}",
                      system, dict(breakdown))
 
