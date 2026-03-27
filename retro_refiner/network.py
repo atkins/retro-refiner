@@ -17,6 +17,8 @@ from typing import Dict, List, Optional, Tuple
 
 from tenacity import retry, retry_if_exception, stop_after_attempt
 
+from retro_refiner.log import logger
+
 # ---------------------------------------------------------------------------
 # Shutdown mechanism
 # ---------------------------------------------------------------------------
@@ -570,6 +572,7 @@ def validate_source(source: str, timeout: int = 15) -> Tuple[bool, str]:
             )
             with urllib.request.urlopen(request, timeout=timeout) as response:
                 if response.status == 200:
+                    logger.debug("Source validated: {}", source)
                     return True, ""
                 return False, f"HTTP {response.status}"
         except urllib.error.HTTPError as exc:
@@ -648,6 +651,7 @@ def fetch_url(url: str, timeout: int = 30, max_redirects: int = 5,
                 "Get credentials at: https://archive.org/account/s3.php"
             )
         response.raise_for_status()
+        logger.debug("Fetched {} ({} bytes)", url, len(response.content))
         return response.content, final_url
 
 
@@ -674,6 +678,7 @@ def fetch_urls_parallel(urls: List[str], max_workers: int = 16,
         headers['Authorization'] = auth_header
 
     actual_workers = min(max_workers, len(urls))
+    logger.debug("Fetching {} URLs with {} workers", len(urls), actual_workers)
 
     with httpx.Client(follow_redirects=True, max_redirects=5,
                       timeout=30, headers=headers) as client:
@@ -837,6 +842,7 @@ def stream_download(client, url, dest_path):
     Retries up to 3 times on 5xx, timeout, and connection errors.
     Does NOT retry on 4xx client errors.
     """
+    logger.debug("Downloading {} -> {}", url, dest_path)
     with client.stream('GET', url) as response:
         response.raise_for_status()
         with open(dest_path, 'wb') as f:

@@ -12,6 +12,7 @@ import orjson
 import webview
 
 from retro_refiner.config import Config, load_config, save_config
+from retro_refiner.log import logger
 from retro_refiner.network import stream_download
 from retro_refiner.paths import get_runtime_path
 from retro_refiner.systems import load_system_data
@@ -519,6 +520,7 @@ class Api:
             self._run_breakdowns = {}
 
             config = Config.from_dict(self._config.to_dict())
+            logger.info("Starting {} run", 'commit' if commit else 'preview')
 
             # Import core modules
             from retro_refiner.network import (  # pylint: disable=import-outside-toplevel
@@ -727,6 +729,9 @@ class Api:
                 'system_count': len(all_systems),
                 'commit': commit,
             })
+
+            logger.info("Run complete: {} selected across {} systems",
+                        total_selected, len(all_systems))
 
             self._compute_fanfare(
                 config, total_selected, total_excluded,
@@ -1001,6 +1006,8 @@ class Api:
         source_count, source_size) tuple.
         """
         from retro_refiner.network import format_size  # pylint: disable=import-outside-toplevel
+        logger.debug("Filtering {}: {} URLs + {} local files",
+                     system, len(urls), len(local_files))
         source_count = len(urls) + len(local_files)
 
         # Compute sizes
@@ -1565,6 +1572,8 @@ class Api:
     def _download_batch(self, downloads, parallel, system):
         """Download files using httpx with ThreadPoolExecutor."""
         import httpx  # pylint: disable=import-outside-toplevel
+        logger.debug("Downloading {} files for {} (parallel={})",
+                     len(downloads), system, parallel)
 
         total = len(downloads)
         fail_count = 0

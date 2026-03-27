@@ -199,10 +199,13 @@ def scan_network_source_urls(
 
     # Detect system from URL path
     url_system = detect_system_from_path(base_url)
+    logger.debug("Detected system '{}' from URL: {}", url_system, base_url)
 
     # Check for ROM files in this listing (with sizes)
     rom_files_with_sizes = parse_html_for_files_with_sizes(html, base_url)
     check_shutdown()
+
+    logger.debug("Found {} ROMs in {}", len(rom_files_with_sizes), base_url)
 
     if rom_files_with_sizes:
         total_size = sum(size for _, size in rom_files_with_sizes)

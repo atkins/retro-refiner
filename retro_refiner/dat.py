@@ -240,6 +240,7 @@ def download_libretro_dat(system: str, dest_dir: Path,
     Returns the path to the downloaded file, or None on failure.
     """
     _ = on_progress  # Reserved for future progress reporting
+    logger.debug("Downloading DAT for system: {}", system)
     urls = get_libretro_dat_url(system)
     if not urls:
         logger.warning("No DAT mapping for: {}", system)
@@ -584,6 +585,7 @@ def load_all_system_dats(system: str,
         except Exception:  # pylint: disable=broad-except
             pass
 
+    logger.debug("Loaded {} DAT entries for {}", len(all_entries), system)
     return all_entries
 
 

@@ -20,6 +20,7 @@ from retro_refiner.dat import (
     load_crc_cache,
     save_crc_cache,
 )
+from retro_refiner.log import logger
 from retro_refiner.models import ExcludedRom, FilterResult, FilterStats
 from retro_refiner.network import get_filename_from_url
 
@@ -493,6 +494,7 @@ def filter_network_roms(system, urls, config, url_sizes=None,
         FilterResult with selected/excluded URLs and statistics.
     """
     _ = on_progress
+    logger.debug("Filtering {} ROMs for system '{}'", len(urls), system)
 
     if not urls:
         return FilterResult(system=system)
@@ -680,6 +682,8 @@ def filter_network_roms(system, urls, config, url_sizes=None,
         filter_breakdown=dict(breakdown),
     )
 
+    logger.debug("Filter result for {}: {} selected, {} excluded",
+                 system, len(selected_urls), len(excluded_list))
     result = FilterResult(
         system=system, selected=selected_urls,
         excluded=excluded_list[:500], stats=stats)
