@@ -772,6 +772,7 @@
           <div class="toggle-switch" onclick="this.querySelector('input').click()"><input type="checkbox" id="opt-all-roms" onchange="toggleSelectionOpts()"><span class="toggle-slider"></span></div>
         </div>
         <div id="selection-filter-opts" class="sub-options disabled">
+          <!-- Core filtering -->
           <div class="toggle-row sub">
             <label title="1G1R: select one best ROM per game based on region and revision">1 Game 1 ROM</label>
             <div class="toggle-switch" onclick="this.querySelector('input').click()"><input type="checkbox" id="opt-best-version"><span class="toggle-slider"></span></div>
@@ -800,9 +801,24 @@
           </div>
           <div class="field-label">Region priority</div>
           <input type="text" id="opt-region-priority" placeholder="USA, World, Europe, Australia..." title="Order of preference when choosing between regional versions">
-          <div class="field-label">Keep regions (multi-region output)</div>
+
+          <!-- Budget -->
+          <div class="field-label" style="margin-top:8px">Top N per system <span style="color:var(--text-muted);font-weight:normal;font-size:9px">(by rating)</span></div>
+          <input type="number" id="opt-top" placeholder="e.g. 50" min="0" title="Keep only the top N highest-rated games per system">
+          <div class="field-label">Size budget</div>
+          <input type="text" id="opt-size" placeholder="e.g. 50GB" title="Maximum total download size (e.g. 10GB, 500MB)">
+
+          <!-- Cross-system dedup -->
+          <div class="field-label" style="margin-top:8px">Cross-system dedup priority <span id="dedup-priority-hint" style="color:var(--text-muted);font-weight:normal;font-size:9px">click to set order</span></div>
+          <div class="system-pills" id="dedup-priority-pills">
+            <span class="system-pill-placeholder">Scan sources to discover systems</span>
+          </div>
+          <input type="hidden" id="opt-dedup-priority">
+
+          <!-- Advanced selection options -->
+          <div class="field-label" style="margin-top:8px">Keep regions <span style="color:var(--text-muted);font-weight:normal;font-size:9px">(multi-region output)</span></div>
           <input type="text" id="opt-keep-regions" placeholder="e.g. USA, Japan" title="Keep one ROM per listed region instead of just the best single version">
-          <div class="field-label">Include patterns (comma-separated globs)</div>
+          <div class="field-label">Include patterns <span style="color:var(--text-muted);font-weight:normal;font-size:9px">(comma-separated globs)</span></div>
           <input type="text" id="opt-include-patterns" placeholder="e.g. *Mario*, *Zelda*" title="Only keep filenames matching these glob patterns">
           <div class="field-label">Exclude patterns</div>
           <input type="text" id="opt-exclude-patterns" placeholder="e.g. *Demo*, *Sample*" title="Remove filenames matching these glob patterns">
@@ -810,6 +826,17 @@
           <div class="flex-row">
             <input type="number" id="opt-year-from" placeholder="From" min="1970" max="2030" class="flex-1">
             <input type="number" id="opt-year-to" placeholder="To" min="1970" max="2030" class="flex-1">
+          </div>
+          <div class="toggle-row" style="margin-top:4px">
+            <label title="Include games without rating data when using Top N">Include unrated</label>
+            <div class="toggle-switch sm" onclick="this.querySelector('input').click()"><input type="checkbox" id="opt-include-unrated"><span class="toggle-slider"></span></div>
+          </div>
+          <div class="field-label">Exclusive rating boost</div>
+          <input type="number" id="opt-prefer-exclusives" placeholder="e.g. 1.5" step="0.1" min="0" title="Multiply ratings of platform-exclusive games by this factor (e.g. 1.5 = 50% boost)">
+          <div class="field-label">Exclusion playlists</div>
+          <div class="source-list" id="exclusion-playlist-list"></div>
+          <div class="source-buttons">
+            <button class="source-btn" onclick="addExclusionPlaylist()" title="Add a Launchbox, Retroarch, or XML playlist">+ Playlist</button>
           </div>
         </div>
       </div>
@@ -820,44 +847,6 @@
       <span class="arrow" id="more-options-arrow">&#9656;</span> MORE OPTIONS
     </div>
     <div class="more-options-body hidden" id="more-options-body">
-
-    <!-- Deduplication -->
-    <div class="section" data-section="deduplication">
-      <div class="section-header collapsed" onclick="toggleSection(this)">
-        <span class="arrow">&#9656;</span> DEDUPLICATION
-      </div>
-      <div class="section-body hidden">
-        <div class="field-label">System priority <span id="dedup-priority-hint" style="color:var(--text-muted);font-weight:normal;font-size:9px">click to set order</span></div>
-        <div class="system-pills" id="dedup-priority-pills">
-          <span class="system-pill-placeholder">Scan sources to discover systems</span>
-        </div>
-        <input type="hidden" id="opt-dedup-priority">
-        <div class="field-label">Exclusion Playlists</div>
-        <div class="source-list" id="exclusion-playlist-list"></div>
-        <div class="source-buttons">
-          <button class="source-btn" onclick="addExclusionPlaylist()" title="Add a Launchbox, Retroarch, or XML playlist">+ Playlist</button>
-        </div>
-      </div>
-    </div>
-
-    <!-- Budget & Limits -->
-    <div class="section" data-section="budget">
-      <div class="section-header collapsed" onclick="toggleSection(this)">
-        <span class="arrow">&#9656;</span> BUDGET &amp; LIMITS
-      </div>
-      <div class="section-body hidden">
-        <div class="field-label">Top N per system</div>
-        <input type="number" id="opt-top" placeholder="e.g. 50" min="0" title="Keep only the top N highest-rated games per system">
-        <div class="field-label">Size budget</div>
-        <input type="text" id="opt-size" placeholder="e.g. 50GB" title="Maximum total download size (e.g. 10GB, 500MB)">
-        <div class="toggle-row" style="margin-top:4px">
-          <label title="Include games without rating data when using Top N">Include unrated</label>
-          <div class="toggle-switch sm" onclick="this.querySelector('input').click()"><input type="checkbox" id="opt-include-unrated"><span class="toggle-slider"></span></div>
-        </div>
-        <div class="field-label">Platform exclusive rating boost</div>
-        <input type="number" id="opt-prefer-exclusives" placeholder="e.g. 1.5" step="0.1" min="0" title="Multiply ratings of platform-exclusive games by this factor (e.g. 1.5 = 50% boost)">
-      </div>
-    </div>
 
     <!-- Advanced (merged: Network + Output + Advanced + Auth) -->
     <div class="section" data-section="advanced">
