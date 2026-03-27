@@ -10,7 +10,13 @@ import yaml
 
 def parse_yaml(content: str) -> dict:
     """Parse YAML content into a dict using PyYAML."""
-    result = yaml.safe_load(content)
+    try:
+        result = yaml.safe_load(content)
+    except yaml.YAMLError:
+        # Windows backslashes in double-quoted strings cause YAML escape
+        # errors (e.g. \U interpreted as unicode escape). Retry with
+        # backslashes escaped.
+        result = yaml.safe_load(content.replace('\\', '\\\\'))
     return result if isinstance(result, dict) else {}
 
 
