@@ -21,7 +21,7 @@ jobs:
           python-version: '3.11'
 
       - name: Install Python dependencies
-        run: pip install "nuitka[onefile]" pywebview httpx pyyaml humanize tenacity orjson beautifulsoup4
+        run: pip install "nuitka[onefile]" pywebview httpx pyyaml humanize tenacity orjson beautifulsoup4 loguru
 
       - name: Inject version from tag
         shell: bash
@@ -36,6 +36,7 @@ jobs:
           --standalone --onefile
           --assume-yes-for-downloads
           --enable-plugin=no-qt
+          --include-package=loguru
           --include-data-dir=data=data
           --include-data-dir=retro_refiner/ui/assets=retro_refiner/ui/assets
           --windows-icon-from-ico=retro_refiner/ui/assets/icon.ico
@@ -68,7 +69,7 @@ jobs:
           sudo apt-get install -y libgirepository1.0-dev libcairo2-dev libwebkit2gtk-4.1-dev gir1.2-webkit2-4.1 patchelf
 
       - name: Install Python dependencies
-        run: pip install "nuitka[onefile]" pywebview httpx pyyaml humanize tenacity orjson beautifulsoup4
+        run: pip install "nuitka[onefile]" pywebview httpx pyyaml humanize tenacity orjson beautifulsoup4 loguru
 
       - name: Inject version from tag
         shell: bash
@@ -83,6 +84,7 @@ jobs:
           --standalone --onefile
           --assume-yes-for-downloads
           --enable-plugin=no-qt
+          --include-package=loguru
           --include-data-dir=data=data
           --include-data-dir=retro_refiner/ui/assets=retro_refiner/ui/assets
           --output-filename=retro-refiner
@@ -107,7 +109,7 @@ jobs:
           python-version: '3.11'
 
       - name: Install Python dependencies
-        run: pip install "nuitka[onefile]" pywebview httpx pyyaml humanize tenacity orjson beautifulsoup4
+        run: pip install "nuitka[onefile]" pywebview httpx pyyaml humanize tenacity orjson beautifulsoup4 loguru
 
       - name: Inject version from tag
         shell: bash
@@ -122,6 +124,7 @@ jobs:
           --mode=app
           --assume-yes-for-downloads
           --enable-plugin=no-qt
+          --include-package=loguru
           --include-data-dir=data=data
           --include-data-dir=retro_refiner/ui/assets=retro_refiner/ui/assets
           --macos-app-name=Retro-Refiner
