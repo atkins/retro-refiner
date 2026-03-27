@@ -1,3 +1,21 @@
+[project]
+name = "retro-refiner"
+version = "0.0.0"  # injected from git tag at build time
+requires-python = ">=3.11"
+dependencies = [
+    "pywebview",
+    "httpx",
+    "pyyaml",
+    "humanize",
+    "tenacity",
+    "orjson",
+    "beautifulsoup4",
+]
+
+[project.optional-dependencies]
+dev = ["pytest", "pylint", "ruff"]
+build = ["nuitka[onefile]"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "--ignore=tests/test_smoke.py -q"
