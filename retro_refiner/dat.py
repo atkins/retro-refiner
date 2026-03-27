@@ -8,7 +8,6 @@ import io
 import json
 import re
 import shutil
-import sys
 import threading
 import unicodedata
 import urllib.error
@@ -20,6 +19,7 @@ from typing import Callable, Dict, List, Optional
 
 from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential
 
+from retro_refiner.log import logger
 from retro_refiner.paths import get_base_path
 from retro_refiner.systems import load_system_data
 
@@ -99,8 +99,7 @@ def load_title_mappings() -> Dict[str, str]:
                 if isinstance(entries, dict):
                     flat_mappings.update(entries)
         except (json.JSONDecodeError, IOError) as exc:
-            print(f"WARNING: Could not load title_mappings.json: {exc}",
-                  file=sys.stderr)
+            logger.warning("Could not load title_mappings.json: {}", exc)
 
     _title_mappings_cache = flat_mappings
     return flat_mappings
@@ -243,7 +242,7 @@ def download_libretro_dat(system: str, dest_dir: Path,
     _ = on_progress  # Reserved for future progress reporting
     urls = get_libretro_dat_url(system)
     if not urls:
-        print(f"ERROR: No DAT mapping for: {system}", file=sys.stderr)
+        logger.warning("No DAT mapping for: {}", system)
         return None
 
     dest_dir.mkdir(parents=True, exist_ok=True)
@@ -268,7 +267,7 @@ def download_libretro_dat(system: str, dest_dir: Path,
         except Exception:  # pylint: disable=broad-except
             continue
 
-    print(f"ERROR: Failed to download DAT for: {system}", file=sys.stderr)
+    logger.warning("Failed to download DAT for: {}", system)
     return None
 
 

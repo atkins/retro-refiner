@@ -10,6 +10,7 @@ import urllib.parse
 from pathlib import Path
 
 from retro_refiner.config import Config, load_config, save_config
+from retro_refiner.log import logger
 from retro_refiner.network import format_size, is_url, stream_download, validate_source
 from retro_refiner.scanner import scan_local_sources, scan_network_source
 from retro_refiner.paths import get_runtime_path
@@ -204,8 +205,7 @@ def run_headless(args: list):
                     )
                     selected_urls = fr.selected if fr.selected else urls
             except Exception as exc:  # pylint: disable=broad-except
-                print(f"  {system.upper()}: filter error: {exc}",
-                      file=sys.stderr)
+                logger.error("{}: filter error: {}", system.upper(), exc)
 
         selected_size = sum(all_sizes.get(u, 0) for u in selected_urls)
         total_selected += len(selected_urls)
@@ -312,8 +312,7 @@ def run_headless(args: list):
                             succeeded.add(tmp_path)
                         except Exception as exc:  # pylint: disable=broad-except
                             fname = _url_to_filename(url)
-                            print(f"    FAILED: {fname}: {exc}",
-                                  file=sys.stderr)
+                            logger.error("FAILED: {}: {}", fname, exc)
                     print(f"  {system.upper()}: downloaded "
                           f"{completed}/{len(downloads)} files")
 
@@ -389,15 +388,14 @@ def _apply_cli_ratings_budget(config, system_selected_urls, all_sizes):
     print("\nLoading ratings data...")
     xml_path = download_launchbox_data(dat_dir)
     if not xml_path:
-        print("  WARNING: No ratings data available "
-              "(LaunchBox download failed)", file=sys.stderr)
+        logger.warning("No ratings data available (LaunchBox download failed)")
         return system_selected_urls
 
     cache_path = dat_dir / 'launchbox' / 'ratings_cache.json'
     ratings = build_ratings_cache(xml_path, cache_path=cache_path)
 
     if not ratings:
-        print("  WARNING: No ratings found in data", file=sys.stderr)
+        logger.warning("No ratings found in data")
         return system_selected_urls
 
     total_rated = sum(len(v) for v in ratings.values())

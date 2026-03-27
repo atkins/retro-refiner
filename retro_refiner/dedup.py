@@ -3,11 +3,11 @@
 Standalone implementations extracted from the monolith. Console output is
 replaced by plain stdout/stderr for portability.
 """
-import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
 from retro_refiner.dat import normalize_title, normalize_title_for_dedupe
+from retro_refiner.log import logger
 from retro_refiner.network import format_size
 
 
@@ -25,7 +25,7 @@ def parse_pc_game_list(xml_path, for_dedupe=False):
     titles = set()
     path = Path(xml_path)
     if not path.exists():
-        print(f"WARNING: PC game list not found: {xml_path}", file=sys.stderr)
+        logger.warning("PC game list not found: {}", xml_path)
         return titles
     try:
         for _, elem in ET.iterparse(str(path), events=('end',)):
@@ -35,8 +35,7 @@ def parse_pc_game_list(xml_path, for_dedupe=False):
                     titles.add(normalized)
             elem.clear()
     except ET.ParseError as exc:
-        print(f"WARNING: Failed to parse PC game list {xml_path}: {exc}",
-              file=sys.stderr)
+        logger.warning("Failed to parse PC game list {}: {}", xml_path, exc)
     return titles
 
 
@@ -61,8 +60,7 @@ def run_dedupe_analysis(detected, args, delete=False, confirm=True):
                         and s in detected]
 
     if not priority_systems:
-        print("WARNING: No priority systems found in detected ROMs",
-              file=sys.stderr)
+        logger.warning("No priority systems found in detected ROMs")
         return
 
     # Load PC game lists as seed

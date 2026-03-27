@@ -4,13 +4,13 @@ Standalone implementations extracted from the monolith. Console output is
 replaced by an ``on_progress`` callback and plain stderr for errors.
 """
 import re
-import sys
 import time
 import urllib.request
 from collections import defaultdict
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Tuple
 
+from retro_refiner.log import logger
 from retro_refiner.models import ProgressEvent, ScanResult, SystemScanInfo
 from retro_refiner.network import (
     check_shutdown,
@@ -155,8 +155,8 @@ def _log(msg: str, on_progress: Callable = None):
 
 
 def _log_error(msg: str):
-    """Write an error message to stderr."""
-    print(msg, file=sys.stderr, flush=True)
+    """Log an error message."""
+    logger.error(msg)
 
 
 def scan_network_source_urls(
