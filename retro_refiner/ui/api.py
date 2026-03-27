@@ -1083,6 +1083,7 @@ class Api:
         selected_urls = urls
         selected_local = list(local_files)
         filter_breakdown = {}
+        title_map = {}  # rom_name -> display title (MAME/TP)
         # NOTE: filter_network_roms returns FilterResult,
         # but filter_mame_network_roms / filter_teknoparrot_network_roms
         # return (selected_urls, info_dict) tuples.  The code below
@@ -1119,6 +1120,8 @@ class Api:
                             english_only=sel.english_only,
                         )
                         filter_breakdown = _info.get('filter_breakdown', {}) if isinstance(_info, dict) else {}
+                        if isinstance(_info, dict):
+                            title_map = _info.get('title_map', {})
                 elif system == 'teknoparrot':
                     tp_exclude = None
                     if config.advanced.tp_exclude_platforms:
@@ -1230,10 +1233,10 @@ class Api:
         # Build preview titles (first 5 selected)
         preview = []
         for u in selected_urls[:5]:
-            preview.append(
-                urllib.parse.unquote(
-                    u.split('?')[0].split('#')[0].split('/')[-1]
-                ).rsplit('.', 1)[0])
+            fname = urllib.parse.unquote(
+                u.split('?')[0].split('#')[0].split('/')[-1])
+            rom_name = fname.rsplit('.', 1)[0]
+            preview.append(title_map.get(rom_name, rom_name))
         for f in selected_local[:max(0, 5 - len(preview))]:
             preview.append(Path(f).stem)
 

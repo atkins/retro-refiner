@@ -733,7 +733,17 @@ def filter_mame_network_roms(rom_urls, categories, games,
         reason = excluded_reasons.get(url, 'unknown')
         logger.debug("  EXCLUDED: {} ({})", url.split('/')[-1], reason)
 
+    # Build title map: rom_name -> human-readable description
+    title_map = {}
+    for url in selected_urls:
+        fname = url.split('/')[-1].split('?')[0].split('#')[0]
+        rom_name = fname.rsplit('.', 1)[0] if '.' in fname else fname
+        game = games.get(rom_name)
+        if game:
+            title_map[rom_name] = game.description
+
     return selected_urls, {
         'source_size': total_source_size,
         'selected_size': selected_size,
+        'title_map': title_map,
     }
