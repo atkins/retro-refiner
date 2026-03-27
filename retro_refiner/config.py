@@ -126,11 +126,12 @@ class AuthConfig:
 
 @dataclass
 class WindowConfig:
-    """Window geometry (saved/restored automatically)."""
+    """Window geometry and UI state (saved/restored automatically)."""
     x: Optional[int] = None
     y: Optional[int] = None
     width: int = 1200
     height: int = 800
+    section_states: Dict[str, bool] = field(default_factory=dict)
 
 
 @dataclass

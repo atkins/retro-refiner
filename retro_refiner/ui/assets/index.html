@@ -1557,7 +1557,7 @@ function restoreUiState(cfg) {
   setTheme(themeName);
 
   /* Restore section open/closed states */
-  var secStates = cfg.section_states;
+  var secStates = (cfg.window && cfg.window.section_states) || cfg.section_states;
   if (secStates) {
     document.querySelectorAll('.section[data-section]').forEach(function(sec) {
       var name = sec.getAttribute('data-section');

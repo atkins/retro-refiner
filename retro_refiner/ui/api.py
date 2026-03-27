@@ -470,6 +470,11 @@ class Api:
         # Theme
         self._config.theme.mode = ui.get('theme', 'midnight-terminal')
 
+        # Section states
+        sec_states = ui.get('section_states')
+        if isinstance(sec_states, dict):
+            self._config.window.section_states = sec_states
+
         # Exclude systems (internal, not on Config)
         excl = ui.get('exclude_systems', '').strip()
         self._exclude_systems = ([s.strip() for s in excl.split(',')
