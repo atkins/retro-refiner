@@ -855,14 +855,6 @@
         </div>
         <div class="toggle-grid" style="margin-top:4px">
           <div class="toggle-row">
-            <label title="Resume partially downloaded files instead of restarting">Resume</label>
-            <div class="toggle-switch sm" onclick="this.querySelector('input').click()"><input type="checkbox" id="opt-resume-downloads"><span class="toggle-slider"></span></div>
-          </div>
-          <div class="toggle-row">
-            <label title="Automatically adjust download parallelism based on connection stability">Auto-tune</label>
-            <div class="toggle-switch sm" onclick="this.querySelector('input').click()"><input type="checkbox" id="opt-auto-tune" checked><span class="toggle-slider"></span></div>
-          </div>
-          <div class="toggle-row">
             <label title="Don't download or use DAT files for metadata">Skip DATs</label>
             <div class="toggle-switch sm" onclick="this.querySelector('input').click()"><input type="checkbox" id="opt-no-dat"><span class="toggle-slider"></span></div>
           </div>
@@ -1532,8 +1524,7 @@ function restoreUiState(cfg) {
   /* Network */
   document.getElementById('opt-parallel').value = net.parallel || 4;
   document.getElementById('opt-scan-workers').value = net.scan_workers || 16;
-  document.getElementById('opt-resume-downloads').checked = !!net.resume_downloads;
-  document.getElementById('opt-auto-tune').checked = net.auto_tune !== false;
+  // opt-resume-downloads and opt-auto-tune removed (aria2c-only settings)
 
   /* Output */
   document.getElementById('opt-playlists').checked = !!out.playlists;
@@ -1626,8 +1617,8 @@ function gatherUiState() {
     /* Network */
     parallel: document.getElementById('opt-parallel').value || '',
     scan_workers: document.getElementById('opt-scan-workers').value || '',
-    resume_downloads: document.getElementById('opt-resume-downloads').checked,
-    auto_tune: document.getElementById('opt-auto-tune').checked,
+    resume_downloads: false,
+    auto_tune: false,
     /* Output */
     playlists: document.getElementById('opt-playlists').checked,
     gamelists: document.getElementById('opt-gamelists').value || '',

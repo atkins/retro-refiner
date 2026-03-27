@@ -424,8 +424,7 @@ class Api:
         net = self._config.network
         net.parallel = int(ui.get('parallel', 4) or 4)
         net.scan_workers = int(ui.get('scan_workers', 16) or 16)
-        net.resume_downloads = ui.get('resume_downloads', False)
-        net.auto_tune = ui.get('auto_tune', True)
+        # resume_downloads and auto_tune removed (aria2c-only settings)
 
         # Output
         out = self._config.output

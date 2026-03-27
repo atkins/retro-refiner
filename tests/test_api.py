@@ -281,7 +281,7 @@ def test_update_config_from_ui(api):
     assert cfg.selection.year_from == 1990
     assert cfg.selection.year_to == 2000
     assert cfg.network.parallel == 8
-    assert cfg.network.auto_tune is False
+    # auto_tune and resume_downloads removed (aria2c-only)
     assert cfg.output.local_file_action == 'symlink'
     assert cfg.output.flat is True
     assert cfg.output.clean_destination is True
