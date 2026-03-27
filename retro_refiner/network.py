@@ -765,6 +765,8 @@ def load_scan_cache(cache_dir: Path,
         # Don't serve empty cached results — likely a failed scan
         if not any(url_dict.values()):
             return None
+        logger.debug("Loaded scan cache: {} entries",
+                     sum(len(v) for v in url_dict.values()))
         return url_dict, url_sizes
     except (json.JSONDecodeError, IOError, KeyError):
         return None
@@ -793,6 +795,8 @@ def save_scan_cache(cache_dir: Path, url: str,
         'urls': url_dict,
         'sizes': url_sizes,
     }
+    logger.debug("Saved scan cache: {} entries",
+                 sum(len(v) for v in url_dict.values()))
     try:
         import tempfile as _tmpmod  # pylint: disable=import-outside-toplevel
         cache_dir.mkdir(parents=True, exist_ok=True)

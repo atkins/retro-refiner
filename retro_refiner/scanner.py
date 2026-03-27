@@ -369,6 +369,8 @@ def scan_network_source_urls(
 
         # Non-system subdirectories
         if other_subdirs:
+            for subdir_url_log, _ in other_subdirs:
+                logger.debug("Scanning subdirectory: {}", subdir_url_log)
             if url_system and (systems is None or url_system in systems):
                 urls_to_fetch = [u for u, _ in other_subdirs]
 
@@ -508,13 +510,15 @@ def scan_network_source(url: str, systems: List[str] = None,
         cached = load_scan_cache(cache_dir, url)
         if cached:
             url_dict, url_sizes = cached
+            total = sum(len(urls) for urls in url_dict.values())
+            logger.debug("Scan cache hit for {}: {} URLs", url, total)
             if on_progress:
-                total = sum(len(urls) for urls in url_dict.values())
                 on_progress(ProgressEvent(
                     phase="complete",
                     message=f"Using cached scan ({total} URLs)"
                 ))
             return ScanResult(url_dict=url_dict, url_sizes=url_sizes)
+        logger.debug("Scan cache miss for {}, fetching fresh", url)
 
     # Full scan
     url_dict, url_sizes = scan_network_source_urls(

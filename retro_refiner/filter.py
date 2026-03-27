@@ -684,6 +684,21 @@ def filter_network_roms(system, urls, config, url_sizes=None,
 
     logger.debug("Filter result for {}: {} selected, {} excluded",
                  system, len(selected_urls), len(excluded_list))
+
+    for url in selected_urls[:20]:
+        logger.debug("  SELECTED: {}", url.split('/')[-1])
+    if len(selected_urls) > 20:
+        logger.debug("  ... and {} more selected",
+                     len(selected_urls) - 20)
+    for exc in excluded_list[:20]:
+        logger.debug("  EXCLUDED: {} ({})", exc.filename, exc.reason)
+    if len(excluded_list) > 20:
+        logger.debug("  ... and {} more excluded",
+                     len(excluded_list) - 20)
+    if dict(breakdown):
+        logger.debug("Filter breakdown for {}: {}",
+                     system, dict(breakdown))
+
     result = FilterResult(
         system=system, selected=selected_urls,
         excluded=excluded_list[:500], stats=stats)

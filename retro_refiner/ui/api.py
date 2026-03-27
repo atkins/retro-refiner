@@ -521,6 +521,13 @@ class Api:
 
             config = Config.from_dict(self._config.to_dict())
             logger.info("Starting {} run", 'commit' if commit else 'preview')
+            logger.debug("Config: sources={}, destination={}, selection={}",
+                         config.sources, config.destination,
+                         {'english_only': config.selection.english_only,
+                          'best_version': config.selection.best_version,
+                          'all_roms': config.selection.all_roms,
+                          'exclude_protos': config.selection.exclude_protos,
+                          'include_betas': config.selection.include_betas})
 
             # Import core modules
             from retro_refiner.network import (  # pylint: disable=import-outside-toplevel
@@ -824,6 +831,11 @@ class Api:
                 cached = load_scan_cache(cache_dir, net_url)
                 if cached:
                     used_cache = True
+                    logger.debug("Using cached scan for {} ({} URLs)",
+                                 net_url,
+                                 sum(len(v) for v in cached[0].values()))
+                else:
+                    logger.debug("Fresh scan for {}", net_url)
 
             ss = config.source_settings or {}
             src_opts = ss.get(net_url, {})
@@ -995,6 +1007,12 @@ class Api:
             'network_count': network_rom_count,
             'local_count': local_rom_count,
         })
+
+        logger.debug("Scan complete: {} URLs across {} systems",
+                     sum(len(v) for v in all_urls.values()),
+                     len(all_systems))
+        for sys_code, sys_urls in sorted(all_urls.items()):
+            logger.debug("  System '{}': {} URLs", sys_code, len(sys_urls))
 
         return all_urls, all_sizes, local_systems, all_systems
 
@@ -1707,6 +1725,8 @@ class Api:
                 expected[p_file.name] = p_file.stat().st_size
 
         # Phase 1: Validate destination
+        logger.debug("{}: validating destination ({} expected files)",
+                     system, len(expected))
         skip_files = set()
         if (config.output.validate_destination
                 and config.output.local_file_action != 'remove'):
@@ -1737,6 +1757,9 @@ class Api:
             dest_path = target_dir / fname
             tmp_path = target_dir / (fname + '.rrdownload')
             downloads.append((url, tmp_path, dest_path))
+
+        logger.debug("{}: {} files already valid, {} to download",
+                     system, len(skip_files), len(downloads))
 
         if downloads:
             self._push_event('log', {
@@ -1773,6 +1796,8 @@ class Api:
                     mode=config.output.local_file_action,
                     flat=flat,
                     on_progress=_on_local_progress)
+                logger.debug("{}: transferred {} local files",
+                             system, stats["transferred"])
                 self._push_event('log', {
                     'text': f'  {display}: '
                             f'transferred {stats["transferred"]}, '
@@ -1787,6 +1812,8 @@ class Api:
             keep = set(expected.keys())
             clean_stats = clean_destination(
                 dest_dir, system, flat, keep)
+            logger.debug("{}: cleaned {} files from destination",
+                         system, clean_stats['removed'])
             if clean_stats['removed']:
                 self._push_event('log', {
                     'text': f'  {_display_name(system)}: '
@@ -2009,11 +2036,15 @@ class Api:
 
             if config.budget.top:
                 before = len(url_roms)
+                rated_count = sum(1 for r in url_roms
+                                  if r.base_title in sys_ratings)
                 url_roms = apply_top_n_filter(
                     url_roms, sys_ratings, config.budget.top,
                     include_unrated=config.budget.include_unrated,
                 )
                 after = len(url_roms)
+                logger.debug("{}: top-N filter {} -> {} (rated {} of {})",
+                             system, before, after, rated_count, before)
                 if after < before:
                     self._push_event('log', {
                         'text': f'  {system.upper()}: top filter '
@@ -2187,6 +2218,10 @@ class Api:
 
     def _push_event(self, event_type: str, data: dict):
         """Push an event to the JavaScript frontend."""
+        logger.debug("Event: {} | {}",
+                     event_type,
+                     {k: v for k, v in data.items()
+                      if k != 'excluded_roms'})
         if self._window:
             payload = orjson.dumps({'type': event_type, 'data': data}).decode()
             self._window.evaluate_js(

@@ -262,6 +262,7 @@ def download_libretro_dat(system: str, dest_dir: Path,
             with urllib.request.urlopen(req, timeout=30) as response:
                 with open(dat_path, 'wb') as fh:
                     shutil.copyfileobj(response, fh)
+            logger.debug("DAT downloaded for {}: {}", system, dat_path)
             return dat_path
         except urllib.error.HTTPError:
             continue
