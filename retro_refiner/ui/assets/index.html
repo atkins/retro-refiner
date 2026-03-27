@@ -837,10 +837,10 @@
 
     <!-- Advanced -->
     <div class="section" data-section="advanced">
-      <div class="section-header collapsed" onclick="toggleSection(this)">
-        <span class="arrow">&#9656;</span> ADVANCED
+      <div class="section-header" onclick="toggleSection(this)">
+        <span class="arrow">&#9662;</span> ADVANCED
       </div>
-      <div class="section-body hidden">
+      <div class="section-body">
         <div class="field-label">Network</div>
         <div class="field-label" style="font-size:9px;color:var(--text-muted);margin-top:-4px;letter-spacing:0">Downloads &amp; scanning</div>
         <div class="flex-row" style="gap:8px">
@@ -1567,6 +1567,28 @@ function restoreUiState(cfg) {
   var themeName = (cfg.theme && cfg.theme.mode) ? cfg.theme.mode : 'midnight-terminal';
   document.getElementById('opt-theme').value = themeName;
   setTheme(themeName);
+
+  /* Restore section open/closed states */
+  var secStates = cfg.section_states;
+  if (secStates) {
+    document.querySelectorAll('.section[data-section]').forEach(function(sec) {
+      var name = sec.getAttribute('data-section');
+      if (name in secStates) {
+        var header = sec.querySelector('.section-header');
+        var body = sec.querySelector('.section-body');
+        var arrow = header.querySelector('.arrow');
+        if (secStates[name]) {
+          header.classList.remove('collapsed');
+          body.classList.remove('hidden');
+          arrow.textContent = '\u25BE';
+        } else {
+          header.classList.add('collapsed');
+          body.classList.add('hidden');
+          arrow.textContent = '\u25B8';
+        }
+      }
+    });
+  }
 }
 
 /* ===== Gather UI state ===== */
@@ -1640,6 +1662,15 @@ function gatherUiState() {
     dedup_delete: document.getElementById('opt-transfer').value === 'remove',
     /* Theme */
     theme: document.getElementById('opt-theme').value,
+    section_states: (function() {
+      var states = {};
+      document.querySelectorAll('.section[data-section]').forEach(function(sec) {
+        var name = sec.getAttribute('data-section');
+        var header = sec.querySelector('.section-header');
+        states[name] = !header.classList.contains('collapsed');
+      });
+      return states;
+    })(),
   };
 }
 
