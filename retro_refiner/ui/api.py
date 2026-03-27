@@ -2222,9 +2222,20 @@ class Api:
                         })
 
             # Rebuild selected URLs from surviving roms
-            sys_data['selected_urls'] = [
-                url_map[id(rom)] for rom in url_roms
-            ]
+            new_urls = [url_map[id(rom)] for rom in url_roms]
+            if len(new_urls) != len(sys_urls):
+                sys_data['selected_urls'] = new_urls
+                new_size = sum(all_sizes.get(u, 0) for u in new_urls)
+                self._push_event('card', {
+                    'system': system,
+                    'state': 'complete',
+                    'selected_count': len(new_urls),
+                    'excluded_count': len(sys_urls) - len(new_urls),
+                    'selected_size': new_size,
+                    'source_count': len(sys_urls),
+                    'source_size': 0,
+                    'filter_breakdown': {},
+                })
 
     def get_system_roms(self, system: str) -> str:
         """Get ROM list for a system as JSON.
