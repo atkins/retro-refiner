@@ -186,15 +186,14 @@ def scan_network_source_urls(
     # Fetch root listing
     try:
         if not _indent:
-            print("  Fetching directory listing...", end='', flush=True)
+            _log("  Fetching directory listing...", on_progress)
         content, final_url = fetch_url(base_url, auth_header=auth_header)
         html = content.decode('utf-8', errors='replace')
         base_url = final_url
         if not _indent:
-            print(f" OK ({format_size(len(content))})")
+            _log(f"  Fetching directory listing... OK ({format_size(len(content))})",
+                 on_progress)
     except Exception as exc:  # pylint: disable=broad-except
-        if not _indent:
-            print()
         _log_error(f"Error fetching {format_url(base_url)}: {exc}")
         return dict(detected), _url_sizes
 
@@ -235,7 +234,7 @@ def scan_network_source_urls(
     if should_explore:
         subdirs = parse_html_for_directories(html, base_url)
         if not _indent and subdirs:
-            print(f"  Parsing {len(subdirs)} entries...", end='', flush=True)
+            _log(f"  Parsing {len(subdirs)} entries...", on_progress)
 
         system_subdirs: list = []
         other_subdirs: list = []
@@ -358,7 +357,9 @@ def scan_network_source_urls(
                 parts.append(f"{len(system_subdirs)} system folders")
             if other_subdirs:
                 parts.append(f"{len(other_subdirs)} game folders")
-            print(f" {total_found} found ({', '.join(parts)})" if parts else " 0 found")
+            msg = (f"  {total_found} found ({', '.join(parts)})"
+                   if parts else "  0 found")
+            _log(msg, on_progress)
 
         if not _indent and not system_subdirs and not other_subdirs and not rom_files_with_sizes:
             _log("  No ROM files or subdirectories found", on_progress)
