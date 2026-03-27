@@ -629,6 +629,7 @@ def filter_mame_network_roms(rom_urls, categories, games,
     selected_urls: List[str] = []
     selected_size = 0
     excluded_counts: Dict[str, int] = defaultdict(int)
+    excluded_reasons: Dict[str, str] = {}  # url -> reason
 
     if no_filter:
         selected_urls = list(url_map.values())
@@ -641,17 +642,20 @@ def filter_mame_network_roms(rom_urls, categories, games,
                         if '.' in filename else filename)
 
             if rom_name in processed:
+                excluded_reasons[url] = 'clone/duplicate'
                 continue
 
             if include_patterns:
                 if not any(fnmatch.fnmatch(filename.lower(), pat.lower())
                            for pat in include_patterns):
                     excluded_counts['pattern exclude'] += 1
+                    excluded_reasons[url] = 'pattern exclude'
                     continue
             if exclude_patterns:
                 if any(fnmatch.fnmatch(filename.lower(), pat.lower())
                        for pat in exclude_patterns):
                     excluded_counts['pattern exclude'] += 1
+                    excluded_reasons[url] = 'pattern exclude'
                     continue
 
             game = games.get(rom_name)
@@ -672,6 +676,7 @@ def filter_mame_network_roms(rom_urls, categories, games,
             if not game.is_parent and game.parent_name:
                 parent_name = game.parent_name
                 if parent_name in processed:
+                    excluded_reasons[url] = 'clone/duplicate'
                     continue
                 parent_game = games.get(parent_name)
                 if parent_game:
@@ -684,6 +689,7 @@ def filter_mame_network_roms(rom_urls, categories, games,
 
             if not should_include:
                 excluded_counts[reason] += 1
+                excluded_reasons[url] = reason
                 processed.add(rom_name)
                 for clone in parent_clones.get(rom_name, []):
                     processed.add(clone)
@@ -698,8 +704,9 @@ def filter_mame_network_roms(rom_urls, categories, games,
             if (english_only
                     and best_rom.region in (
                         'Japan', 'Korea', 'LatinAmerica')):
-                excluded_counts[
-                    f'Non-English ({best_rom.region})'] += 1
+                reason = f'non-english ({best_rom.region})'
+                excluded_counts[reason] += 1
+                excluded_reasons[url] = reason
                 processed.add(rom_name)
                 for clone in parent_clones.get(rom_name, []):
                     processed.add(clone)
@@ -717,13 +724,15 @@ def filter_mame_network_roms(rom_urls, categories, games,
             for clone in parent_clones.get(rom_name, []):
                 processed.add(clone)
 
-    excluded_urls = [u for u in rom_urls if u not in set(selected_urls)]
+    selected_set = set(selected_urls)
+    excluded_urls = [u for u in rom_urls if u not in selected_set]
     logger.debug("MAME filter result: {} selected, {} excluded",
                  len(selected_urls), len(excluded_urls))
     for url in selected_urls:
         logger.debug("  SELECTED: {}", url.split('/')[-1])
     for url in excluded_urls:
-        logger.debug("  EXCLUDED: {}", url.split('/')[-1])
+        reason = excluded_reasons.get(url, 'unknown')
+        logger.debug("  EXCLUDED: {} ({})", url.split('/')[-1], reason)
 
     return selected_urls, {
         'source_size': total_source_size,
