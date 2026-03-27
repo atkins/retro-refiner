@@ -1334,6 +1334,7 @@
         "tekno-parrot",
         "tp"
       ],
+      "launchbox_platforms": ["Arcade"],
       "igdb_id": 52
     },
     "tg16": {

@@ -2176,6 +2176,9 @@ class Api:
                 continue
 
             sys_ratings = ratings.get(system, {})
+            # Arcade systems (teknoparrot, fbneo) fall back to mame ratings
+            if not sys_ratings and system in ('teknoparrot', 'fbneo', 'fba'):
+                sys_ratings = ratings.get('mame', {})
             if not sys_ratings:
                 continue
 
