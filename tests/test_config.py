@@ -121,9 +121,6 @@ class TestConfigDefaults:
     def test_parallel_default(self):
         assert Config().network.parallel == 4
 
-    def test_auto_tune_default(self):
-        assert Config().network.auto_tune is True
-
     def test_scan_workers_default(self):
         assert Config().network.scan_workers == 16
 

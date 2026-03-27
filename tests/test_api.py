@@ -232,8 +232,6 @@ def test_update_config_from_ui(api):
         'prefer_exclusives': '1.5',
         'parallel': 8,
         'scan_workers': 32,
-        'resume_downloads': True,
-        'auto_tune': False,
         'playlists': True,
         'gamelists': '/gamelists',
         'flatten': True,
@@ -281,7 +279,6 @@ def test_update_config_from_ui(api):
     assert cfg.selection.year_from == 1990
     assert cfg.selection.year_to == 2000
     assert cfg.network.parallel == 8
-    # auto_tune and resume_downloads removed (aria2c-only)
     assert cfg.output.local_file_action == 'symlink'
     assert cfg.output.flat is True
     assert cfg.output.clean_destination is True

@@ -108,7 +108,7 @@ def _make_config(english_only: bool = True) -> Config:
     """Build a minimal Config with sensible smoke-test defaults."""
     config = Config()
     config.selection = SelectionConfig(english_only=english_only)
-    config.network = NetworkConfig(scan_workers=16, auto_tune=True)
+    config.network = NetworkConfig(scan_workers=16)
     config.advanced = AdvancedConfig(
         cache_dir=str(CACHE_DIR),
         dat_dir=str(DAT_DIR),

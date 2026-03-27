@@ -40,7 +40,7 @@ from retro_refiner.dat import (
     get_cached_crc, calculate_crc32,
 )
 from retro_refiner.config import (
-    load_config, apply_config_to_args, DEFAULT_REGION_PRIORITY, Config,
+    load_config, DEFAULT_REGION_PRIORITY, Config,
     SelectionConfig,
 )
 from retro_refiner.network import (
@@ -1225,23 +1225,6 @@ class TestCleanDestination:
 # Backward Compat Config Tests
 # =============================================================================
 
-class TestBackwardCompatConfig:
-    """Test backward compatibility for config loading."""
-
-    def test_transfer_mode_to_local_file_action(self):
-        cfg = Config.from_dict({'output': {'transfer_mode': 'move'}})
-        assert cfg.output.local_file_action == 'move'
-
-    def test_delete_dupes_to_remove(self):
-        cfg = Config.from_dict({'output': {'transfer_mode': 'delete-dupes'}})
-        assert cfg.output.local_file_action == 'remove'
-
-    def test_local_file_action_wins(self):
-        cfg = Config.from_dict({
-            'output': {'local_file_action': 'symlink', 'transfer_mode': 'copy'}
-        })
-        assert cfg.output.local_file_action == 'symlink'
-
 
 # =============================================================================
 # All Flag (no_filter) Tests
@@ -1972,20 +1955,6 @@ class TestIgdb:
     def test_accent_stripping_u(self):
         assert normalize_title("\u00dcber") == normalize_title("Uber")
 
-    def test_igdb_config_map(self):
-        from argparse import Namespace
-        test_config = {
-            'igdb_client_id': 'my_id',
-            'igdb_client_secret': 'my_secret',
-            'ratings_source': 'igdb',
-        }
-        test_args = Namespace(
-            igdb_client_id=None, igdb_client_secret=None,
-            ratings_source=None,
-        )
-        apply_config_to_args(test_args, test_config)
-        assert test_args.igdb_client_id == 'my_id'
-        assert test_args.ratings_source == 'igdb'
 
 
 # =============================================================================
