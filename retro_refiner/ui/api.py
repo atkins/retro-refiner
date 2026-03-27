@@ -1374,9 +1374,9 @@ class Api:
             'multi_disc_count': sum(
                 1 for r in parsed if r.disc_number > 1),
             'languages': dict(languages),
-            'revision_counts': dict(Counter(
+            'revision_counts': {str(k): v for k, v in Counter(
                 r.revision for r in parsed
-                if 0 < r.revision < 20)),
+                if 0 < r.revision < 20).items()},
         }
 
     def _write_run_logs(self, config, all_systems, _all_sizes,
