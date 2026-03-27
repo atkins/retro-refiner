@@ -22,12 +22,12 @@ python -m retro_refiner --export-config
 
 ### Run tests
 ```bash
-python -m pytest                     # 1310 tests, ~1s
+python -m pytest                     # 1303 tests, ~1s
 python -m pytest -v                  # verbose output
 python -m pytest tests/test_selection.py  # just core tests
 python tests/test_smoke.py           # network smoke tests (slow, needs Myrient)
 ```
-Uses pytest. Config in `pyproject.toml`. Smoke tests excluded by default. **1310 tests total, all passing.**
+Uses pytest. Config in `pyproject.toml`. Smoke tests excluded by default. **1303 tests total, all passing.**
 
 ### Lint
 ```bash
@@ -61,6 +61,7 @@ retro_refiner/
     __init__.py       # Version, key exports (Config, load_config, SystemData, etc.)
     __main__.py       # Entry point: GUI default, --run for headless
     paths.py          # get_base_path() / get_runtime_path() for PyInstaller compat
+    log.py            # Loguru configuration: rotating file sink for system/debug log
     systems.py        # SystemData dataclass, load_system_data() from data/systems.json
     config.py         # Config dataclass (nested), YAML parser, load/save, defaults
     network.py        # URL utils, HTML scraping, fetch, validation, scan cache, shutdown, SSRF checks
@@ -157,7 +158,6 @@ The main run method is split into extracted helper methods:
 - `_apply_budget_filters()` — budget/limit/size constraints
 - `_commit_system()` — per-system commit in 4 phases: (1) validate destination (skip files already present, optional CRC check), (2) download remote files directly to destination (uses `.rrdownload` temp files, renamed on completion for crash safety), (3) transfer local files via configured `local_file_action` (copy/move/symlink/hardlink/remove), (4) clean destination (remove unselected files if `clean_destination` enabled)
 - `_compute_system_stats()` — per-system verbose stats (regions, years, sizes, formats, revisions, languages)
-- `_write_run_logs()` — comprehensive log file output (4 file types) when log_dir configured
 - `_download_batch()` — httpx streaming download with ThreadPoolExecutor parallelism, 3 retries, progress polling
 - `reset_and_restart()` — delete state/cache/DATs, relaunch app fresh
 - `clean_data()` — delete scan cache, DAT files, CRC cache, state file, temp downloads
@@ -247,11 +247,11 @@ Module-level `_SYSTEM_ABBREVS` frozenset and `_display_name(system)` helper in a
 ### Sidebar (index.html)
 - **File Locations** (always visible): sources with drag-and-drop + per-source recursive toggle (works for both local and network sources), destination path picker with validate/CRC/clean options, local file action dropdown (hidden when all sources are URLs), multi-disc M3U + flatten toggles, system pills with All/None toggle
 - **Selection** (always visible): "Apply filters" toggle with sub-options (1G1R, English, protos, betas, unlicensed, adult — adult hidden when no arcade systems), region priority, patterns, year range. All options use mobile-style toggle switches (hybrid layout: primary full-width, secondary in 2-column grid).
-- **More Options** (collapsed): Deduplication (ordered priority pills, exclusion playlists), Budget & Limits, Advanced (network settings, DAT/CHD/cache toggles, scan depth, MAME version, ratings, EmulationStation/RetroArch/log directories, auth credentials)
+- **More Options** (collapsed): Deduplication (ordered priority pills, exclusion playlists), Budget & Limits, Advanced (network settings, DAT/CHD/cache toggles, scan depth, MAME version, ratings, EmulationStation/RetroArch directories, auth credentials)
 - **Footer**: Save/Load/Reset buttons
 
 ### Path Pickers
-Clickable path-picker UI component (folder icon, truncated path, tooltip, × clear). Used for destination, RetroArch playlists, log dir, DAT dir. `setPathPicker()` / `clearPathPicker()` / `browsePathPicker()` helpers.
+Clickable path-picker UI component (folder icon, truncated path, tooltip, × clear). Used for destination, RetroArch playlists, DAT dir. `setPathPicker()` / `clearPathPicker()` / `browsePathPicker()` helpers.
 
 ### System Pills
 Toggleable pill UI for system include/exclude and dedup priority ordering. `systemPillState` tracks enabled/disabled. `dedupPriorityOrder` tracks click-order for dedup priority with numbered prefixes.
@@ -293,13 +293,6 @@ Network scan results cached for 24h in `cache/_scan_cache.json`. Keyed by source
 
 ### Archive.org compatibility
 Archive.org directory listings parse correctly via Pattern 2/3 in `parse_html_for_files_with_sizes`. Regex backtracking prevented by skipping Pattern 3 on pages without `<tr>` tags and capping scan to 200KB. Zip contents browsable via `/serve/{collection}/{system}.zip/` endpoint — individual ROM files inside zips have direct download URLs.
-
-### Log file output
-When `log_dir` is configured, writes 4 file types per run:
-- `run_summary_{timestamp}.txt` — overall stats, per-system breakdown, filter impact
-- `{system}_selected.txt` — every selected ROM with title/region/revision/source
-- `{system}_excluded.txt` — every excluded network ROM with title/region
-- `console_{timestamp}.txt` — complete console output (buffered from `_push_event('log')` calls)
 
 ## Testing
 
@@ -354,5 +347,5 @@ git tag v2026.03.19.0100 && git push origin v2026.03.19.0100
 ```
 
 ### Dependencies
-- **Runtime:** `pywebview`, `httpx`, `pyyaml`, `humanize`, `tenacity`, `orjson`, `beautifulsoup4`
+- **Runtime:** `pywebview`, `httpx`, `pyyaml`, `humanize`, `tenacity`, `orjson`, `beautifulsoup4`, `loguru`
 - **Build:** `nuitka[onefile]`

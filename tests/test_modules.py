@@ -51,6 +51,7 @@ from retro_refiner.cli import _parse_size_string as cli_parse_size_string
     "transfer",
     "config",
     "updater",
+    "log",
 ])
 def test_module_importable(module):
     """Verify each v2 module imports without error."""
