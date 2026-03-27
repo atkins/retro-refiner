@@ -60,7 +60,7 @@ docs/plans/                    # Design docs and implementation plans
 retro_refiner/
     __init__.py       # Version, key exports (Config, load_config, SystemData, etc.)
     __main__.py       # Entry point: GUI default, --run for headless
-    paths.py          # get_base_path() / get_runtime_path() for PyInstaller compat
+    paths.py          # get_base_path() / get_runtime_path() for bundled builds (Nuitka/PyInstaller)
     log.py            # Loguru configuration: rotating file sink for system/debug log
     systems.py        # SystemData dataclass, load_system_data() from data/systems.json
     config.py         # Config dataclass (nested), YAML parser, load/save, defaults
@@ -87,7 +87,7 @@ retro_refiner/
 ### GUI (pywebview)
 - **Framework:** pywebview — HTML/CSS/JS rendered in system WebView (Edge on Windows, WebKit on macOS)
 - **Layout:** Sidebar (280px) + main panel (Log, Results, Picker views)
-- **Sidebar structure:** File Locations + Selection always visible; Dedup, Budget, Advanced behind "More Options" expander (Network/Output/Auth merged into Advanced)
+- **Sidebar structure:** 3 sections: File Locations (always visible), Selection (includes dedup + budget, always visible), Advanced (collapsed)
 - **Communication:** JS calls Python via `window.pywebview.api.method_name()` (returns Promise)
 - **Events:** Python pushes events to JS via `window.evaluate_js()` calling `handlePythonEvent()`
 - **Event routing:** `handlePythonEvent` → `LogRenderer.handle()` for structured log events, falls through to `_handleEventOriginal()` for status/card/log/progress/summary
@@ -96,7 +96,7 @@ retro_refiner/
 - **Hotkeys:** F5 / Ctrl+R reloads the webview (saves config first)
 
 ### Config System
-Single `Config` dataclass with nested sections (`SelectionConfig`, `NetworkConfig`, `OutputConfig`, `DeduplicationConfig`, `WindowConfig`, etc.). Same YAML format for GUI save/load and CLI `--run`. Note: `DeduperConfig` was renamed to `DeduplicationConfig` — field is `.deduplication` (not `.dedup`). `from_dict()` accepts legacy `dedup` key for backward compat.
+Single `Config` dataclass with nested sections (`SelectionConfig`, `NetworkConfig`, `OutputConfig`, `DeduplicationConfig`, `WindowConfig`, etc.). Same YAML format for GUI save/load and CLI `--run`.
 
 - `source_settings: Dict[str, dict]` — per-source recursive scan settings keyed by path
 - Auth credentials are **excluded** from state file persistence for security
@@ -116,8 +116,6 @@ class OutputConfig:
     clean_destination: bool = False     # Remove unselected files from dest
     crc_validation: bool = False        # CRC check during validation
 ```
-Note: `transfer_mode` was renamed to `local_file_action` — `from_dict()` accepts the legacy key for backward compat.
-
 ```python
 from retro_refiner.config import Config, load_config, save_config
 config = Config()
@@ -176,6 +174,9 @@ Python emits structured events consumed by JS `LogRenderer`:
 | `system-complete` | System done | Breakdown with tree chars, expandable audit trail |
 | `scan-summary` | Scanning done | Box with source/system/ROM totals |
 | `fanfare` | Run complete | Box-drawing summary with ROM content tidbits |
+
+### Logging
+Dual logging system: visual log (`_push_event`) renders structured events in the GUI, while loguru (`log.py`) writes `retro-refiner.log` for debug/development. System log is always-on with 10MB rotation.
 
 ### Structured Results
 Filter functions return `FilterResult` (from `models.py`) instead of printing text:
@@ -246,8 +247,8 @@ Module-level `_SYSTEM_ABBREVS` frozenset and `_display_name(system)` helper in a
 
 ### Sidebar (index.html)
 - **File Locations** (always visible): sources with drag-and-drop + per-source recursive toggle (works for both local and network sources), destination path picker with validate/CRC/clean options, local file action dropdown (hidden when all sources are URLs), multi-disc M3U + flatten toggles, system pills with All/None toggle
-- **Selection** (always visible): "Apply filters" toggle with sub-options (1G1R, English, protos, betas, unlicensed, adult — adult hidden when no arcade systems), region priority, patterns, year range. All options use mobile-style toggle switches (hybrid layout: primary full-width, secondary in 2-column grid).
-- **More Options** (collapsed): Deduplication (ordered priority pills, exclusion playlists), Budget & Limits, Advanced (network settings, DAT/CHD/cache toggles, scan depth, MAME version, ratings, EmulationStation/RetroArch directories, auth credentials)
+- **Selection** (always visible): "Apply filters" toggle with sub-options (1G1R, English, protos, betas, unlicensed, adult — adult hidden when no arcade systems), region priority, patterns, year range, deduplication (ordered priority pills, exclusion playlists), budget & limits. All options use mobile-style toggle switches (hybrid layout: primary full-width, secondary in 2-column grid).
+- **Advanced** (collapsed): network settings, DAT/CHD/cache toggles, scan depth, MAME version, ratings, EmulationStation/RetroArch directories, auth credentials
 - **Footer**: Save/Load/Reset buttons
 
 ### Path Pickers
@@ -330,8 +331,8 @@ Test files (one per source module):
 - Cross-platform: Windows, macOS, Linux
 - pywebview uses system WebView (Edge/WebKit) — no Chrome dependency
 - Colors: `FORCE_COLOR=1` env var forces ANSI output; `NO_COLOR` disables
-- Path helpers handle PyInstaller `sys._MEIPASS` for bundled builds
-- **Window icon**: `icon.ico` / `icon.png` in `ui/assets/`. Set at runtime via Windows ctypes (`LoadImageW` + `SendMessageW`) in `app.py:_set_window_icon()`. Referenced in `retro-refiner.spec` for PyInstaller builds.
+- Path helpers handle bundled builds (Nuitka standalone + PyInstaller `sys._MEIPASS` fallback)
+- **Window icon**: `icon.ico` / `icon.png` in `ui/assets/`. Set at runtime via Windows ctypes (`LoadImageW` + `SendMessageW`) in `app.py:_set_window_icon()`.
 - **CSS theming**: Never use hardcoded colors (#fff, #000, #1a1a2e) in CSS — use variables (`--text-heading`, `--text-on-accent`, `--bg-stripe`, `--border-subtle`). Light themes break otherwise.
 - **Scrollbar**: Uses `var(--text-muted)` for hover color — no hardcoded values.
 - **pywebview API**: Only instance methods are exposed to JS. `@staticmethod` methods are NOT visible on the bridge.
