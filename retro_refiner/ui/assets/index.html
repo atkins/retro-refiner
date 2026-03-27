@@ -364,13 +364,6 @@
   .toggle-switch.sm input:checked + .toggle-slider:before { transform: translateX(11px); }
   .sub-options { margin-left: 8px; padding-left: 10px; border-left: 2px solid var(--accent); margin-top: 6px; transition: opacity 0.2s ease, border-color 0.2s ease; }
   .sub-options.disabled { opacity: 0.35; pointer-events: none; border-color: var(--border-subtle); }
-  .more-options-toggle {
-    padding: 8px 12px; font-size: 10px; font-weight: bold; letter-spacing: 0.5px;
-    color: var(--text-muted); cursor: pointer; user-select: none;
-    border-top: 1px solid var(--border); margin-top: 4px;
-  }
-  .more-options-toggle:hover { color: var(--text-primary); }
-  .more-options-body.hidden { display: none; }
 
   /* Utility layout */
   .flex-row { display: flex; gap: 4px; }
@@ -842,13 +835,7 @@
       </div>
     </div>
 
-    <!-- More options expander -->
-    <div class="more-options-toggle" id="more-options-toggle" onclick="toggleMoreOptions()">
-      <span class="arrow" id="more-options-arrow">&#9656;</span> MORE OPTIONS
-    </div>
-    <div class="more-options-body hidden" id="more-options-body">
-
-    <!-- Advanced (merged: Network + Output + Advanced + Auth) -->
+    <!-- Advanced -->
     <div class="section" data-section="advanced">
       <div class="section-header collapsed" onclick="toggleSection(this)">
         <span class="arrow">&#9656;</span> ADVANCED
@@ -960,7 +947,6 @@
       </div>
     </div>
 
-    </div><!-- end more-options-body -->
 
     </div><!-- end sidebar-scroll -->
 
@@ -1458,14 +1444,6 @@ function loadConfig() {
 function setTheme(name) {
   document.documentElement.setAttribute('data-theme', name);
   if (window.pywebview) window.pywebview.api.update_theme(name);
-}
-
-function toggleMoreOptions() {
-  var body = document.getElementById('more-options-body');
-  var arrow = document.getElementById('more-options-arrow');
-  var isHidden = body.classList.contains('hidden');
-  body.classList.toggle('hidden');
-  arrow.innerHTML = isHidden ? '&#9662;' : '&#9656;';
 }
 
 function toggleSelectionOpts() {
