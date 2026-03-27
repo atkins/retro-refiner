@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Optional
 
 from retro_refiner import __version__
+from retro_refiner.log import logger
 from retro_refiner.paths import get_runtime_path
 
 GITHUB_REPO = 'atkins/retro-refiner'
@@ -134,6 +135,7 @@ def check_for_update() -> Optional[dict]:
     Returns dict with keys (version, url, size, html_url) if newer exists.
     Returns None if up-to-date or on any error (silent failure).
     """
+    logger.debug("Checking for updates (current: {})", get_current_version())
     try:
         import httpx  # pylint: disable=import-outside-toplevel
         with httpx.Client(timeout=10, follow_redirects=True) as client:
@@ -146,19 +148,24 @@ def check_for_update() -> Optional[dict]:
 
         tag = data.get('tag_name', '')
         if not is_newer(tag, get_current_version()):
+            logger.debug("Up to date (latest: {})", tag)
             return None
 
         asset_url = get_asset_url(data)
         if not asset_url:
+            logger.warning("Update {} found but no asset for platform '{}'",
+                           tag, sys.platform)
             return None
 
+        logger.info("Update available: {} -> {}", get_current_version(), tag)
         return {
             'version': tag,
             'url': asset_url,
             'size': get_asset_size(data),
             'html_url': data.get('html_url', RELEASES_URL),
         }
-    except Exception:  # pylint: disable=broad-except
+    except Exception as exc:  # pylint: disable=broad-except
+        logger.debug("Update check failed: {}", exc)
         return None
 
 
@@ -172,6 +179,7 @@ def download_update(url: str, expected_size: int,
     asset_name = ASSET_NAMES.get(sys.platform, 'retro-refiner-update')
     dest_path = dest_dir / asset_name
 
+    logger.info("Downloading update from {}", url)
     try:
         with httpx.Client(follow_redirects=True, timeout=120,
                           headers={'User-Agent': 'Retro-Refiner-Updater/1.0'}
@@ -186,12 +194,17 @@ def download_update(url: str, expected_size: int,
                         downloaded += len(chunk)
                         if progress_callback and total > 0:
                             progress_callback(downloaded, total)
-    except Exception:  # pylint: disable=broad-except
+    except Exception as exc:  # pylint: disable=broad-except
+        logger.error("Update download failed: {}", exc)
         return None
 
-    if expected_size > 0 and dest_path.stat().st_size != expected_size:
+    actual_size = dest_path.stat().st_size
+    if expected_size > 0 and actual_size != expected_size:
+        logger.error("Update size mismatch: expected {} got {}",
+                     expected_size, actual_size)
         return None
 
+    logger.info("Update downloaded to {} ({} bytes)", dest_path, actual_size)
     return dest_path
 
 
@@ -203,12 +216,15 @@ def apply_update(new_path: Path, exe_path: Path) -> bool:
     Returns True on success.
     """
     import shutil  # pylint: disable=import-outside-toplevel
+    logger.info("Applying update: {} -> {}", new_path, exe_path)
     try:
         if sys.platform == 'win32':
             old_path = Path(str(exe_path) + '.old')
             old_path.unlink(missing_ok=True)
             os.rename(exe_path, old_path)
+            logger.debug("Renamed {} -> {}", exe_path, old_path)
             shutil.move(str(new_path), str(exe_path))
+            logger.debug("Moved {} -> {}", new_path, exe_path)
             try:
                 os.remove(f"{exe_path}:Zone.Identifier")
             except OSError:
@@ -216,13 +232,16 @@ def apply_update(new_path: Path, exe_path: Path) -> bool:
         else:
             shutil.move(str(new_path), str(exe_path))
             os.chmod(exe_path, 0o755)
+            logger.debug("Replaced {} and set executable", exe_path)
             if sys.platform == 'darwin':
                 import subprocess  # pylint: disable=import-outside-toplevel
                 subprocess.run(
                     ['xattr', '-d', 'com.apple.quarantine', str(exe_path)],
                     capture_output=True, check=False)
+        logger.info("Update applied successfully")
         return True
-    except Exception:  # pylint: disable=broad-except
+    except Exception as exc:  # pylint: disable=broad-except
+        logger.error("Failed to apply update: {}", exc)
         return False
 
 
@@ -235,13 +254,15 @@ def startup_recovery(exe_path: Optional[Path] = None) -> None:
     old_path = Path(str(exe_path) + '.old')
 
     if not exe_path.exists() and old_path.exists():
+        logger.warning("Update recovery: restoring {} from {}", exe_path, old_path)
         try:
             os.rename(old_path, exe_path)
-        except OSError:
-            pass
+        except OSError as exc:
+            logger.error("Recovery failed: {}", exc)
         return
 
     if old_path.exists():
+        logger.debug("Cleaning up old executable: {}", old_path)
         try:
             old_path.unlink()
         except OSError:
@@ -259,6 +280,7 @@ def launch_and_exit(exe_path: Optional[Path] = None) -> None:
     else:
         cmd = [sys.executable, '-m', 'retro_refiner']
 
+    logger.info("Relaunching: {}", ' '.join(cmd))
     subprocess.Popen(  # pylint: disable=consider-using-with
         cmd, start_new_session=True,
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
