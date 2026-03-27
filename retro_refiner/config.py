@@ -102,7 +102,6 @@ class AdvancedConfig:
     max_depth: int = 3
     cache_dir: Optional[str] = None
     dat_dir: Optional[str] = None
-    log_dir: Optional[str] = None
     tp_include_platforms: Optional[str] = None
     tp_exclude_platforms: Optional[str] = None
     tp_all_versions: bool = False
@@ -232,4 +231,3 @@ def save_config(config: Config, path: Path) -> None:
     content += yaml.dump(data, default_flow_style=False, sort_keys=False,
                          allow_unicode=True)
     path.write_text(content, encoding='utf-8')
-

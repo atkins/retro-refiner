@@ -249,7 +249,6 @@ def test_update_config_from_ui(api):
         'max_depth': 5,
         'mame_version': '0.265',
         'dat_dir': '/dat',
-        'log_dir': '/logs',
         'ratings_source': 'launchbox',
         'igdb_client_id': 'test_id',
         'igdb_client_secret': 'test_secret',
@@ -652,24 +651,6 @@ def test_push_event_no_window(api):
     api._push_event('status', {'state': 'running'})
     api._push_event('progress', {'phase': 'scanning', 'current': 1})
 
-
-def test_push_event_log_buffer(api):
-    api._config.advanced.log_dir = '/tmp/logs'
-    api._log_buffer = []
-
-    api._push_event('log', {'text': 'Hello world\n'})
-    api._push_event('log', {'text': 'Second line\n'})
-
-    assert len(api._log_buffer) == 2
-    assert api._log_buffer[0] == 'Hello world\n'
-
-
-def test_push_event_no_buffer_without_log_dir(api):
-    api._config.advanced.log_dir = None
-    api._log_buffer = []
-
-    api._push_event('log', {'text': 'test\n'})
-    assert len(api._log_buffer) == 0
 
 
 # =============================================================================

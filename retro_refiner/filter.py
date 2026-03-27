@@ -21,7 +21,7 @@ from retro_refiner.dat import (
     save_crc_cache,
 )
 from retro_refiner.models import ExcludedRom, FilterResult, FilterStats
-from retro_refiner.network import format_size, get_filename_from_url
+from retro_refiner.network import get_filename_from_url
 
 
 # =============================================================================
@@ -730,8 +730,7 @@ def filter_roms_from_files(rom_files: list, dest_dir: str, system: str,
                            download_crc_index: dict = None,
                            exclude_titles: set = None,
                            no_verify: bool = False,
-                           no_cache: bool = False,
-                           log_dir: str = None):
+                           no_cache: bool = False):
     """Filter ROMs from a list of file paths.
 
     If dat_entries is provided, uses DAT metadata to enhance/override
@@ -895,28 +894,6 @@ def filter_roms_from_files(rom_files: list, dest_dir: str, system: str,
         if src and src.exists():
             dst = dest_path / rom.filename
             _transfer_file(src, dst, transfer_mode)
-
-    # Write selection log
-    if log_dir:
-        log_dir_path = Path(log_dir)
-        log_dir_path.mkdir(parents=True, exist_ok=True)
-        log_path = log_dir_path / f"{system}_selection_log.txt"
-        with open(log_path, 'w', encoding='utf-8') as f:
-            f.write(f"ROM Selection Log for {system.upper()}\n")
-            f.write("=" * 60 + "\n\n")
-            f.write(f"Total ROMs scanned: {len(all_roms)}\n")
-            f.write(f"Unique games found: {len(grouped)}\n")
-            f.write(f"ROMs selected: {len(selected_roms)}\n\n")
-            f.write(f"Source size: {format_size(total_source_size)}\n")
-            f.write(f"Selected size: {format_size(selected_size)}\n\n")
-            f.write("SELECTED ROMS:\n")
-            f.write("-" * 60 + "\n")
-            for rom in sorted(selected_roms,
-                              key=lambda r: r.base_title.lower()):
-                f.write(f"{rom.filename}\n")
-                f.write(f"  Title: {rom.base_title}\n")
-                f.write(f"  Region: {rom.region}, "
-                        f"Rev: {rom.revision}\n\n")
 
     return selected_roms, {
         'source_size': total_source_size,

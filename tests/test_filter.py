@@ -3450,34 +3450,6 @@ class TestFilterRomsFromFilesTransfer:
 
 
 # =============================================================================
-# filter_roms_from_files — Log Output (from test_filter_dat)
-# =============================================================================
-
-class TestFilterRomsFromFilesLog:
-    """Test log file generation."""
-
-    def test_log_dir_creates_selection_log(self, tmp_path):
-        rom_dir = tmp_path / "roms"
-        rom_dir.mkdir()
-        log_dir = tmp_path / "logs"
-        roms = _make_local_roms(rom_dir, [
-            "Mario (USA).zip", "Zelda (USA).zip",
-        ])
-        dest = tmp_path / "dest"
-        filter_roms_from_files(
-            roms, str(dest), "nes", dry_run=False,
-            best_version=True, transfer_mode='copy',
-            log_dir=str(log_dir),
-        )
-        log_file = log_dir / "nes_selection_log.txt"
-        assert log_file.exists()
-        content = log_file.read_text(encoding="utf-8")
-        assert "Mario" in content
-        assert "Zelda" in content
-        assert "ROMs selected:" in content
-
-
-# =============================================================================
 # filter_roms_from_files — with Real ZIP ROMs (from test_filter_dat)
 # =============================================================================
 

@@ -899,13 +899,6 @@
           <span class="path-text" id="opt-retroarch-playlists-display">Select folder...</span>
           <span class="path-clear" aria-label="Clear playlists path" onclick="event.stopPropagation(); clearPathPicker('opt-retroarch-playlists', 'opt-retroarch-playlists-display', 'Select folder...')">&#xD7;</span>
         </div>
-        <div class="field-label" style="font-size:9px;color:var(--text-muted);margin-top:4px;letter-spacing:0">Log directory</div>
-        <input type="hidden" id="opt-log-dir">
-        <div class="path-picker" onclick="browsePathPicker('opt-log-dir', 'opt-log-dir-display')" title="Directory for filter log files">
-          <span class="path-icon">&#x1F4C1;</span>
-          <span class="path-text" id="opt-log-dir-display">Select folder...</span>
-          <span class="path-clear" aria-label="Clear log directory" onclick="event.stopPropagation(); clearPathPicker('opt-log-dir', 'opt-log-dir-display', 'Select folder...')">&#xD7;</span>
-        </div>
         <div class="field-label" style="font-size:9px;color:var(--text-muted);margin-top:4px;letter-spacing:0">DAT directory</div>
         <input type="hidden" id="opt-dat-dir">
         <div class="path-picker" onclick="browsePathPicker('opt-dat-dir', 'opt-dat-dir-display')" title="Directory for DAT metadata files">
@@ -1525,8 +1518,6 @@ function restoreUiState(cfg) {
     document.getElementById('opt-validate-dest').checked ? '' : 'none';
   toggleDestForTransferMode();
   if (out.retroarch_playlists) setPathPicker('opt-retroarch-playlists', 'opt-retroarch-playlists-display', out.retroarch_playlists);
-  if (adv.log_dir) setPathPicker('opt-log-dir', 'opt-log-dir-display', adv.log_dir);
-
   /* Advanced */
   /* opt-verify-crc removed — no_verify only used by CLI */
   document.getElementById('opt-no-dat').checked = !!adv.no_dat;
@@ -1637,7 +1628,6 @@ function gatherUiState() {
     crc_validation: document.getElementById('opt-crc-validation').checked,
     local_file_action: document.getElementById('opt-transfer').value,
     retroarch_playlists: document.getElementById('opt-retroarch-playlists').value || '',
-    log_dir: document.getElementById('opt-log-dir').value || '',
     /* Advanced */
     /* no_verify: CLI-only, not in GUI */
     no_dat: document.getElementById('opt-no-dat').checked,

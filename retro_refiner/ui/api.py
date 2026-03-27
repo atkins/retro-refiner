@@ -46,7 +46,6 @@ class Api:
         self._manual_selections = {}  # system -> {filename: bool}
         self._picker_state = {}  # system -> list of rom dicts
         self._run_breakdowns = {}  # system -> filter_breakdown dict
-        self._log_buffer = []     # buffered log messages for file output
         self._step_prefix = lambda n: f'[{n}/2] '  # run phase indicator
         self._skip_save = False   # set True during reset to prevent save-on-close
 
@@ -450,7 +449,6 @@ class Api:
         adv.max_depth = int(ui.get('max_depth', 3) or 3)
         adv.mame_version = ui.get('mame_version') or None
         adv.dat_dir = ui.get('dat_dir') or None
-        adv.log_dir = ui.get('log_dir') or None
         adv.ratings_source = ui.get('ratings_source', 'combined')
 
         # Auth
@@ -519,7 +517,6 @@ class Api:
             run_start = time.monotonic()
 
             self._run_breakdowns = {}
-            self._log_buffer = []
 
             config = Config.from_dict(self._config.to_dict())
 
@@ -735,14 +732,6 @@ class Api:
                 config, total_selected, total_excluded,
                 total_size, run_start, all_systems,
                 total_source_size)
-
-            # Write log files if log directory configured
-            if config.advanced.log_dir and self._running:
-                self._write_run_logs(
-                    config, all_systems, all_sizes,
-                    total_selected, total_excluded, total_size,
-                    total_source_size, run_start,
-                    commit)
 
             label = 'Commit' if commit else 'Preview'
             self._push_event('status', {
@@ -1179,7 +1168,6 @@ class Api:
                     no_filter=sel.all_roms,
                     best_version=sel.best_version,
                     english_only=sel.english_only,
-                    log_dir=config.advanced.log_dir,
                 )
                 name_to_path = {Path(f).name: Path(f)
                                 for f in local_files}
@@ -1387,180 +1375,6 @@ class Api:
                 r.revision for r in parsed
                 if 0 < r.revision < 20).items()},
         }
-
-    def _write_run_logs(self, config, all_systems, _all_sizes,
-                        total_selected, total_excluded, total_size,
-                        total_source_size, run_start,
-                        commit):
-        """Write comprehensive log files to the configured log directory."""
-        from retro_refiner.filter import parse_rom_filename  # pylint: disable=import-outside-toplevel
-        from retro_refiner.network import format_size, get_filename_from_url  # pylint: disable=import-outside-toplevel
-        from datetime import datetime  # pylint: disable=import-outside-toplevel
-
-        log_dir = Path(config.advanced.log_dir)
-        log_dir.mkdir(parents=True, exist_ok=True)
-        timestamp = datetime.now().strftime('%Y-%m-%d_%H%M%S')
-        elapsed_secs = time.monotonic() - run_start
-        elapsed_str = self._elapsed_str(elapsed_secs)
-        mode = 'commit' if commit else 'preview'
-
-        # --- 1. Run summary log ---
-        summary_path = log_dir / f'run_summary_{timestamp}.txt'
-        with open(summary_path, 'w', encoding='utf-8') as f:
-            f.write("Retro-Refiner Run Summary\n")
-            f.write(f"{'=' * 60}\n")
-            f.write(f"Date:       {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-            f.write(f"Mode:       {mode}\n")
-            f.write(f"Elapsed:    {elapsed_str}\n\n")
-
-            f.write(f"Systems:    {len(all_systems)}\n")
-            f.write(f"Selected:   {total_selected:,}\n")
-            f.write(f"Excluded:   {total_excluded:,}\n")
-            f.write(f"Total size: {format_size(total_size)}\n")
-            if total_source_size > 0:
-                saved = total_source_size - total_size
-                f.write(f"Source size: {format_size(total_source_size)}\n")
-                f.write(f"Space saved: {format_size(saved)}\n")
-            f.write(f"\n{'=' * 60}\n")
-            f.write("Per-System Breakdown\n")
-            f.write(f"{'=' * 60}\n\n")
-
-            for sys_code in sorted(all_systems):
-                sys_data = self._last_results.get(sys_code, {})
-                sel_urls = sys_data.get('selected_urls', [])
-                sel_local = sys_data.get('selected_local', [])
-                all_urls_sys = sys_data.get('urls', [])
-                all_local_sys = sys_data.get('local_files', [])
-                total_sys = len(all_urls_sys) + len(all_local_sys)
-                selected_sys = len(sel_urls) + len(sel_local)
-                sys_sizes = sys_data.get('sizes', {})
-                sys_sel_size = sum(sys_sizes.get(u, 0) for u in sel_urls)
-
-                display = _display_name(sys_code)
-                breakdown = self._run_breakdowns.get(sys_code, {})
-
-                f.write(f"--- {display} ---\n")
-                f.write(f"  Total: {total_sys}  "
-                        f"Selected: {selected_sys}  "
-                        f"Size: {format_size(sys_sel_size)}\n")
-                if breakdown:
-                    bd_parts = [f"{k}: {v}" for k, v in
-                                sorted(breakdown.items(),
-                                       key=lambda x: x[1],
-                                       reverse=True)]
-                    f.write(f"  Filtered: {', '.join(bd_parts)}\n")
-                f.write("\n")
-
-            # Filter impact
-            f.write(f"{'=' * 60}\n")
-            f.write("Filter Impact (all systems)\n")
-            f.write(f"{'=' * 60}\n\n")
-            breakdowns = self._run_breakdowns
-            impact = {}
-            for bd in breakdowns.values():
-                for reason, count in bd.items():
-                    impact[reason] = impact.get(reason, 0) + count
-            for reason, count in sorted(impact.items(),
-                                        key=lambda x: x[1],
-                                        reverse=True):
-                pct = (count / max(total_excluded, 1)) * 100
-                f.write(f"  {reason}: {count:,} "
-                        f"({pct:.1f}%)\n")
-
-        # --- 2. Per-system selection logs ---
-        for sys_code in sorted(all_systems):
-            sys_data = self._last_results.get(sys_code, {})
-            sel_urls = sys_data.get('selected_urls', [])
-            sel_local = sys_data.get('selected_local', [])
-
-            if not sel_urls and not sel_local:
-                continue
-
-            display = _display_name(sys_code)
-            sys_path = log_dir / f'{sys_code}_selected.txt'
-            with open(sys_path, 'w', encoding='utf-8') as f:
-                f.write(f"Selected ROMs: {display}\n")
-                f.write(f"{'=' * 60}\n\n")
-
-                all_parsed = []
-                for url in sel_urls:
-                    fname = get_filename_from_url(url)
-                    try:
-                        rom = parse_rom_filename(fname)
-                        all_parsed.append(('network', rom, fname))
-                    except Exception:  # pylint: disable=broad-except
-                        all_parsed.append(('network', None, fname))
-
-                for fpath in sel_local:
-                    fname = Path(fpath).name
-                    try:
-                        rom = parse_rom_filename(fname)
-                        all_parsed.append(('local', rom, fname))
-                    except Exception:  # pylint: disable=broad-except
-                        all_parsed.append(('local', None, fname))
-
-                all_parsed.sort(
-                    key=lambda x: (x[1].base_title.lower()
-                                   if x[1] else x[2].lower()))
-
-                f.write(f"Total: {len(all_parsed)}\n\n")
-
-                for source, rom, fname in all_parsed:
-                    f.write(f"{fname}\n")
-                    if rom:
-                        f.write(f"  Title:  {rom.base_title}\n")
-                        f.write(f"  Region: {rom.region}")
-                        if rom.revision > 0:
-                            f.write(f"  Rev: {rom.revision}")
-                        if rom.is_translation:
-                            f.write("  [Translation]")
-                        f.write(f"\n  Source: {source}\n")
-                    f.write("\n")
-
-        # --- 3. Per-system excluded logs ---
-        for sys_code in sorted(all_systems):
-            sys_data = self._last_results.get(sys_code, {})
-            all_urls_sys = sys_data.get('urls', [])
-            sel_urls = set(sys_data.get('selected_urls', []))
-
-            excluded_urls = [u for u in all_urls_sys
-                             if u not in sel_urls]
-            if not excluded_urls:
-                continue
-
-            display = _display_name(sys_code)
-            exc_path = log_dir / f'{sys_code}_excluded.txt'
-            with open(exc_path, 'w', encoding='utf-8') as f:
-                f.write(f"Excluded ROMs: {display}\n")
-                f.write(f"{'=' * 60}\n\n")
-                f.write(f"Total excluded: {len(excluded_urls)}\n\n")
-
-                for url in sorted(excluded_urls,
-                                  key=lambda u: u.lower()):
-                    fname = get_filename_from_url(url)
-                    try:
-                        rom = parse_rom_filename(fname)
-                        f.write(f"{fname}\n")
-                        f.write(f"  Title:  {rom.base_title}\n")
-                        f.write(f"  Region: {rom.region}\n")
-                    except Exception:  # pylint: disable=broad-except
-                        f.write(f"{fname}\n")
-                    f.write("\n")
-
-        # --- 4. Console log (all messages from the run) ---
-        console_path = log_dir / f'console_{timestamp}.txt'
-        with open(console_path, 'w', encoding='utf-8') as f:
-            f.write("Retro-Refiner Console Log\n")
-            f.write(f"{'=' * 60}\n")
-            f.write(f"Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-            f.write(f"Mode: {mode}\n\n")
-            for line in self._log_buffer:
-                f.write(line)
-
-        self._push_event('log', {
-            'text': f'\nLogs written to {config.advanced.log_dir}\n',
-            'className': 'log-success',
-        })
 
     def _compute_fanfare(self, _config, total_selected, total_excluded,
                          total_size, run_start, all_systems,
@@ -2364,12 +2178,6 @@ class Api:
 
     def _push_event(self, event_type: str, data: dict):
         """Push an event to the JavaScript frontend."""
-        # Buffer log messages for file output
-        if (event_type == 'log' and self._log_buffer is not None
-                and self._config.advanced.log_dir):
-            text = data.get('text', '')
-            if text:
-                self._log_buffer.append(text)
         if self._window:
             payload = orjson.dumps({'type': event_type, 'data': data}).decode()
             self._window.evaluate_js(
