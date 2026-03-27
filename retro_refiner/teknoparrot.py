@@ -443,6 +443,7 @@ def filter_teknoparrot_network_roms(
     url_map: Dict[str, str] = {}
     size_map: Dict[str, int] = {}
     total_source_size = 0
+    excluded_reasons: Dict[str, str] = {}  # url -> reason
 
     for url in rom_urls:
         filename = get_filename_from_url(url)
@@ -452,25 +453,27 @@ def filter_teknoparrot_network_roms(
         if not no_filter:
             if (include_patterns
                     and not matches_patterns(filename, include_patterns)):
+                excluded_reasons[url] = 'pattern exclude'
                 continue
             if (exclude_patterns
                     and matches_patterns(filename, exclude_patterns)):
+                excluded_reasons[url] = 'pattern exclude'
                 continue
 
         rom_info = parse_teknoparrot_filename(filename)
         if not rom_info:
             if no_filter:
-                # In no-filter mode, keep non-TP files as raw URLs
                 url_map[filename] = url
                 size_map[filename] = file_size
                 continue
-            else:
-                continue
+            excluded_reasons[url] = 'unrecognized filename'
+            continue
 
         if not no_filter:
-            should_include, _reason = should_include_teknoparrot_game(
+            should_include, reason = should_include_teknoparrot_game(
                 rom_info, effective_include, effective_exclude)
             if not should_include:
+                excluded_reasons[url] = reason or 'excluded platform'
                 continue
 
         all_roms.append(rom_info)
@@ -499,6 +502,10 @@ def filter_teknoparrot_network_roms(
                 best = select_best_teknoparrot_version(
                     roms, region_priority, verbose=verbose)
                 if not best or best.filename not in url_map:
+                    for rom in roms:
+                        url = url_map.get(rom.filename)
+                        if url:
+                            excluded_reasons[url] = 'no best version'
                     continue
 
                 if (english_only
@@ -508,18 +515,32 @@ def filter_teknoparrot_network_roms(
                                      'Unknown', '')
                         for r in roms)
                     if not has_english:
+                        for rom in roms:
+                            url = url_map.get(rom.filename)
+                            if url:
+                                excluded_reasons[url] = (
+                                    f'non-english ({best.region})')
                         continue
 
                 selected_urls.append(url_map[best.filename])
                 selected_size += size_map.get(best.filename, 0)
+                # Mark non-best versions as excluded
+                for rom in roms:
+                    if rom.filename != best.filename:
+                        url = url_map.get(rom.filename)
+                        if url:
+                            excluded_reasons[url] = 'duplicate version'
 
-    excluded_urls = [u for u in rom_urls if u not in set(selected_urls)]
+    selected_set = set(selected_urls)
+    excluded_urls = [u for u in rom_urls if u not in selected_set]
     logger.debug("TeknoParrot filter result: {} selected, {} excluded",
                  len(selected_urls), len(excluded_urls))
     for url in selected_urls:
         logger.debug("  SELECTED: {}", get_filename_from_url(url))
     for url in excluded_urls:
-        logger.debug("  EXCLUDED: {}", get_filename_from_url(url))
+        reason = excluded_reasons.get(url, 'unknown')
+        logger.debug("  EXCLUDED: {} ({})", get_filename_from_url(url),
+                     reason)
 
     return selected_urls, {
         'source_size': total_source_size,
