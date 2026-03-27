@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
+from retro_refiner.log import logger
 from retro_refiner.network import get_filename_from_url
 
 from retro_refiner.filter import matches_patterns
@@ -511,6 +512,14 @@ def filter_teknoparrot_network_roms(
 
                 selected_urls.append(url_map[best.filename])
                 selected_size += size_map.get(best.filename, 0)
+
+    excluded_urls = [u for u in rom_urls if u not in set(selected_urls)]
+    logger.debug("TeknoParrot filter result: {} selected, {} excluded",
+                 len(selected_urls), len(excluded_urls))
+    for url in selected_urls:
+        logger.debug("  SELECTED: {}", get_filename_from_url(url))
+    for url in excluded_urls:
+        logger.debug("  EXCLUDED: {}", get_filename_from_url(url))
 
     return selected_urls, {
         'source_size': total_source_size,

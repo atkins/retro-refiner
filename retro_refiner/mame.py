@@ -16,6 +16,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Tuple
 
+from retro_refiner.log import logger
+
 
 
 # =============================================================================
@@ -714,6 +716,14 @@ def filter_mame_network_roms(rom_urls, categories, games,
             processed.add(rom_name)
             for clone in parent_clones.get(rom_name, []):
                 processed.add(clone)
+
+    excluded_urls = [u for u in rom_urls if u not in set(selected_urls)]
+    logger.debug("MAME filter result: {} selected, {} excluded",
+                 len(selected_urls), len(excluded_urls))
+    for url in selected_urls:
+        logger.debug("  SELECTED: {}", url.split('/')[-1])
+    for url in excluded_urls:
+        logger.debug("  EXCLUDED: {}", url.split('/')[-1])
 
     return selected_urls, {
         'source_size': total_source_size,

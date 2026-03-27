@@ -369,8 +369,8 @@ def scan_network_source_urls(
 
         # Non-system subdirectories
         if other_subdirs:
-            for subdir_url_log, _ in other_subdirs:
-                logger.debug("Scanning subdirectory: {}", subdir_url_log)
+            logger.debug("Scanning {} subdirectories in {}",
+                         len(other_subdirs), base_url)
             if url_system and (systems is None or url_system in systems):
                 urls_to_fetch = [u for u, _ in other_subdirs]
 
