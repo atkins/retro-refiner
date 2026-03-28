@@ -928,9 +928,6 @@
       <button class="btn-subtle" onclick="loadConfig()" title="Load settings from a YAML or JSON file">Load</button>
       <button class="btn-subtle" onclick="resetApp()" title="Delete all settings, cache, and restart fresh">Reset</button>
     </div>
-    <div style="padding: 0 12px 6px; text-align: center;">
-      <span class="update-check-link" id="check-updates-link" onclick="manualCheckForUpdates()">Check for Updates</span>
-    </div>
 
   </div>
 
@@ -981,6 +978,9 @@
 
       <!-- ROM Picker view -->
       <div class="picker-view view-hidden" id="view-picker"></div>
+      <div style="text-align:center;padding:6px 0;">
+        <span class="update-check-link" id="check-updates-link" onclick="manualCheckForUpdates()">Check for Updates</span>
+      </div>
     </div>
 
     <!-- Confirm modal -->

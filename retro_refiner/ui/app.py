@@ -71,7 +71,7 @@ def _set_window_icon(window):
             LR_LOADFROMFILE | LR_DEFAULTSIZE)
 
         # Find the window handle by title
-        hwnd = user32.FindWindowW(None, 'Retro-Refiner')
+        hwnd = user32.FindWindowW(None, window.title)
         if hwnd and h_icon_sm:
             user32.SendMessageW(hwnd, WM_SETICON, ICON_SMALL, h_icon_sm)
         if hwnd and h_icon_lg:
@@ -101,8 +101,10 @@ def start_app():
         """Set window icon after the window is visible."""
         _set_window_icon(window)
 
+    from retro_refiner import __version__  # pylint: disable=import-outside-toplevel
+    title = f'Retro-Refiner v{__version__}' if __version__ != 'dev' else 'Retro-Refiner'
     window = webview.create_window(
-        'Retro-Refiner',
+        title,
         url=str(assets / 'index.html'),
         js_api=api,
         x=geo['x'],
