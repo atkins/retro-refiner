@@ -249,6 +249,9 @@ def build_ratings_cache(xml_path: Path, cache_path: Path = None,
                         on_progress: Callable = None) -> dict:
     """Parse LaunchBox Metadata.xml and build ratings cache.
 
+    If a JSON cache exists and is newer than the XML, loads from cache
+    instead of re-parsing the full XML (~486MB).
+
     Args:
         xml_path: Path to Metadata.xml
         cache_path: Optional path to save JSON cache
@@ -257,6 +260,19 @@ def build_ratings_cache(xml_path: Path, cache_path: Path = None,
     Returns:
         Dict of {system: {normalized_title: {"rating": float, "votes": int}}}
     """
+    # Use cached JSON if it exists and is newer than the XML
+    if cache_path and cache_path.exists():
+        if cache_path.stat().st_mtime >= xml_path.stat().st_mtime:
+            try:
+                with open(cache_path, encoding='utf-8') as f:
+                    cache = json.load(f)
+                total_rated = sum(len(v) for v in cache.values())
+                logger.debug("Loaded ratings from cache: {} rated across {} systems",
+                             total_rated, len(cache))
+                return cache
+            except (json.JSONDecodeError, OSError):
+                logger.debug("Ratings cache corrupt, re-parsing XML")
+
     sdata = load_system_data()
     launchbox_platform_map = sdata.launchbox_platform_map
 
