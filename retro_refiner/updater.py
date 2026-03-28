@@ -22,9 +22,9 @@ STATE_FILENAME = '_update_state.json'
 VERSION_RE = re.compile(r'^\d{4}\.\d{2}\.\d{2}\.\d{4}$')
 
 ASSET_NAMES = {
-    'win32': 'retro-refiner-windows.exe',
-    'darwin': 'retro-refiner-macos',
-    'linux': 'retro-refiner-linux',
+    'win32': 'retro-refiner.exe',
+    'darwin': 'retro-refiner-macos.zip',
+    'linux': 'retro-refiner',
 }
 
 

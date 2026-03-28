@@ -121,14 +121,14 @@ MOCK_RELEASE = {
     'tag_name': 'v2026.03.25.1000',
     'html_url': 'https://github.com/atkins/retro-refiner/releases/tag/v2026.03.25.1000',
     'assets': [
-        {'name': 'retro-refiner-windows.exe',
-         'browser_download_url': 'https://github.com/.../retro-refiner-windows.exe',
+        {'name': 'retro-refiner.exe',
+         'browser_download_url': 'https://github.com/.../retro-refiner.exe',
          'size': 50_000_000},
-        {'name': 'retro-refiner-macos',
-         'browser_download_url': 'https://github.com/.../retro-refiner-macos',
+        {'name': 'retro-refiner-macos.zip',
+         'browser_download_url': 'https://github.com/.../retro-refiner-macos.zip',
          'size': 48_000_000},
-        {'name': 'retro-refiner-linux',
-         'browser_download_url': 'https://github.com/.../retro-refiner-linux',
+        {'name': 'retro-refiner',
+         'browser_download_url': 'https://github.com/.../retro-refiner',
          'size': 45_000_000},
     ],
 }
@@ -139,19 +139,19 @@ class TestAssetSelection:
         with patch('retro_refiner.updater.sys') as mock_sys:
             mock_sys.platform = 'win32'
             url = get_asset_url(MOCK_RELEASE)
-            assert 'windows.exe' in url
+            assert 'retro-refiner.exe' in url
 
     def test_macos_asset(self):
         with patch('retro_refiner.updater.sys') as mock_sys:
             mock_sys.platform = 'darwin'
             url = get_asset_url(MOCK_RELEASE)
-            assert 'macos' in url
+            assert 'macos.zip' in url
 
     def test_linux_asset(self):
         with patch('retro_refiner.updater.sys') as mock_sys:
             mock_sys.platform = 'linux'
             url = get_asset_url(MOCK_RELEASE)
-            assert 'linux' in url
+            assert 'retro-refiner' in url
 
     def test_unknown_platform(self):
         with patch('retro_refiner.updater.sys') as mock_sys:
