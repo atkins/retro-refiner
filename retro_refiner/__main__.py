@@ -2,6 +2,12 @@
 
 import sys
 
+try:
+    import truststore
+    truststore.inject_into_ssl()
+except ImportError:
+    pass
+
 
 def main():
     """Route to GUI or headless mode based on arguments."""
