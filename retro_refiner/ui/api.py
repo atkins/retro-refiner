@@ -643,6 +643,18 @@ class Api:
                 if config.output.local_file_action != 'remove':
                     dest_dir.mkdir(parents=True, exist_ok=True)
 
+                # Compute total size for disk space check
+                commit_size = sum(
+                    sum(all_sizes.get(u, 0)
+                        for u in self._last_results.get(s, {}).get(
+                            'selected_urls', []))
+                    for s in all_systems)
+
+                # Check disk space before committing
+                if not self._check_disk_space(
+                        config, all_systems, commit_size, dest_dir):
+                    return
+
                 for system in sorted(all_systems):
                     if not self._running:
                         break
@@ -710,46 +722,6 @@ class Api:
                 total_selected += len(sys_urls)
                 total_size += sum(all_sizes.get(u, 0) for u in sys_urls)
             total_excluded = total_source - total_selected
-
-            # Check disk space before committing (uses post-budget totals)
-            # Subtract files already present in destination so retries
-            # don't demand space for the entire set again.
-            if commit and total_size > 0 and dest_dir.exists():
-                import shutil as _shutil  # pylint: disable=import-outside-toplevel
-                try:
-                    existing_size = 0
-                    flat = config.output.flat
-                    for system in all_systems:
-                        sys_data = self._last_results.get(system, {})
-                        sys_urls = sys_data.get('selected_urls', [])
-                        target = dest_dir if flat else dest_dir / system
-                        if not target.is_dir():
-                            continue
-                        for url in sys_urls:
-                            relpath = self._url_to_relpath(
-                                url, config.sources)
-                            fpath = target / relpath
-                            if fpath.exists():
-                                existing_size += fpath.stat().st_size
-                    needed = total_size - existing_size
-                    free = _shutil.disk_usage(dest_dir).free
-                    if needed > 0 and free < needed:
-                        from retro_refiner.network import format_size  # pylint: disable=import-outside-toplevel
-                        self._push_event('log', {
-                            'text': (f'\nInsufficient disk space on '
-                                     f'{dest_dir.anchor}\n'
-                                     f'  Need: {format_size(needed)}'
-                                     f'  Available: {format_size(free)}'
-                                     '\n'),
-                            'className': 'log-error',
-                        })
-                        self._push_event('status', {
-                            'state': 'error',
-                            'message': 'Insufficient disk space',
-                        })
-                        return
-                except OSError:
-                    pass
 
             # Push summary
             self._push_event('summary', {
@@ -1638,11 +1610,13 @@ class Api:
     def _download_batch(self, downloads, parallel, system):
         """Download files using httpx with ThreadPoolExecutor."""
         import httpx  # pylint: disable=import-outside-toplevel
+        from concurrent.futures import ThreadPoolExecutor  # pylint: disable=import-outside-toplevel
         logger.debug("Downloading {} files for {} (parallel={})",
                      len(downloads), system, parallel)
 
         total = len(downloads)
         fail_count = 0
+        cancelled = False
         display = _display_name(system)
 
         client = httpx.Client(
@@ -1664,7 +1638,6 @@ class Api:
                 return idx, str(exc)
 
         dl_t0 = time.monotonic()
-        from concurrent.futures import ThreadPoolExecutor  # pylint: disable=import-outside-toplevel
 
         try:
             with ThreadPoolExecutor(max_workers=parallel) as executor:
@@ -1676,6 +1649,7 @@ class Api:
                 # Progress polling in main thread
                 while not all(f.done() for f in futures):
                     if not self._running:
+                        cancelled = True
                         executor.shutdown(wait=False, cancel_futures=True)
                         break
                     completed = len(done_set)
@@ -1696,13 +1670,22 @@ class Api:
                     })
                     time.sleep(1.0)
 
-                # Collect errors
-                for future in futures:
-                    _idx, error = future.result()
-                    if error:
-                        fail_count += 1
+                # Collect errors from completed futures only
+                if not cancelled:
+                    for future in futures:
+                        _idx, error = future.result()
+                        if error:
+                            fail_count += 1
         finally:
             client.close()
+
+            # Remove partially-downloaded temp files on cancel
+            if cancelled:
+                for _url, dest_path in downloads:
+                    try:
+                        dest_path.unlink(missing_ok=True)
+                    except OSError:
+                        pass
 
         if fail_count:
             self._push_event('log', {
@@ -1749,10 +1732,53 @@ class Api:
         batch = [(url, tmp_path) for url, tmp_path, _ in downloads]
         self._download_batch(batch, parallel, system)
 
+        if not self._running:
+            return
+
         # Rename completed downloads from .rrdownload to final name
         for _url, tmp_path, final_path in downloads:
             if tmp_path.exists():
                 tmp_path.rename(final_path)
+
+    def _check_disk_space(self, config, all_systems, total_size, dest_dir):
+        """Check disk space before committing. Returns False if insufficient."""
+        if total_size <= 0 or not dest_dir.exists():
+            return True
+        import shutil as _shutil  # pylint: disable=import-outside-toplevel
+        try:
+            existing_size = 0
+            flat = config.output.flat
+            for system in all_systems:
+                sys_data = self._last_results.get(system, {})
+                sys_urls = sys_data.get('selected_urls', [])
+                target = dest_dir if flat else dest_dir / system
+                if not target.is_dir():
+                    continue
+                for url in sys_urls:
+                    relpath = self._url_to_relpath(url, config.sources)
+                    fpath = target / relpath
+                    if fpath.exists():
+                        existing_size += fpath.stat().st_size
+            needed = total_size - existing_size
+            free = _shutil.disk_usage(dest_dir).free
+            if needed > 0 and free < needed:
+                from retro_refiner.network import format_size  # pylint: disable=import-outside-toplevel
+                self._push_event('log', {
+                    'text': (f'\nInsufficient disk space on '
+                             f'{dest_dir.anchor}\n'
+                             f'  Need: {format_size(needed)}'
+                             f'  Available: {format_size(free)}'
+                             '\n'),
+                    'className': 'log-error',
+                })
+                self._push_event('status', {
+                    'state': 'error',
+                    'message': 'Insufficient disk space',
+                })
+                return False
+        except OSError:
+            pass
+        return True
 
     def _commit_system(self, system, config, dest_dir):
         """Commit results for a single system."""
@@ -1953,8 +1979,8 @@ class Api:
 
             # Update _last_results
             data = self._last_results[system]
-            old_url_count = len(data.get('selected_urls', []))
-            old_local_count = len(data.get('selected_local', []))
+            source_url_count = len(data.get('urls', []))
+            source_local_count = len(data.get('local_files', []))
             if removed_urls:
                 data['selected_urls'] = [
                     u for u in data.get('selected_urls', [])
@@ -1994,10 +2020,10 @@ class Api:
                 'system': system,
                 'state': 'complete',
                 'selected_count': new_selected,
-                'excluded_count': (old_url_count + old_local_count
+                'excluded_count': (source_url_count + source_local_count
                                    - new_selected),
                 'selected_size': new_size,
-                'source_count': old_url_count + old_local_count,
+                'source_count': source_url_count + source_local_count,
                 'source_size': 0,
                 'filter_breakdown': {'cross-platform dupe': removed_count},
             })

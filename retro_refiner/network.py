@@ -31,6 +31,7 @@ def request_shutdown():
     _shutdown_event.set()
 
 
+
 def check_shutdown():
     """Raise SystemExit if shutdown was requested."""
     if _shutdown_event.is_set():
@@ -501,30 +502,21 @@ def parse_html_for_directories(html: str, base_url: str) -> List[str]:
 # SSRF protection
 # ---------------------------------------------------------------------------
 
-_PRIVATE_IP_PREFIXES = (
-    '127.', '10.', '192.168.', '0.',
-)
-
-_PRIVATE_172_RANGE = range(16, 32)
-
-
 def _is_private_ip(ip_str: str) -> bool:
     """Return True if *ip_str* is a private/loopback IP literal."""
+    import ipaddress  # pylint: disable=import-outside-toplevel
     bare = ip_str.strip('[]')
-    if bare in ('::1', ''):
+    if not bare:
         return True
-    for prefix in _PRIVATE_IP_PREFIXES:
-        if bare.startswith(prefix):
-            return True
-    # 172.16.0.0 - 172.31.255.255
-    if bare.startswith('172.'):
-        parts = bare.split('.')
-        try:
-            if int(parts[1]) in _PRIVATE_172_RANGE:
-                return True
-        except (IndexError, ValueError):
-            pass
-    return False
+    # Handle IPv4-mapped IPv6 (e.g. ::ffff:127.0.0.1)
+    mapped = bare
+    if mapped.lower().startswith('::ffff:'):
+        mapped = mapped[7:]
+    try:
+        addr = ipaddress.ip_address(mapped)
+        return addr.is_private or addr.is_loopback or addr.is_reserved
+    except ValueError:
+        return False
 
 
 def _is_private_host(hostname: str) -> bool:
@@ -558,8 +550,13 @@ def validate_source(source: str, timeout: int = 15) -> Tuple[bool, str]:
     if is_url(source):
         # SSRF check — reject private / loopback targets
         _scheme, host, _path = parse_url(source)
-        # Strip port if present
-        host_no_port = host.rsplit(':', 1)[0] if ':' in host else host
+        # Strip port — IPv6 brackets use [host]:port format
+        if host.startswith('['):
+            host_no_port = host.split(']')[0] + ']'
+        elif ':' in host and host.count(':') == 1:
+            host_no_port = host.rsplit(':', 1)[0]
+        else:
+            host_no_port = host
         if _is_private_host(host_no_port):
             return False, "URL points to a private/localhost address"
         try:
@@ -612,12 +609,12 @@ def validate_all_sources(local_sources: List[Path],
             errors.append((str(source), error))
 
     for source in network_sources:
-        print(f"Validating: {format_url(source)}...", end=" ", flush=True)
+        logger.info("Validating: {}...", format_url(source))
         success, error = validate_source(source)
         if success:
-            print("OK")
+            logger.info("  OK")
         else:
-            print(f"FAILED ({error})")
+            logger.warning("  FAILED ({})", error)
             errors.append((source, error))
 
     return errors
@@ -844,11 +841,21 @@ def stream_download(client, url, dest_path):
     """Stream a URL to a file with retry on transient errors.
 
     Retries up to 3 times on 5xx, timeout, and connection errors.
-    Does NOT retry on 4xx client errors.
+    Does NOT retry on 4xx client errors.  Removes partial files on failure.
     """
     logger.debug("Downloading {} -> {}", url, dest_path)
-    with client.stream('GET', url) as response:
-        response.raise_for_status()
-        with open(dest_path, 'wb') as f:
-            for chunk in response.iter_bytes(8192):
-                f.write(chunk)
+    try:
+        with client.stream('GET', url) as response:
+            response.raise_for_status()
+            with open(dest_path, 'wb') as f:
+                for chunk in response.iter_bytes(8192):
+                    if _shutdown_event.is_set():
+                        raise SystemExit("Shutdown requested")
+                    f.write(chunk)
+    except BaseException:
+        # Remove partial file before retry or final failure
+        try:
+            Path(dest_path).unlink(missing_ok=True)
+        except OSError:
+            pass
+        raise

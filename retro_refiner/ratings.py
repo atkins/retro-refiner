@@ -349,7 +349,7 @@ def build_ratings_cache(xml_path: Path, cache_path: Path = None,
 # LaunchBox data download
 # =============================================================================
 
-LAUNCHBOX_METADATA_URL = "http://gamesdb.launchbox-app.com/Metadata.zip"
+LAUNCHBOX_METADATA_URL = "https://gamesdb.launchbox-app.com/Metadata.zip"
 
 
 def download_launchbox_data(dat_dir: Path, force: bool = False,

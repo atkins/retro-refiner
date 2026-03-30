@@ -6,6 +6,7 @@ the running executable. All external imports (httpx) are lazy.
 import json
 import os
 import re
+import shutil
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -196,12 +197,14 @@ def download_update(url: str, expected_size: int,
                             progress_callback(downloaded, total)
     except Exception as exc:  # pylint: disable=broad-except
         logger.error("Update download failed: {}", exc)
+        shutil.rmtree(dest_dir, ignore_errors=True)
         return None
 
     actual_size = dest_path.stat().st_size
     if expected_size > 0 and actual_size != expected_size:
         logger.error("Update size mismatch: expected {} got {}",
                      expected_size, actual_size)
+        shutil.rmtree(dest_dir, ignore_errors=True)
         return None
 
     logger.info("Update downloaded to {} ({} bytes)", dest_path, actual_size)
@@ -215,7 +218,6 @@ def apply_update(new_path: Path, exe_path: Path) -> bool:
     macOS/Linux: move new -> exe, set executable bit, remove quarantine.
     Returns True on success.
     """
-    import shutil  # pylint: disable=import-outside-toplevel
     logger.info("Applying update: {} -> {}", new_path, exe_path)
     try:
         if sys.platform == 'win32':

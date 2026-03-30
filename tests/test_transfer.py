@@ -238,7 +238,7 @@ def test_generate_gamelist_xml(tmp_path):
     assert "<gameList>" in content and "</gameList>" in content
     assert "<game>" in content
     assert "&amp;" in content
-    assert "<path>./Game & Two (USA).zip</path>" in content
+    assert "<path>./Game &amp; Two (USA).zip</path>" in content
     assert "<name>Game One (USA)</name>" in content
 
 

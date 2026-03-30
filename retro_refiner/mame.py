@@ -5,6 +5,7 @@ replaced by optional callbacks and plain stderr for errors.
 """
 import fnmatch
 import json
+import re
 import shutil
 import subprocess
 import urllib.error
@@ -84,6 +85,9 @@ MAME_EXCLUDE_SUBCATEGORIES = {
     'Tabletop / Hanafuda * Mature *',
 }
 
+_RE_KONAMI_VERSION = re.compile(
+    r'(?:ver[. ]*|ge\w+ ver[. ]*)([JUEAK])[A-Z]{2}')
+
 
 # =============================================================================
 # MAME version / download constants
@@ -139,7 +143,7 @@ def _extract_from_zip(zip_path: Path, filename: str,
                             shutil.copyfileobj(src, dst)
                     return True
         return False
-    except (zipfile.BadZipFile, Exception):
+    except Exception:  # pylint: disable=broad-except
         return False
 
 
@@ -379,11 +383,7 @@ def detect_mame_region(description: str) -> str:
 
     # Konami-style version codes: VER/Ver UAB, GE765 VER. JAA, etc.
     # Letter codes: J=Japan, U=USA, E=Europe, A=Asia, K=Korea
-    import re  # pylint: disable=import-outside-toplevel
-    konami = re.search(
-        r'(?:ver[. ]*|ge\w+ ver[. ]*)'
-        r'([JUEAK])[A-Z]{2}',
-        description)
+    konami = _RE_KONAMI_VERSION.search(description)
     if konami:
         code = konami.group(1)
         region = {'J': 'Japan', 'U': 'USA', 'E': 'Europe',
@@ -766,7 +766,7 @@ def filter_mame_network_roms(rom_urls, categories, games,
                     selected_urls.append(best_url)
                     selected_set.add(best_url)
                     selected_size += size_map.get(best_filename, 0)
-                selected_current = (best_filename == filename)
+                selected_current = best_filename == filename
             elif game_to_chd_files.get(best_rom.name):
                 for chd_file in game_to_chd_files[best_rom.name]:
                     chd_url = url_map.get(chd_file)

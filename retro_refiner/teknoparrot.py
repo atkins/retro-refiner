@@ -190,11 +190,9 @@ def normalize_teknoparrot_title(title: str) -> str:
     """Normalize a TeknoParrot game title for grouping."""
     normalized = title.lower()
     normalized = re.sub(
-        r'\s*ver\.?\s*\d+(?:\.\d+)*\s*$', '', normalized,
-        flags=re.IGNORECASE)
+        r'\s*ver\.?\s*\d+(?:\.\d+)*\s*$', '', normalized)
     normalized = re.sub(
-        r'\s*(arcade stage|arcade|stage)\s*$', '', normalized,
-        flags=re.IGNORECASE)
+        r'\s*(arcade stage|arcade|stage)\s*$', '', normalized)
     normalized = re.sub(r'[^\w\s]', '', normalized)
     normalized = ' '.join(normalized.split())
     return normalized

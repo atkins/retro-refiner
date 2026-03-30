@@ -120,11 +120,17 @@ _RE_ARTICLE_COMMA = re.compile(r',\s*(the|a|an)\s*')
 _RE_ARTICLE_START = re.compile(r'^(the|a|an)\s+')
 _RE_PUNCTUATION = re.compile(r'[:\-\'.,]')
 _RE_WHITESPACE_NORM = re.compile(r'\s+')
+# Roman numeral patterns: only convert at end of title (sequel numbering)
+# to avoid mangling "I Have No Mouth", "V-Rally", etc.
 _RE_ROMAN_NUMERALS = [
-    (re.compile(r'\bviii\b'), '8'), (re.compile(r'\bvii\b'), '7'),
-    (re.compile(r'\bvi\b'), '6'), (re.compile(r'\biv\b'), '4'),
-    (re.compile(r'\bv\b'), '5'), (re.compile(r'\biii\b'), '3'),
-    (re.compile(r'\bii\b'), '2'), (re.compile(r'\bi\b'), '1'),
+    (re.compile(r'(?<=\w )\bviii$'), '8'),
+    (re.compile(r'(?<=\w )\bvii$'), '7'),
+    (re.compile(r'(?<=\w )\bvi$'), '6'),
+    (re.compile(r'(?<=\w )\biv$'), '4'),
+    (re.compile(r'(?<=\w )\bv$'), '5'),
+    (re.compile(r'(?<=\w )\biii$'), '3'),
+    (re.compile(r'(?<=\w )\bii$'), '2'),
+    (re.compile(r'(?<=\w )\bi$'), '1'),
 ]
 
 

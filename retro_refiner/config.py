@@ -14,9 +14,12 @@ def parse_yaml(content: str) -> dict:
         result = yaml.safe_load(content)
     except yaml.YAMLError:
         # Windows backslashes in double-quoted strings cause YAML escape
-        # errors (e.g. \U interpreted as unicode escape). Retry with
-        # backslashes escaped.
-        result = yaml.safe_load(content.replace('\\', '\\\\'))
+        # errors (e.g. \U interpreted as unicode escape).  Replace only
+        # unescaped backslashes (not already doubled) so we don't corrupt
+        # intentional escape sequences.
+        import re  # pylint: disable=import-outside-toplevel
+        escaped = re.sub(r'(?<!\\)\\(?!\\)', r'\\\\', content)
+        result = yaml.safe_load(escaped)
     return result if isinstance(result, dict) else {}
 
 

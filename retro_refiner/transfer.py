@@ -7,6 +7,7 @@ import os
 import shutil
 from pathlib import Path
 from typing import Callable, Dict, List, Optional
+from xml.sax.saxutils import escape as xml_escape
 
 from retro_refiner.log import logger
 from retro_refiner.models import ProgressEvent
@@ -56,7 +57,7 @@ def transfer_files(files: List[Path], dest_dir: Path, mode: str = 'copy',
             elif mode == 'move':
                 shutil.move(str(src), str(dst))
             elif mode == 'link':
-                os.symlink(src, dst)
+                os.symlink(src.resolve(), dst)
             elif mode == 'hardlink':
                 os.link(src, dst)
             else:
@@ -195,14 +196,9 @@ def generate_gamelist_xml(_system: str, rom_files: List[Path],
 
     lines = ['<?xml version="1.0"?>', '<gameList>']
     for rom in sorted(rom_files, key=lambda x: x.name.lower()):
-        name = rom.stem
-        name_escaped = (name.replace('&', '&amp;')
-                        .replace('<', '&lt;')
-                        .replace('>', '&gt;')
-                        .replace('"', '&quot;'))
         lines.append('  <game>')
-        lines.append(f'    <path>./{rom.name}</path>')
-        lines.append(f'    <name>{name_escaped}</name>')
+        lines.append(f'    <path>./{xml_escape(rom.name)}</path>')
+        lines.append(f'    <name>{xml_escape(rom.stem)}</name>')
         lines.append('  </game>')
     lines.append('</gameList>')
 
