@@ -203,13 +203,23 @@ Three filtering modes controlled by `all_roms` and `best_version` config flags:
 - `all_roms=False` + `best_version=True` → full 1G1R: group by title, select best per game
 
 ### ROM Picker
-`get_system_roms()` returns all ROMs with region/status/reason populated from `parse_rom_filename()`. Manual selections stored in `_manual_selections` and `_picker_state` dicts on `Api`. Applied during commit via URL filtering. `reset_picker()` clears cached state. Picker state persists across reopens but clears on new scan. Picker refreshes in-place if a preview completes while the user is in the editor. Search covers filename, region, status, and reason fields.
+`get_system_roms()` returns all ROMs with region/status/reason. For MAME, display names come from `title_map`, regions from `region_map`, and exclusion reasons from `url_reasons` — all stored in `_last_results[system]` after filtering. For console/TP systems, `parse_rom_filename()` provides region; reasons come from `url_reasons` (network) or `_get_exclusion_reason()` fallback (local). Manual selections stored in `_manual_selections` and `_picker_state` dicts on `Api`. Applied during commit via URL filtering. `reset_picker()` clears cached state. Picker state persists across reopens but clears on new scan. Picker refreshes in-place if a preview completes while the user is in the editor. Search covers filename, region, status, and reason fields.
 
 ### Cross-System Dedup
 `_run_dedup()` in api.py walks systems in priority order (configured via ordered pills). Each system claims normalized titles; later systems have duplicates removed. Deduped ROMs show as "excluded" with reason "cross-platform duplicate" in the picker. Exclusion playlists (LaunchBox/RetroArch/XML) can seed the claimed-titles set.
 
 ### Filter Return Types
-`filter_network_roms()` returns `FilterResult` dataclass. `filter_mame_network_roms()` and `filter_teknoparrot_network_roms()` return `(selected_urls, size_info_dict)` tuples — not `FilterResult`. A future refactor should unify these.
+`filter_network_roms()` returns `FilterResult` dataclass. `filter_mame_network_roms()` and `filter_teknoparrot_network_roms()` return `(selected_urls, info_dict)` tuples — not `FilterResult`. A future refactor should unify these.
+
+MAME info_dict keys: `source_size`, `selected_size`, `title_map` (rom_name→description), `region_map` (rom_name→region), `excluded_reasons` (url→reason). TeknoParrot: `source_size`, `selected_size`, `excluded_reasons`. Console `filter_roms_from_files` returns `(selected_roms, info_dict)` with `excluded_reasons` (filepath→reason).
+
+### MAME CHD Resolution
+CHD filenames (e.g., `040503_1309.chd`) resolve to MAME games via three lookups in order:
+1. `chd_to_game` dict — maps CHD filename stems (no extension) to MAME game names from DAT `<disk>` elements
+2. `url_game_map` — maps filenames to parent folder names from URL structure (e.g., `.../area51/040503_1309.chd` → `area51`)
+3. Direct `games.get(rom_name)` — for CHDs whose filename matches the game name (e.g., `area51.chd`)
+
+Multi-CHD games (69 parents) need all their CHDs selected. Shared system CHDs (e.g., Lindbergh `mda-c0004a...chd` across 19 games) must only appear once in selected_urls. `game_to_chd_files` reverse-maps game→CHD filenames present in the URL set.
 
 ### Local File Filtering
 Local files go through `filter_roms_from_files(dry_run=True)` with the same selection config as network sources. Results are combined with network filtering for accurate counts.
@@ -235,7 +245,7 @@ Module-level `_SYSTEM_ABBREVS` frozenset and `_display_name(system)` helper in a
 ## Key Dataclasses
 - `RomInfo` (`dat.py`): Parsed ROM metadata (title, region, language, revision, flags)
 - `DatRomEntry` (`dat.py`): DAT file entry (name, CRC32, region, size)
-- `MameGameInfo` (`mame.py`): MAME game with parent/clone relationships, category, region
+- `MameGameInfo` (`mame.py`): MAME game with parent/clone relationships, category, region. `detect_mame_region()` parses descriptions for region tags `(USA)`, `(Japan)`, `(Export)`→World, and Konami version codes (`JAA`=Japan, `UAB`=USA, `EAA`=Europe, `AAA`=Asia, `KAA`=Korea). Returns `'Universal'` (not `'Unknown'`) for region-free arcade games.
 - `TeknoParrotGameInfo` (`teknoparrot.py`): TeknoParrot game with version/platform
 - `SystemData` (`systems.py`): All system lookup dictionaries
 - `Config` (`config.py`): Full app configuration with nested sections

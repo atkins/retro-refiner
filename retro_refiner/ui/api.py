@@ -726,8 +726,9 @@ class Api:
                         if not target.is_dir():
                             continue
                         for url in sys_urls:
-                            fname = self._url_to_filename(url)
-                            fpath = target / fname
+                            relpath = self._url_to_relpath(
+                                url, config.sources)
+                            fpath = target / relpath
                             if fpath.exists():
                                 existing_size += fpath.stat().st_size
                     needed = total_size - existing_size
@@ -1719,6 +1720,24 @@ class Api:
         return urllib.parse.unquote(
             url.split('?')[0].split('#')[0].split('/')[-1])
 
+    def _url_to_relpath(self, url, sources):
+        """Extract relative path from URL based on source base URLs.
+
+        For recursive scans, preserves subdirectory structure.
+        E.g., source='.../CHDs/' + url='.../CHDs/2spicy/dvp.chd'
+        → '2spicy/dvp.chd'
+
+        Falls back to just the filename if no source matches.
+        """
+        clean = urllib.parse.unquote(
+            url.split('?')[0].split('#')[0])
+        for src in sources:
+            src_clean = urllib.parse.unquote(
+                src.split('?')[0].split('#')[0]).rstrip('/')
+            if clean.startswith(src_clean + '/'):
+                return clean[len(src_clean) + 1:]
+        return clean.split('/')[-1]
+
     def _download_to_destination(self, downloads, parallel, system):
         """Download files to destination with temp file safety.
 
@@ -1760,12 +1779,13 @@ class Api:
         target_dir = dest_dir if flat else dest_dir / system
         target_dir.mkdir(parents=True, exist_ok=True)
 
-        # Build expected file set with sizes
+        # Build expected file set with sizes, using relative paths
+        # to preserve subdirectory structure from recursive scans
         expected = {}
         sizes = result.get('sizes', {})
         for url in selected_urls:
-            fname = self._url_to_filename(url)
-            expected[fname] = sizes.get(url, 0)
+            relpath = self._url_to_relpath(url, config.sources)
+            expected[relpath] = sizes.get(url, 0)
         for filepath in local_files:
             p_file = Path(filepath)
             if p_file.exists():
@@ -1798,11 +1818,12 @@ class Api:
         # Phase 2: Download remote files directly to destination
         downloads = []
         for url in selected_urls:
-            fname = self._url_to_filename(url)
-            if fname in skip_files:
+            relpath = self._url_to_relpath(url, config.sources)
+            if relpath in skip_files:
                 continue
-            dest_path = target_dir / fname
-            tmp_path = target_dir / (fname + '.rrdownload')
+            dest_path = target_dir / relpath
+            dest_path.parent.mkdir(parents=True, exist_ok=True)
+            tmp_path = dest_path.parent / (dest_path.name + '.rrdownload')
             downloads.append((url, tmp_path, dest_path))
 
         logger.debug("{}: {} files already valid, {} to download",
@@ -1856,7 +1877,8 @@ class Api:
         if (config.output.clean_destination
                 and config.output.local_file_action != 'remove'):
             from retro_refiner.transfer import clean_destination  # pylint: disable=import-outside-toplevel
-            keep = set(expected.keys())
+            # Use filenames (not relative paths) for clean matching
+            keep = {Path(k).name for k in expected}
             clean_stats = clean_destination(
                 dest_dir, system, flat, keep)
             logger.debug("{}: cleaned {} files from destination",
