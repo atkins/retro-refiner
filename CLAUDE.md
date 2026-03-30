@@ -152,6 +152,7 @@ The main run method is split into extracted helper methods:
 - `_compute_fanfare()` — ROM content analysis and tidbit generation
 - `_run_dedup()` — cross-system dedup pass
 - `_apply_budget_filters()` — budget/limit/size constraints
+- `_check_disk_space()` — pre-commit disk space check, subtracts files already in destination
 - `_commit_system()` — per-system commit in 4 phases: (1) validate destination (skip files already present, optional CRC check), (2) download remote files directly to destination (uses `.rrdownload` temp files, renamed on completion for crash safety), (3) transfer local files via configured `local_file_action` (copy/move/symlink/hardlink/remove), (4) clean destination (remove unselected files if `clean_destination` enabled)
 - `_compute_system_stats()` — per-system verbose stats (regions, years, sizes, formats, revisions, languages)
 - `_download_batch()` — httpx streaming download with ThreadPoolExecutor parallelism, 3 retries, progress polling
@@ -213,6 +214,8 @@ Three filtering modes controlled by `all_roms` and `best_version` config flags:
 
 MAME info_dict keys: `source_size`, `selected_size`, `title_map` (rom_name→description), `region_map` (rom_name→region), `excluded_reasons` (url→reason). TeknoParrot: `source_size`, `selected_size`, `excluded_reasons`. Console `filter_roms_from_files` returns `(selected_roms, info_dict)` with `excluded_reasons` (filepath→reason).
 
+`_last_results[system]` has two sets of keys: `urls`/`local_files` (originals from scan) and `selected_urls`/`selected_local` (post-filter). Use originals for source counts, post-filter for commit/display.
+
 ### MAME CHD Resolution
 CHD filenames (e.g., `040503_1309.chd`) resolve to MAME games via three lookups in order:
 1. `chd_to_game` dict — maps CHD filename stems (no extension) to MAME game names from DAT `<disk>` elements
@@ -225,7 +228,10 @@ Multi-CHD games (69 parents) need all their CHDs selected. Shared system CHDs (e
 Local files go through `filter_roms_from_files(dry_run=True)` with the same selection config as network sources. Results are combined with network filtering for accurate counts.
 
 ### Cancellation
-`cancel_run()` sets `self._running = False` AND calls `network.request_shutdown()` to stop in-flight network operations. `_do_run()` calls `reset_shutdown()` at start.
+`cancel_run()` sets `self._running = False` AND calls `network.request_shutdown()` to stop in-flight network operations. `_do_run()` calls `reset_shutdown()` at start. Cancellation is checked at multiple layers:
+- `stream_download` checks `_shutdown_event.is_set()` per 8KB chunk, cleans up partial files via `BaseException` handler
+- `_download_batch` tracks a `cancelled` flag, calls `executor.shutdown(wait=False, cancel_futures=True)`, skips `future.result()` on cancelled futures, and removes `.rrdownload` temp files
+- `_download_to_destination` skips the temp→final rename when `self._running` is False
 
 ### Shutdown Mechanism
 `retro_refiner.network` provides thread-safe shutdown:
@@ -292,7 +298,7 @@ Step indicators `[1/3] [2/3] [3/3]` (preview uses `[1/2] [2/2]`) with phase-spec
 ## Performance Patterns
 
 ### Pre-compiled regex
-All regex in hot paths (`parse_rom_filename`, `normalize_title`) are `_RE_*` module-level constants in `filter.py`. Pattern lists (`RERELEASE_PATTERNS`, `COMPILATION_PATTERNS`, `_HACK_PATTERNS`) are lists of compiled patterns.
+All regex in hot paths (`parse_rom_filename`, `normalize_title`, `detect_mame_region`) are `_RE_*` module-level constants. Pattern lists (`RERELEASE_PATTERNS`, `COMPILATION_PATTERNS`, `_HACK_PATTERNS`) are lists of compiled patterns. Roman numeral patterns in `dat.py` are end-of-title anchored (`$`) to prevent mangling titles like "I Have No Mouth" — this means subtitle sequels ("FF IV Advance") rely on title_mappings.json instead.
 
 ### CRC caching
 `get_cached_crc()` in `dat.py` uses persistent JSON cache (`_crc_cache.json`). Entries keyed by filepath, invalidated by mtime+size.
@@ -326,13 +332,14 @@ Test files (one per source module):
 ## Security
 
 - Auth credentials stripped from state file before saving to disk
-- SSRF validation rejects private/localhost URLs in `validate_source()`
+- SSRF validation uses `ipaddress.ip_address()` for full IPv4/IPv6 private range coverage (including `fe80::`, `fc00::`, `::ffff:` mapped, link-local). Port-stripping handles IPv6 bracket notation.
 - Dynamic values in `innerHTML` escaped via `escapeHtml()` — `textContent`/`createElement` preferred
 - Clipboard uses platform-native subprocesses, not tkinter
 - `cancel_run()` propagates shutdown to network operations
 - Config snapshot at run start for thread safety (`Config.from_dict(self._config.to_dict())`)
 - `clean_data()` requires DAT file presence check before `rmtree`, plus user confirmation dialog
 - Empty scan results not cached (prevents stale 0-URL cache from blocking future scans)
+- **XML escaping**: `transfer.py` uses `xml.sax.saxutils.escape()` for gamelist generation — do not hand-roll `.replace()` chains
 
 ## Platform Notes
 
