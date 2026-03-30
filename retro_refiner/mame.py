@@ -352,6 +352,7 @@ def detect_mame_region(description: str) -> str:
     """Detect region from MAME game description."""
     desc_lower = description.lower()
 
+    # Explicit region tags in parentheses/brackets
     if '(us)' in desc_lower or '(usa)' in desc_lower or '[us]' in desc_lower:
         return 'USA'
     if '(world)' in desc_lower or '[world]' in desc_lower:
@@ -372,7 +373,25 @@ def detect_mame_region(description: str) -> str:
     if ' usa ' in desc_lower or desc_lower.endswith(' usa'):
         return 'USA'
 
-    return 'Unknown'
+    # "Export" typically means worldwide outside Japan
+    if '(export)' in desc_lower or ', export' in desc_lower:
+        return 'World'
+
+    # Konami-style version codes: VER/Ver UAB, GE765 VER. JAA, etc.
+    # Letter codes: J=Japan, U=USA, E=Europe, A=Asia, K=Korea
+    import re  # pylint: disable=import-outside-toplevel
+    konami = re.search(
+        r'(?:ver[. ]*|ge\w+ ver[. ]*)'
+        r'([JUEAK])[A-Z]{2}',
+        description)
+    if konami:
+        code = konami.group(1)
+        region = {'J': 'Japan', 'U': 'USA', 'E': 'Europe',
+                  'A': 'Asia', 'K': 'Korea'}.get(code)
+        if region:
+            return region
+
+    return 'Universal'
 
 
 # =============================================================================
@@ -396,20 +415,15 @@ def should_include_mame_game(game: MameGameInfo, category: str,
     if not include_adult and '* Mature *' in category:
         return False, "Adult/mature content"
 
-    if category in MAME_EXCLUDE_SUBCATEGORIES:
-        return False, f"Excluded subcategory: {category}"
-
-    for exclude_cat in MAME_EXCLUDE_CATEGORIES:
-        if category.startswith(exclude_cat):
-            return False, f"Excluded category: {exclude_cat}"
-
     cat_lower = category.lower()
+
+    # Specific category checks (readable reason strings)
     if 'mahjong' in cat_lower:
-        return False, "Mahjong game"
+        return False, "Mahjong"
     if 'quiz' in cat_lower:
-        return False, "Quiz game"
+        return False, "Quiz"
     if 'casino' in cat_lower or 'gambling' in cat_lower:
-        return False, "Casino/Gambling game"
+        return False, "Gambling"
     if 'slot machine' in cat_lower:
         return False, "Slot machine"
     if 'pachinko' in cat_lower:
@@ -417,7 +431,14 @@ def should_include_mame_game(game: MameGameInfo, category: str,
     if 'medal game' in cat_lower:
         return False, "Medal game"
     if 'dance' in cat_lower and 'game' in cat_lower:
-        return False, "Dance game (requires pad)"
+        return False, "Dance game"
+
+    if category in MAME_EXCLUDE_SUBCATEGORIES:
+        return False, category
+
+    for exclude_cat in MAME_EXCLUDE_CATEGORIES:
+        if category.startswith(exclude_cat):
+            return False, exclude_cat
 
     for include_cat in MAME_INCLUDE_CATEGORIES:
         if category.startswith(include_cat):
@@ -429,14 +450,15 @@ def should_include_mame_game(game: MameGameInfo, category: str,
     if 'shooter / gallery' in cat_lower or 'gun' in cat_lower:
         return True, "Light gun game"
 
-    return False, f"Unknown category: {category}"
+    return False, category
 
 
 def get_mame_region_priority(region: str) -> int:
     """Get priority for MAME regions (lower is better)."""
     priorities = {
         'USA': 0, 'World': 1, 'Europe': 2, 'Asia': 3,
-        'Japan': 4, 'Korea': 5, 'LatinAmerica': 6, 'Unknown': 10,
+        'Japan': 4, 'Korea': 5, 'LatinAmerica': 6,
+        'Universal': 10, 'Unknown': 10,
     }
     return priorities.get(region, 10)
 
@@ -609,12 +631,21 @@ def filter_mame_network_roms(rom_urls, categories, games,
             parent_folder = urllib.request.unquote(url_parts[-2])
             url_game_map[filename] = parent_folder
 
-    # Build CHD name -> parent game lookup
+    # Build CHD name -> parent game lookup (keys without extension)
+    # and reverse lookup: game name -> CHD filenames in url_map
     chd_to_game: Dict[str, str] = {}
+    game_to_chd_files: Dict[str, List[str]] = defaultdict(list)
     for name, game in games.items():
         if game.chd_names:
             for chd_name in game.chd_names:
-                chd_to_game[chd_name] = name
+                stem = (chd_name.rsplit('.', 1)[0]
+                        if '.' in chd_name else chd_name)
+                chd_to_game[stem] = name
+                # Map game -> CHD filenames present in the URL set
+                for ext in ('.chd', '.zip'):
+                    candidate = stem + ext
+                    if candidate in url_map:
+                        game_to_chd_files[name].append(candidate)
 
     for name, game in games.items():
         if not game.category:
@@ -626,6 +657,7 @@ def filter_mame_network_roms(rom_urls, categories, games,
             parent_clones[game.parent_name].append(name)
 
     selected_urls: List[str] = []
+    selected_set: set = set()  # track selected URLs to avoid duplicates
     selected_size = 0
     excluded_counts: Dict[str, int] = defaultdict(int)
     excluded_reasons: Dict[str, str] = {}  # url -> reason
@@ -637,8 +669,9 @@ def filter_mame_network_roms(rom_urls, categories, games,
         processed: set = set()
 
         for filename, url in url_map.items():
-            rom_name = (filename.rsplit('.', 1)[0]
-                        if '.' in filename else filename)
+            file_stem = (filename.rsplit('.', 1)[0]
+                         if '.' in filename else filename)
+            rom_name = file_stem
 
             if rom_name in processed:
                 excluded_reasons[url] = 'clone/duplicate'
@@ -666,10 +699,19 @@ def filter_mame_network_roms(rom_urls, categories, games,
                 if folder_game in games:
                     rom_name = folder_game
                     game = games[folder_game]
+
+            # Re-check after CHD/folder resolution (rom_name may
+            # have changed to a game name already processed)
+            if rom_name in processed:
+                excluded_reasons[url] = 'clone/duplicate'
+                processed.add(file_stem)
+                continue
+
             if not game:
                 selected_urls.append(url)
                 selected_size += size_map.get(filename, 0)
                 processed.add(rom_name)
+                processed.add(file_stem)
                 continue
 
             if not game.is_parent and game.parent_name:
@@ -690,6 +732,7 @@ def filter_mame_network_roms(rom_urls, categories, games,
                 excluded_counts[reason] += 1
                 excluded_reasons[url] = reason
                 processed.add(rom_name)
+                processed.add(file_stem)
                 for clone in parent_clones.get(rom_name, []):
                     processed.add(clone)
                 continue
@@ -707,23 +750,49 @@ def filter_mame_network_roms(rom_urls, categories, games,
                 excluded_counts[reason] += 1
                 excluded_reasons[url] = reason
                 processed.add(rom_name)
+                processed.add(file_stem)
                 for clone in parent_clones.get(rom_name, []):
                     processed.add(clone)
                 continue
 
+            # Find the best ROM's file in the URL set: try .zip first,
+            # then all CHD files belonging to the best game (multi-disc
+            # games need every CHD), avoiding duplicates for shared CHDs
             best_filename = f"{best_rom.name}.zip"
+            selected_current = False
             if best_filename in url_map:
-                selected_urls.append(url_map[best_filename])
-                selected_size += size_map.get(best_filename, 0)
+                best_url = url_map[best_filename]
+                if best_url not in selected_set:
+                    selected_urls.append(best_url)
+                    selected_set.add(best_url)
+                    selected_size += size_map.get(best_filename, 0)
+                selected_current = (best_filename == filename)
+            elif game_to_chd_files.get(best_rom.name):
+                for chd_file in game_to_chd_files[best_rom.name]:
+                    chd_url = url_map.get(chd_file)
+                    if chd_url and chd_url not in selected_set:
+                        selected_urls.append(chd_url)
+                        selected_set.add(chd_url)
+                        selected_size += size_map.get(chd_file, 0)
+                    if chd_file == filename:
+                        selected_current = True
             elif filename in url_map:
                 selected_urls.append(url)
+                selected_set.add(url)
                 selected_size += size_map.get(filename, 0)
+                selected_current = True
+
+            # If the current file wasn't part of the selection,
+            # mark it as a clone/duplicate
+            if not selected_current:
+                excluded_reasons[url] = 'clone/duplicate'
 
             processed.add(rom_name)
+            processed.add(file_stem)
             for clone in parent_clones.get(rom_name, []):
                 processed.add(clone)
 
-    selected_set = set(selected_urls)
+    selected_set = set(selected_urls)  # rebuild for no_filter path
     excluded_urls = [u for u in rom_urls if u not in selected_set]
     logger.debug("MAME filter result: {} selected, {} excluded",
                  len(selected_urls), len(excluded_urls))
@@ -733,17 +802,28 @@ def filter_mame_network_roms(rom_urls, categories, games,
         reason = excluded_reasons.get(url, 'unknown')
         logger.debug("  EXCLUDED: {} ({})", url.split('/')[-1], reason)
 
-    # Build title map: rom_name -> human-readable description
+    # Build title and region maps: rom_name -> display info
+    # Include all URLs (not just selected) so excluded ROMs also show titles
     title_map = {}
-    for url in selected_urls:
-        fname = url.split('/')[-1].split('?')[0].split('#')[0]
-        rom_name = fname.rsplit('.', 1)[0] if '.' in fname else fname
-        game = games.get(rom_name)
+    region_map = {}
+    for filename in url_map:
+        rom_name = filename.rsplit('.', 1)[0] if '.' in filename else filename
+        # Resolve CHD filenames to parent game via chd_to_game lookup,
+        # then fall back to folder-based lookup from URL structure
+        game_name = chd_to_game.get(rom_name, rom_name)
+        game = games.get(game_name)
+        if not game and filename in url_game_map:
+            folder_game = url_game_map[filename]
+            game = games.get(folder_game)
         if game:
             title_map[rom_name] = game.description
+            if game.region:
+                region_map[rom_name] = game.region
 
     return selected_urls, {
         'source_size': total_source_size,
         'selected_size': selected_size,
         'title_map': title_map,
+        'region_map': region_map,
+        'excluded_reasons': excluded_reasons,
     }

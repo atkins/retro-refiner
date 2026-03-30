@@ -365,7 +365,14 @@ def scan_network_source_urls(
             _log(msg, on_progress)
 
         if not _indent and not system_subdirs and not other_subdirs and not rom_files_with_sizes:
-            _log("  No ROM files or subdirectories found", on_progress)
+            if subdirs and not recursive:
+                _log(f"  No ROM files in root folder "
+                     f"({len(subdirs)} subdirectories skipped — "
+                     f"enable recursive scan to search them)",
+                     on_progress)
+            else:
+                _log("  No ROM files or subdirectories found",
+                     on_progress)
 
         # Non-system subdirectories
         if other_subdirs:

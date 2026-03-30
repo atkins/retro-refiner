@@ -712,16 +712,32 @@ class Api:
             total_excluded = total_source - total_selected
 
             # Check disk space before committing (uses post-budget totals)
+            # Subtract files already present in destination so retries
+            # don't demand space for the entire set again.
             if commit and total_size > 0 and dest_dir.exists():
                 import shutil as _shutil  # pylint: disable=import-outside-toplevel
                 try:
+                    existing_size = 0
+                    flat = config.output.flat
+                    for system in all_systems:
+                        sys_data = self._last_results.get(system, {})
+                        sys_urls = sys_data.get('selected_urls', [])
+                        target = dest_dir if flat else dest_dir / system
+                        if not target.is_dir():
+                            continue
+                        for url in sys_urls:
+                            fname = self._url_to_filename(url)
+                            fpath = target / fname
+                            if fpath.exists():
+                                existing_size += fpath.stat().st_size
+                    needed = total_size - existing_size
                     free = _shutil.disk_usage(dest_dir).free
-                    if free < total_size:
+                    if needed > 0 and free < needed:
                         from retro_refiner.network import format_size  # pylint: disable=import-outside-toplevel
                         self._push_event('log', {
                             'text': (f'\nInsufficient disk space on '
                                      f'{dest_dir.anchor}\n'
-                                     f'  Need: {format_size(total_size)}'
+                                     f'  Need: {format_size(needed)}'
                                      f'  Available: {format_size(free)}'
                                      '\n'),
                             'className': 'log-error',
@@ -1084,6 +1100,8 @@ class Api:
         selected_local = list(local_files)
         filter_breakdown = {}
         title_map = {}  # rom_name -> display title (MAME/TP)
+        region_map = {}  # rom_name -> region (MAME)
+        url_reasons = {}  # url -> exclusion reason string
         # NOTE: filter_network_roms returns FilterResult,
         # but filter_mame_network_roms / filter_teknoparrot_network_roms
         # return (selected_urls, info_dict) tuples.  The code below
@@ -1122,6 +1140,8 @@ class Api:
                         filter_breakdown = _info.get('filter_breakdown', {}) if isinstance(_info, dict) else {}
                         if isinstance(_info, dict):
                             title_map = _info.get('title_map', {})
+                            region_map = _info.get('region_map', {})
+                            url_reasons = _info.get('excluded_reasons', {})
                 elif system == 'teknoparrot':
                     tp_exclude = None
                     if config.advanced.tp_exclude_platforms:
@@ -1143,6 +1163,8 @@ class Api:
                         english_only=sel.english_only,
                     )
                     filter_breakdown = _info.get('filter_breakdown', {}) if isinstance(_info, dict) else {}
+                    if isinstance(_info, dict):
+                        url_reasons = _info.get('excluded_reasons', {})
                 else:
                     # Console system -- load DATs for better filtering
                     dat_entries = None
@@ -1167,6 +1189,14 @@ class Api:
                     )
                     selected_urls = result.selected
                     filter_breakdown = result.stats.filter_breakdown if result.stats else {}
+                    # Build filename-keyed reason map from excluded list
+                    fname_reasons = {exc.filename: exc.reason
+                                     for exc in result.excluded}
+                    for u in urls:
+                        fn = urllib.parse.unquote(
+                            u.split('/')[-1].split('?')[0].split('#')[0])
+                        if fn in fname_reasons:
+                            url_reasons[u] = fname_reasons[fn]
             except Exception as exc:  # pylint: disable=broad-except
                 self._push_event('log', {
                     'text': f'  Filter error: {exc}\n',
@@ -1210,6 +1240,9 @@ class Api:
                     if rom.filename in name_to_path
                 ]
                 local_size = local_info.get('selected_size', 0)
+                # Merge local file exclusion reasons
+                local_reasons = local_info.get('excluded_reasons', {})
+                url_reasons.update(local_reasons)
             except Exception as exc:  # pylint: disable=broad-except
                 self._push_event('log', {
                     'text': f'  Local filter error: {exc}\n',
@@ -1286,6 +1319,12 @@ class Api:
             self._last_results[system]['selected_urls'] = selected_urls
             self._last_results[system]['selected_local'] = [
                 str(f) for f in selected_local]
+            if title_map:
+                self._last_results[system]['title_map'] = title_map
+            if region_map:
+                self._last_results[system]['region_map'] = region_map
+            if url_reasons:
+                self._last_results[system]['url_reasons'] = url_reasons
 
         return (selected_count, excluded_count, selected_size,
                 source_count, sys_size)
@@ -2114,6 +2153,9 @@ class Api:
         result = self._last_results.get(system, {})
         selected_urls = set(result.get('selected_urls', []))
         selected_local = set(result.get('selected_local', []))
+        title_map = result.get('title_map', {})
+        region_map = result.get('region_map', {})
+        url_reasons = result.get('url_reasons', {})
 
         for url in result.get('urls', []):
             filename = urllib.parse.unquote(url.split('/')[-1])
@@ -2122,14 +2164,17 @@ class Api:
             is_selected = url in selected_urls
             reason = ''
             if not is_selected:
-                reason = _get_exclusion_reason(rom_info)
+                reason = url_reasons.get(url, '')
                 if not reason:
-                    reason = 'cross-platform duplicate'
+                    reason = _get_exclusion_reason(rom_info)
+            rom_name = Path(filename).stem
+            display_name = title_map.get(rom_name, filename)
+            region = region_map.get(rom_name, rom_info.region)
             roms.append({
-                'filename': filename,
+                'filename': display_name,
                 'url': url,
                 'size': size,
-                'region': rom_info.region,
+                'region': region,
                 'status': 'selected' if is_selected else 'excluded',
                 'reason': reason,
             })
@@ -2143,11 +2188,13 @@ class Api:
             is_selected = str(filepath) in selected_local
             reason = ''
             if not is_selected:
-                reason = _get_exclusion_reason(rom_info)
+                reason = url_reasons.get(str(filepath), '')
                 if not reason:
-                    reason = 'cross-platform duplicate'
+                    reason = _get_exclusion_reason(rom_info)
+            rom_name = Path(filename).stem
+            display_name = title_map.get(rom_name, filename)
             roms.append({
-                'filename': filename,
+                'filename': display_name,
                 'url': str(filepath),
                 'size': size,
                 'region': rom_info.region,

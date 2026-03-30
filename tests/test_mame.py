@@ -294,7 +294,7 @@ class TestDetectMameRegion:
         ("Some Game (Hispanic)", "LatinAmerica"),
         ("Some Game (Brazil)", "LatinAmerica"),
         ("Game Title USA", "USA"),
-        ("Some Random Game", "Unknown"),
+        ("Some Random Game", "Universal"),
     ])
     def test_region_detection(self, desc, expected):
         assert detect_mame_region(desc) == expected
@@ -409,7 +409,7 @@ class TestShouldIncludeMameGame:
         included, reason = should_include_mame_game(
             game, 'Completely Unknown Category')
         assert included is False
-        assert 'Unknown category' in reason
+        assert reason == 'Completely Unknown Category'
 
     def test_excluded_subcategory_mahjong_mature(self):
         game = _make_mame_game('mj', 'Mahjong Mature')
@@ -422,7 +422,7 @@ class TestShouldIncludeMameGame:
         included, reason = should_include_mame_game(
             game, 'Fun Casino Experience')
         assert included is False
-        assert 'Casino' in reason
+        assert 'Gambling' in reason
 
     def test_slot_machine_keyword(self):
         game = _make_mame_game('slot', 'Slot Fun')

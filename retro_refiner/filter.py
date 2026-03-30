@@ -771,6 +771,7 @@ def filter_roms_from_files(rom_files: list, dest_dir: str, system: str,
     all_roms = []
     file_map = {}
     size_map = {}
+    excluded_reasons: Dict[str, str] = {}  # filepath_str -> reason
     filtered_by_pattern = 0
     total_source_size = 0
 
@@ -781,26 +782,33 @@ def filter_roms_from_files(rom_files: list, dest_dir: str, system: str,
             if (include_patterns
                     and not matches_patterns(filename, include_patterns)):
                 filtered_by_pattern += 1
+                excluded_reasons[str(filepath)] = 'pattern exclude'
                 continue
             if (exclude_patterns
                     and matches_patterns(filename, exclude_patterns)):
                 filtered_by_pattern += 1
+                excluded_reasons[str(filepath)] = 'pattern exclude'
                 continue
 
         rom_info = parse_rom_filename(filename)
 
         if not no_filter:
             if rom_info.is_proto and exclude_protos:
+                excluded_reasons[str(filepath)] = 'Prototype'
                 continue
             if rom_info.is_beta and not include_betas:
+                excluded_reasons[str(filepath)] = 'Beta'
                 continue
             if rom_info.is_unlicensed and not include_unlicensed:
+                excluded_reasons[str(filepath)] = 'Unlicensed'
                 continue
 
             if rom_info.year > 0:
                 if year_from and rom_info.year < year_from:
+                    excluded_reasons[str(filepath)] = 'year range'
                     continue
                 if year_to and rom_info.year > year_to:
+                    excluded_reasons[str(filepath)] = 'year range'
                     continue
 
         all_roms.append(rom_info)
@@ -897,6 +905,7 @@ def filter_roms_from_files(rom_files: list, dest_dir: str, system: str,
             'source_size': total_source_size,
             'selected_size': selected_size,
             'rom_sizes': size_map,
+            'excluded_reasons': excluded_reasons,
         }
 
     # Transfer
@@ -912,6 +921,7 @@ def filter_roms_from_files(rom_files: list, dest_dir: str, system: str,
         'source_size': total_source_size,
         'selected_size': selected_size,
         'rom_sizes': size_map,
+        'excluded_reasons': excluded_reasons,
     }
 
 

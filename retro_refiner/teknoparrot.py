@@ -542,4 +542,5 @@ def filter_teknoparrot_network_roms(
     return selected_urls, {
         'source_size': total_source_size,
         'selected_size': selected_size,
+        'excluded_reasons': excluded_reasons,
     }
