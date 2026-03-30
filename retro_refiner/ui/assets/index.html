@@ -276,11 +276,16 @@
     width: 100%;
   }
   input[type="text"]:focus, input[type="number"]:focus, select:focus { outline: none; border-color: var(--accent); }
-  .browse-btn {
+  /* Unified small button base */
+  .source-btn, .btn-subtle, .bottom-btn, .card-btn, .browse-btn, .picker-toggle {
     background: var(--accent-bg); color: var(--text-secondary); border: none; border-radius: 3px;
-    padding: 4px 8px; font-size: 10px; cursor: pointer; white-space: nowrap; font-family: var(--font-ui);
+    padding: 5px 10px; font-size: 10px; font-weight: 600; cursor: pointer; white-space: nowrap;
+    font-family: var(--font-ui);
   }
-  .browse-btn:hover { background: var(--accent-hover); color: var(--text-primary); }
+  .source-btn:hover, .btn-subtle:hover, .bottom-btn:hover, .card-btn:hover, .browse-btn:hover, .picker-toggle:hover {
+    background: var(--accent-hover); color: var(--text-primary);
+  }
+  .browse-btn {}
   .path-picker {
     display: flex; align-items: center; gap: 6px; padding: 5px 8px; cursor: pointer;
     background: var(--bg-input); border: 1px solid var(--border); border-radius: 3px;
@@ -316,11 +321,8 @@
   .source-drop-zone.drag-over { border: 2px dashed var(--accent); background: var(--accent-bg); border-radius: 3px; }
   .source-buttons { display: flex; gap: 4px; }
   .source-btn {
-    flex: 1; background: var(--accent-bg); color: var(--text-secondary); text-align: center;
-    padding: 4px; border-radius: 3px; font-size: 10px; cursor: pointer; border: none;
-    font-family: var(--font-ui);
+    flex: 1; text-align: center;
   }
-  .source-btn:hover { background: var(--accent-hover); color: var(--text-primary); }
 
   /* System pills */
   .system-pills {
@@ -353,6 +355,7 @@
   .toggle-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 12px; }
   .toggle-grid .toggle-row { padding: 2px 0; }
   .toggle-grid .toggle-row label { font-size: 10px; color: var(--text-muted); }
+  .toggle-grid.sub { padding-left: 14px; margin-top: 2px; }
   .toggle-switch { position: relative; width: 30px; height: 16px; flex-shrink: 0; cursor: pointer; display: inline-block; }
   .toggle-switch input { opacity: 0; width: 0; height: 0; position: absolute; }
   .toggle-slider { position: absolute; inset: 0; background: var(--border); border-radius: 8px; transition: 0.2s; }
@@ -367,8 +370,18 @@
 
   /* Utility layout */
   .flex-row { display: flex; gap: 4px; }
+  .flex-row.gap-md { gap: 8px; }
   .flex-1 { flex: 1; }
-  .mt-sm { margin-top: 6px; }
+  .mt-xs { margin-top: 2px; }
+  .mt-sm { margin-top: 4px; }
+  .mt-md { margin-top: 6px; }
+  .mt-lg { margin-top: 8px; }
+  .field-hint { color: var(--text-muted); font-weight: normal; font-size: 9px; }
+  .field-label-sub { font-size: 9px; color: var(--text-muted); margin-top: -4px; letter-spacing: 0; }
+  .pill-action { color: var(--accent); font-size: 9px; }
+  .status-bar-inner { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+  .status-bar-row { display: flex; justify-content: space-between; align-items: center; }
+  .autoscroll-wrap { margin-left: 8px; display: flex; align-items: center; gap: 4px; }
 
   /* Sidebar footer buttons */
   .sidebar-footer {
@@ -380,11 +393,8 @@
     font-weight: 700; margin-right: 4px;
   }
   .btn-subtle {
-    flex: 1; border: none; border-radius: 4px; font-size: 10px; cursor: pointer;
-    font-family: var(--font-ui); padding: 6px 8px; font-weight: bold;
-    background: var(--accent-bg); color: var(--text-secondary);
+    flex: 1;
   }
-  .btn-subtle:hover { background: var(--accent-hover); color: var(--text-primary); }
 
   /* Update banner */
   .update-banner {
@@ -426,15 +436,9 @@
   }
   .update-check-link {
     color: var(--text-muted);
-    font-size: 11px;
-    cursor: pointer;
     text-decoration: none;
-    margin-top: 4px;
-    display: inline-block;
-    width: 100%;
-    text-align: center;
   }
-  .update-check-link:hover { color: var(--accent); }
+  .update-check-link:hover { color: var(--text-primary); }
 
   /* ===== Main panel ===== */
   .main { flex: 1; display: flex; flex-direction: column; background: var(--bg-primary); min-width: 0; }
@@ -547,10 +551,9 @@
   .card-preview .preview-title { font-size: 10px; color: var(--text-secondary); padding: 1px 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .card-actions { padding: 8px 16px; border-top: 1px solid var(--border); display: flex; gap: 8px; }
   .card-btn {
-    padding: 4px 12px; background: var(--accent-bg); color: var(--info); border-radius: 3px;
-    font-size: 10px; cursor: pointer; border: none; font-family: var(--font-ui);
+    color: var(--info);
   }
-  .card-btn:hover { background: var(--accent-hover); }
+  .card-btn:hover { color: var(--info); }
 
   .rom-list { border-top: 1px solid var(--border); max-height: 200px; overflow-y: auto; display: none; }
   .rom-item {
@@ -566,13 +569,10 @@
     padding: 8px 12px; border-top: 1px solid var(--border);
     display: flex; gap: 8px; align-items: center;
   }
-  .bottom-btn {
-    background: var(--accent-bg); color: var(--text-secondary); padding: 4px 12px;
-    border-radius: 3px; font-size: 10px; cursor: pointer; border: none; font-family: var(--font-ui);
-  }
-  .bottom-btn:hover { background: var(--accent-hover); color: var(--text-primary); }
-  .bottom-right { margin-left: auto; color: var(--text-secondary); font-size: 10px; display: flex; align-items: center; gap: 4px; }
-  .bottom-right input[type="checkbox"] { accent-color: var(--accent); }
+  .bottom-btn {}
+  .bottom-right { margin-left: auto; color: var(--text-secondary); font-size: 10px; display: flex; align-items: center; gap: 6px; }
+  .bottom-right label { color: var(--text-secondary); }
+  .bottom-select { width: auto; font-size: 10px; padding: 2px 4px; }
 
   /* Cancelled status */
   .status-text.cancelled { color: var(--warning); }
@@ -607,10 +607,10 @@
   .modal-box { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 8px; padding: 20px 24px; min-width: 300px; max-width: 420px; box-shadow: 0 8px 32px rgba(0,0,0,0.4); }
   .modal-box p { color: var(--text-primary); margin: 0 0 16px; font-size: 13px; line-height: 1.5; }
   .modal-buttons { display: flex; justify-content: flex-end; gap: 8px; }
-  .modal-buttons button { padding: 6px 16px; border-radius: 4px; border: 1px solid var(--border); font-size: 12px; cursor: pointer; font-family: var(--font-ui); }
-  .modal-btn-cancel { background: var(--bg-input); color: var(--text-secondary); }
-  .modal-btn-cancel:hover { color: var(--text-primary); border-color: var(--text-muted); }
-  .modal-btn-confirm { background: var(--accent); color: var(--bg-primary); border-color: var(--accent); font-weight: 600; }
+  .modal-buttons button { padding: 6px 16px; border-radius: 3px; border: none; font-size: 10px; font-weight: 600; cursor: pointer; font-family: var(--font-ui); }
+  .modal-btn-cancel { background: var(--accent-bg); color: var(--text-secondary); }
+  .modal-btn-cancel:hover { background: var(--accent-hover); color: var(--text-primary); }
+  .modal-btn-confirm { background: var(--accent); color: var(--text-on-accent); }
   .modal-btn-confirm:hover { opacity: 0.9; }
 
   /* Hide views */
@@ -627,6 +627,7 @@
     padding: 6px 16px; font-size: 12px; font-weight: bold; cursor: pointer; font-family: var(--font-ui);
   }
   .picker-back:hover { opacity: 0.85; }
+  .picker-title-wrap { flex: 1; text-align: center; }
   .picker-title { color: var(--text-heading); font-size: 14px; font-weight: bold; flex-shrink: 0; }
   .picker-search-row { display: flex; align-items: center; gap: 6px; padding: 0 12px 8px 12px; }
   .picker-search {
@@ -637,12 +638,9 @@
   .picker-search:focus { outline: none; border-color: var(--accent); }
   .picker-search-hint { color: var(--text-muted); font-size: 9px; white-space: nowrap; }
   .picker-toggle {
-    background: none; border: 1px solid var(--border); border-radius: 3px;
-    padding: 4px 10px; font-size: 10px; cursor: pointer; color: var(--text-secondary);
-    font-family: var(--font-ui); white-space: nowrap;
+    white-space: nowrap;
   }
-  .picker-toggle:hover { border-color: var(--accent); color: var(--text-primary); }
-  .picker-toggle.active { border-color: var(--accent); color: var(--accent); }
+  .picker-toggle.active { background: var(--accent-bg); color: var(--accent); }
   .picker-stats { color: var(--text-secondary); font-size: 10px; white-space: nowrap; }
   .picker-saved { color: var(--success); font-size: 10px; transition: opacity 0.3s; opacity: 0; margin-left: 8px; }
 
@@ -670,6 +668,13 @@
   .picker-table .rom-reason-cell { color: var(--text-muted); font-size: 10px; }
   .picker-table td:first-child, .picker-table th:first-child { width: 32px; text-align: center; }
   .picker-table input[type="checkbox"] { accent-color: var(--accent); }
+
+  /* Focus-visible — keyboard navigation ring */
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  input:focus-visible, select:focus-visible { outline-offset: 0; }
+  .toggle-switch input:focus-visible + .toggle-slider { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 8px; }
+  .toggle-switch input:focus-visible { outline: none; }
+  .system-pill:focus-visible { outline-offset: 0; }
 
   /* Scrollbar styling */
   ::-webkit-scrollbar { width: 8px; }
@@ -712,7 +717,7 @@
             <span class="path-text" id="dest-path-display">Select destination folder...</span>
             <span class="path-clear" aria-label="Clear destination" onclick="event.stopPropagation(); clearPathPicker('dest-path', 'dest-path-display', 'Select destination folder...')">&#xD7;</span>
           </div>
-          <div class="dest-options" style="margin-top:6px">
+          <div class="dest-options mt-md">
             <div class="toggle-row">
               <label title="Check files already in the destination by size. Valid files are skipped; partial or corrupted files are re-downloaded or re-copied.">Validate existing files</label>
               <div class="toggle-switch sm" onclick="this.querySelector('input').click()"><input type="checkbox" id="opt-validate-dest" checked><span class="toggle-slider"></span></div>
@@ -745,7 +750,7 @@
           <label title="Put all ROMs in one folder instead of per-system subfolders">Flatten output</label>
           <div class="toggle-switch sm" onclick="this.querySelector('input').click()"><input type="checkbox" id="opt-flatten"><span class="toggle-slider"></span></div>
         </div>
-        <div class="field-label">Systems <span id="system-pill-count" style="color:var(--text-muted);font-weight:normal"></span> <span id="system-pill-actions" style="display:none;font-weight:normal"><a href="#" onclick="event.preventDefault();toggleAllPills(true)" style="color:var(--accent);font-size:9px">All</a> <a href="#" onclick="event.preventDefault();toggleAllPills(false)" style="color:var(--accent);font-size:9px">None</a></span></div>
+        <div class="field-label">Systems <span id="system-pill-count" class="field-hint"></span> <span id="system-pill-actions" style="display:none"><a href="#" onclick="event.preventDefault();toggleAllPills(true)" class="pill-action">All</a> <a href="#" onclick="event.preventDefault();toggleAllPills(false)" class="pill-action">None</a></span></div>
         <div class="system-pills" id="system-pills">
           <span class="system-pill-placeholder">Scan sources to discover systems</span>
         </div>
@@ -774,7 +779,7 @@
             <label title="Only keep ROMs with English language support">English only</label>
             <div class="toggle-switch" onclick="this.querySelector('input').click()"><input type="checkbox" id="opt-english"><span class="toggle-slider"></span></div>
           </div>
-          <div class="toggle-grid" style="padding-left:14px;margin-top:2px">
+          <div class="toggle-grid sub">
             <div class="toggle-row">
               <label title="Include prototype and pre-release ROMs">Prototypes</label>
               <div class="toggle-switch sm" onclick="this.querySelector('input').click()"><input type="checkbox" id="opt-protos"><span class="toggle-slider"></span></div>
@@ -796,22 +801,22 @@
           <input type="text" id="opt-region-priority" placeholder="USA, World, Europe, Australia..." title="Order of preference when choosing between regional versions">
 
           <!-- Budget -->
-          <div class="field-label" style="margin-top:8px">Top N per system <span style="color:var(--text-muted);font-weight:normal;font-size:9px">(by rating)</span></div>
+          <div class="field-label mt-lg">Top N per system <span class="field-hint">(by rating)</span></div>
           <input type="number" id="opt-top" placeholder="e.g. 50" min="0" title="Keep only the top N highest-rated games per system">
           <div class="field-label">Size budget</div>
           <input type="text" id="opt-size" placeholder="e.g. 50GB" title="Maximum total download size (e.g. 10GB, 500MB)">
 
           <!-- Cross-system dedup -->
-          <div class="field-label" style="margin-top:8px">Cross-system dedup priority <span id="dedup-priority-hint" style="color:var(--text-muted);font-weight:normal;font-size:9px">click to set order</span></div>
+          <div class="field-label mt-lg">Cross-system dedup priority <span id="dedup-priority-hint" class="field-hint">click to set order</span></div>
           <div class="system-pills" id="dedup-priority-pills">
             <span class="system-pill-placeholder">Scan sources to discover systems</span>
           </div>
           <input type="hidden" id="opt-dedup-priority">
 
           <!-- Advanced selection options -->
-          <div class="field-label" style="margin-top:8px">Keep regions <span style="color:var(--text-muted);font-weight:normal;font-size:9px">(multi-region output)</span></div>
+          <div class="field-label mt-lg">Keep regions <span class="field-hint">(multi-region output)</span></div>
           <input type="text" id="opt-keep-regions" placeholder="e.g. USA, Japan" title="Keep one ROM per listed region instead of just the best single version">
-          <div class="field-label">Include patterns <span style="color:var(--text-muted);font-weight:normal;font-size:9px">(comma-separated globs)</span></div>
+          <div class="field-label">Include patterns <span class="field-hint">(comma-separated globs)</span></div>
           <input type="text" id="opt-include-patterns" placeholder="e.g. *Mario*, *Zelda*" title="Only keep filenames matching these glob patterns">
           <div class="field-label">Exclude patterns</div>
           <input type="text" id="opt-exclude-patterns" placeholder="e.g. *Demo*, *Sample*" title="Remove filenames matching these glob patterns">
@@ -820,7 +825,7 @@
             <input type="number" id="opt-year-from" placeholder="From" min="1970" max="2030" class="flex-1">
             <input type="number" id="opt-year-to" placeholder="To" min="1970" max="2030" class="flex-1">
           </div>
-          <div class="toggle-row" style="margin-top:4px">
+          <div class="toggle-row mt-sm">
             <label title="Include games without rating data when using Top N">Include unrated</label>
             <div class="toggle-switch sm" onclick="this.querySelector('input').click()"><input type="checkbox" id="opt-include-unrated"><span class="toggle-slider"></span></div>
           </div>
@@ -842,18 +847,18 @@
       </div>
       <div class="section-body">
         <div class="field-label">Network</div>
-        <div class="field-label" style="font-size:9px;color:var(--text-muted);margin-top:-4px;letter-spacing:0">Downloads &amp; scanning</div>
-        <div class="flex-row" style="gap:8px">
-          <div style="flex:1">
+        <div class="field-label field-label-sub">Downloads &amp; scanning</div>
+        <div class="flex-row gap-md">
+          <div class="flex-1">
             <div class="field-label">Parallel downloads</div>
             <input type="number" id="opt-parallel" min="1" max="32" value="4" title="Number of simultaneous file downloads">
           </div>
-          <div style="flex:1">
+          <div class="flex-1">
             <div class="field-label">Scan workers</div>
             <input type="number" id="opt-scan-workers" min="1" max="64" value="16" title="Number of parallel threads for scanning source URLs">
           </div>
         </div>
-        <div class="toggle-grid" style="margin-top:4px">
+        <div class="toggle-grid mt-sm">
           <div class="toggle-row">
             <label title="Don't download or use DAT files for metadata">Skip DATs</label>
             <div class="toggle-switch sm" onclick="this.querySelector('input').click()"><input type="checkbox" id="opt-no-dat"><span class="toggle-slider"></span></div>
@@ -867,12 +872,12 @@
             <div class="toggle-switch sm" onclick="this.querySelector('input').click()"><input type="checkbox" id="opt-no-cache"><span class="toggle-slider"></span></div>
           </div>
         </div>
-        <div class="flex-row" style="gap:8px;margin-top:4px">
-          <div style="flex:1">
+        <div class="flex-row gap-md mt-sm">
+          <div class="flex-1">
             <div class="field-label">Scan depth</div>
             <input type="number" id="opt-max-depth" min="1" max="10" value="3" title="How many levels deep to scan for sources with recursive enabled">
           </div>
-          <div style="flex:1">
+          <div class="flex-1">
             <div class="field-label">MAME version</div>
             <input type="text" id="opt-mame-version" placeholder="e.g. 0.261" title="Specific MAME version for DAT file downloads">
           </div>
@@ -884,22 +889,22 @@
           <option value="launchbox">LaunchBox only</option>
         </select>
 
-        <div class="field-label" style="margin-top:8px">Directories</div>
-        <div class="field-label" style="font-size:9px;color:var(--text-muted);margin-top:-4px;letter-spacing:0">EmulationStation gamelists</div>
+        <div class="field-label mt-lg">Directories</div>
+        <div class="field-label field-label-sub">EmulationStation gamelists</div>
         <input type="hidden" id="opt-gamelists">
         <div class="path-picker" onclick="browsePathPicker('opt-gamelists', 'opt-gamelists-display')" title="Generate gamelist.xml files in this directory (one per system)">
           <span class="path-icon">&#x1F4C1;</span>
           <span class="path-text" id="opt-gamelists-display">Select folder...</span>
           <span class="path-clear" aria-label="Clear gamelists path" onclick="event.stopPropagation(); clearPathPicker('opt-gamelists', 'opt-gamelists-display', 'Select folder...')">&#xD7;</span>
         </div>
-        <div class="field-label" style="font-size:9px;color:var(--text-muted);margin-top:4px;letter-spacing:0">RetroArch playlists</div>
+        <div class="field-label field-label-sub mt-sm">RetroArch playlists</div>
         <input type="hidden" id="opt-retroarch-playlists">
         <div class="path-picker" onclick="browsePathPicker('opt-retroarch-playlists', 'opt-retroarch-playlists-display')" title="Generate .lpl playlist files in this directory (one per system)">
           <span class="path-icon">&#x1F4C1;</span>
           <span class="path-text" id="opt-retroarch-playlists-display">Select folder...</span>
           <span class="path-clear" aria-label="Clear playlists path" onclick="event.stopPropagation(); clearPathPicker('opt-retroarch-playlists', 'opt-retroarch-playlists-display', 'Select folder...')">&#xD7;</span>
         </div>
-        <div class="field-label" style="font-size:9px;color:var(--text-muted);margin-top:4px;letter-spacing:0">DAT directory</div>
+        <div class="field-label field-label-sub mt-sm">DAT directory</div>
         <input type="hidden" id="opt-dat-dir">
         <div class="path-picker" onclick="browsePathPicker('opt-dat-dir', 'opt-dat-dir-display')" title="Directory for DAT metadata files">
           <span class="path-icon">&#x1F4C1;</span>
@@ -907,8 +912,8 @@
           <span class="path-clear" aria-label="Clear DAT directory" onclick="event.stopPropagation(); clearPathPicker('opt-dat-dir', 'opt-dat-dir-display', 'Select folder...')">&#xD7;</span>
         </div>
 
-        <div class="field-label" style="margin-top:8px">Auth</div>
-        <div class="field-label" style="font-size:9px;color:var(--text-muted);margin-top:-4px;letter-spacing:0">API credentials</div>
+        <div class="field-label mt-lg">Auth</div>
+        <div class="field-label field-label-sub">API credentials</div>
         <div class="field-label">IGDB Client ID</div>
         <input type="text" id="opt-igdb-client-id" placeholder="Twitch client ID" title="Required for game ratings — register at dev.twitch.tv">
         <div class="field-label">IGDB Secret</div>
@@ -945,8 +950,8 @@
 
     <!-- Status bar -->
     <div class="status-bar">
-      <div style="display:flex;flex-direction:column;flex:1;min-width:0;">
-        <div style="display:flex;justify-content:space-between;align-items:center;">
+      <div class="status-bar-inner">
+        <div class="status-bar-row">
           <div class="status-text idle" id="status-text">Ready</div>
           <div class="view-tabs">
             <button class="view-tab active" id="tab-log" onclick="showView('log')">Log</button>
@@ -978,9 +983,6 @@
 
       <!-- ROM Picker view -->
       <div class="picker-view view-hidden" id="view-picker"></div>
-      <div style="text-align:center;padding:6px 0;">
-        <span class="update-check-link" id="check-updates-link" onclick="manualCheckForUpdates()">Check for Updates</span>
-      </div>
     </div>
 
     <!-- Confirm modal -->
@@ -998,9 +1000,10 @@
     <div class="bottom-bar">
       <button class="bottom-btn" onclick="clearLog()">Clear</button>
       <button class="bottom-btn" onclick="copyLog()">Copy</button>
+      <span class="update-check-link" id="check-updates-link" onclick="manualCheckForUpdates()">Check for Updates</span>
       <div class="bottom-right">
         <label>Theme</label>
-        <select id="opt-theme" onchange="setTheme(this.value)" style="width:auto;font-size:10px;padding:2px 4px" title="Switch color theme">
+        <select id="opt-theme" class="bottom-select" onchange="setTheme(this.value)" title="Switch color theme">
           <option value="bone">Bone (Light)</option>
           <option value="catppuccin-latte">Catppuccin Latte (Light)</option>
           <option value="catppuccin-mocha">Catppuccin Mocha (Dark)</option>
@@ -1012,7 +1015,7 @@
           <option value="paper">Paper (Light)</option>
           <option value="phosphor">Phosphor (Dark)</option>
         </select>
-        <label style="margin-left:8px"><input type="checkbox" id="opt-autoscroll" checked> Auto-scroll</label>
+        <span class="autoscroll-wrap"><span>Auto-scroll</span> <div class="toggle-switch sm" onclick="this.querySelector('input').click()"><input type="checkbox" id="opt-autoscroll" checked><span class="toggle-slider"></span></div></span>
       </div>
     </div>
 
@@ -1944,7 +1947,7 @@ function renderSummary(data) {
   summary.className = 'summary';
   var modeLabel = data.commit ? 'Commit' : 'Preview';
   summary.innerHTML =
-    '<div style="display:flex;justify-content:space-between;align-items:center;">' +
+    '<div class="status-bar-row">' +
       '<div class="summary-title">' + modeLabel + ' Complete</div>' +
       '<button class="card-btn" onclick="openPickerAll()">Review All</button>' +
     '</div>' +
@@ -2523,7 +2526,7 @@ function renderPicker(title) {
   container.innerHTML =
     '<div class="picker-toolbar">' +
       '<button class="picker-back" onclick="closePicker()">&larr; Back</button>' +
-      '<span style="flex:1;text-align:center"><span class="picker-title">' + escapeHtml(title) + '</span> <span class="picker-stats" id="picker-stats"></span><span class="picker-saved" id="picker-saved-indicator"></span></span>' +
+      '<span class="picker-title-wrap"><span class="picker-title">' + escapeHtml(title) + '</span> <span class="picker-stats" id="picker-stats"></span><span class="picker-saved" id="picker-saved-indicator"></span></span>' +
       '<button class="picker-toggle" onclick="pickerInvert()">Invert</button>' +
       '<button class="picker-toggle" onclick="pickerReset()">Reset</button>' +
       '<button class="picker-toggle active" id="picker-excl-toggle" onclick="toggleExcluded()">Hide excluded</button>' +
