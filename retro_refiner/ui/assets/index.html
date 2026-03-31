@@ -547,6 +547,12 @@
   }
   .filter-tag .count { color: var(--accent); font-weight: bold; margin-right: 3px; }
 
+  .card-details { padding: 6px 16px 10px; }
+  .card-detail-row { display: flex; align-items: baseline; gap: 8px; padding: 2px 0; font-size: 11px; }
+  .card-detail-row .detail-label { color: var(--text-secondary); min-width: 100px; flex-shrink: 0; }
+  .card-detail-row .detail-value { color: var(--text-heading); }
+  .card-detail-row .detail-tags { display: flex; flex-wrap: wrap; gap: 4px; }
+
   .card-preview { margin: 8px 16px 0; }
   .card-preview .title { font-size: 9px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 2px; }
   .card-preview .preview-title { font-size: 10px; color: var(--text-secondary); padding: 1px 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -796,6 +802,14 @@
             <div class="toggle-row">
               <label title="Include adult/mature-rated games (MAME only)">Adult</label>
               <div class="toggle-switch sm" onclick="this.querySelector('input').click()"><input type="checkbox" id="opt-no-adult"><span class="toggle-slider"></span></div>
+            </div>
+            <div class="toggle-row">
+              <label title="Include demo discs and demo compilations">Demos</label>
+              <div class="toggle-switch sm" onclick="this.querySelector('input').click()"><input type="checkbox" id="opt-demos"><span class="toggle-slider"></span></div>
+            </div>
+            <div class="toggle-row">
+              <label title="Include educational software (Lightspan, etc.)">Educational</label>
+              <div class="toggle-switch sm" onclick="this.querySelector('input').click()"><input type="checkbox" id="opt-educational"><span class="toggle-slider"></span></div>
             </div>
           </div>
           <div class="field-label">Region priority</div>
@@ -1259,6 +1273,13 @@ function renderSystemPills() {
   var arcadeSystems = ['mame', 'fbneo', 'fba', 'arcade'];
   var hasArcade = arcadeSystems.some(function(s) { return systemPillState[s]; });
   document.getElementById('opt-no-adult').closest('.toggle-row').style.display = hasArcade ? '' : 'none';
+  /* Show demos/educational only for systems that have patterns defined */
+  var demoSystems = ['psx'];
+  var eduSystems = ['psx'];
+  var hasDemoSys = demoSystems.some(function(s) { return systemPillState[s]; });
+  var hasEduSys = eduSystems.some(function(s) { return systemPillState[s]; });
+  document.getElementById('opt-demos').closest('.toggle-row').style.display = hasDemoSys ? '' : 'none';
+  document.getElementById('opt-educational').closest('.toggle-row').style.display = hasEduSys ? '' : 'none';
 }
 
 function toggleAllPills(state) {
@@ -1485,6 +1506,8 @@ function restoreUiState(cfg) {
   document.getElementById('opt-protos').checked = !sel.exclude_protos;
   document.getElementById('opt-betas').checked = !!sel.include_betas;
   document.getElementById('opt-no-unlicensed').checked = !!sel.include_unlicensed;
+  document.getElementById('opt-demos').checked = !!sel.include_demos;
+  document.getElementById('opt-educational').checked = !!sel.include_educational;
   document.getElementById('opt-no-adult').checked = !adv.no_adult;
   toggleSelectionOpts();
   if (sel.region_priority && sel.region_priority.length)
@@ -1605,6 +1628,8 @@ function gatherUiState() {
     exclude_protos: !document.getElementById('opt-protos').checked,
     include_betas: document.getElementById('opt-betas').checked,
     no_unlicensed: !document.getElementById('opt-no-unlicensed').checked,
+    include_demos: document.getElementById('opt-demos').checked,
+    include_educational: document.getElementById('opt-educational').checked,
     region_priority: document.getElementById('opt-region-priority').value || '',
     keep_regions: document.getElementById('opt-keep-regions').value || '',
     include_patterns: document.getElementById('opt-include-patterns').value || '',
@@ -1858,8 +1883,8 @@ function updateCardComplete(card, data) {
   var msg = card.querySelector('.card-filtering-msg');
   if (msg) msg.remove();
 
-  /* Remove prior dynamic content (stats, bar, filters, actions) so dedup updates in-place */
-  ['.card-stats', '.card-bar', '.card-filters', '.card-preview', '.card-actions'].forEach(function(sel) {
+  /* Remove prior dynamic content (stats, bar, filters, details, actions) so dedup updates in-place */
+  ['.card-stats', '.card-bar', '.card-filters', '.card-details', '.card-preview', '.card-actions'].forEach(function(sel) {
     var el = card.querySelector(sel);
     if (el) el.remove();
   });
@@ -1891,7 +1916,7 @@ function updateCardComplete(card, data) {
   if (keys.length > 0) {
     var filtersDiv = document.createElement('div');
     filtersDiv.className = 'card-filters';
-    filtersDiv.innerHTML = '<div class="title">Filters applied</div>';
+    filtersDiv.innerHTML = '<div class="title">Excluded</div>';
     var tagsDiv = document.createElement('div');
     tagsDiv.className = 'filter-tags';
     keys.forEach(function(key) {
@@ -1908,19 +1933,98 @@ function updateCardComplete(card, data) {
     card.appendChild(filtersDiv);
   }
 
-  /* Preview titles */
-  var previews = data.preview_titles || [];
-  if (previews.length > 0) {
-    var previewDiv = document.createElement('div');
-    previewDiv.className = 'card-preview';
-    previewDiv.innerHTML = '<div class="title">Sample titles</div>';
-    previews.forEach(function(t) {
-      var line = document.createElement('div');
-      line.className = 'preview-title';
-      line.textContent = t;
-      previewDiv.appendChild(line);
-    });
-    card.appendChild(previewDiv);
+  /* Detailed stats from verbose_stats */
+  var vs = data.verbose_stats;
+  if (vs) {
+    var detailsDiv = document.createElement('div');
+    detailsDiv.className = 'card-details';
+
+    /* Regions as tags */
+    var regions = vs.regions || {};
+    var regionKeys = Object.keys(regions).sort(function(a, b) { return regions[b] - regions[a]; });
+    if (regionKeys.length > 0) {
+      var regSection = document.createElement('div');
+      regSection.className = 'card-detail-row';
+      var regTitle = document.createElement('span');
+      regTitle.className = 'detail-label';
+      regTitle.textContent = 'Regions';
+      regSection.appendChild(regTitle);
+      var regTags = document.createElement('span');
+      regTags.className = 'detail-tags';
+      regionKeys.slice(0, 6).forEach(function(r) {
+        var t = document.createElement('span');
+        t.className = 'filter-tag';
+        var c = document.createElement('span');
+        c.className = 'count';
+        c.textContent = regions[r];
+        t.appendChild(c);
+        t.appendChild(document.createTextNode(r));
+        regTags.appendChild(t);
+      });
+      regSection.appendChild(regTags);
+      detailsDiv.appendChild(regSection);
+    }
+
+    /* Translations */
+    if (vs.translation_count > 0) {
+      var transRow = document.createElement('div');
+      transRow.className = 'card-detail-row';
+      var transLabel = document.createElement('span');
+      transLabel.className = 'detail-label';
+      transLabel.textContent = 'Fan translations';
+      transRow.appendChild(transLabel);
+      var transVal = document.createElement('span');
+      transVal.className = 'detail-value';
+      transVal.textContent = vs.translation_count;
+      transRow.appendChild(transVal);
+      detailsDiv.appendChild(transRow);
+    }
+
+    /* Multi-disc */
+    if (vs.multi_disc_count > 0) {
+      var discRow = document.createElement('div');
+      discRow.className = 'card-detail-row';
+      var discLabel = document.createElement('span');
+      discLabel.className = 'detail-label';
+      discLabel.textContent = 'Additional discs';
+      discRow.appendChild(discLabel);
+      var discVal = document.createElement('span');
+      discVal.className = 'detail-value';
+      discVal.textContent = vs.multi_disc_count;
+      discRow.appendChild(discVal);
+      detailsDiv.appendChild(discRow);
+    }
+
+    /* Size range */
+    var sizes = vs.sizes || {};
+    if (sizes.avg > 0) {
+      var avgRow = document.createElement('div');
+      avgRow.className = 'card-detail-row';
+      var avgLabel = document.createElement('span');
+      avgLabel.className = 'detail-label';
+      avgLabel.textContent = 'Avg size';
+      avgRow.appendChild(avgLabel);
+      var avgVal = document.createElement('span');
+      avgVal.className = 'detail-value';
+      avgVal.textContent = formatSize(sizes.avg);
+      avgRow.appendChild(avgVal);
+      detailsDiv.appendChild(avgRow);
+    }
+    if (sizes.largest && sizes.largest[1] > 0 && sizes.smallest && sizes.smallest[1] > 0) {
+      var rangeRow = document.createElement('div');
+      rangeRow.className = 'card-detail-row';
+      var rangeLabel = document.createElement('span');
+      rangeLabel.className = 'detail-label';
+      rangeLabel.textContent = 'Size range';
+      rangeRow.appendChild(rangeLabel);
+      var rangeVal = document.createElement('span');
+      rangeVal.className = 'detail-value';
+      rangeVal.textContent = formatSize(sizes.smallest[1]) + ' \u2013 ' + formatSize(sizes.largest[1]);
+      rangeRow.appendChild(rangeVal);
+      detailsDiv.appendChild(rangeRow);
+    }
+
+    if (detailsDiv.children.length > 0) card.appendChild(detailsDiv);
   }
 
   /* Card actions */
@@ -2209,126 +2313,13 @@ var LogRenderer = {
 
   renderFanfare: function(data) {
     var logView = document.getElementById('view-log');
-    var container = document.createElement('div');
-    container.className = 'log-fanfare';
-    logView.appendChild(container);
     this._fanfareShown = true;
-
-    var bw = 54;
-    var hc = '\u2550', vc = '\u2551';
-    var tl = '\u2554', tr = '\u2557', bl = '\u255A', br = '\u255D';
-    var ml = '\u2560', mr = '\u2563';
-    var topBar = tl + hc.repeat(bw - 2) + tr;
-    var midBar = ml + hc.repeat(bw - 2) + mr;
-    var botBar = bl + hc.repeat(bw - 2) + br;
-
-    function pad(s, w) { s = String(s); return s + ' '.repeat(Math.max(0, w - s.length)); }
-    function padLine(c) { return vc + ' ' + pad(c, bw - 4) + ' ' + vc; }
-
-    var title = 'SCAN COMPLETE';
-    var titlePad = Math.floor((bw - 4 - title.length) / 2);
-    var titleLine = padLine(' '.repeat(titlePad) + title);
-
-    var statsArr = [
-      padLine(''),
-      padLine('Systems    ' + pad(data.systems.toLocaleString(), 10) + 'Selected  ' + data.selected.toLocaleString()),
-      padLine('Excluded   ' + pad(data.excluded.toLocaleString(), 10) + 'Size      ' + data.total_size),
-      padLine('Elapsed    ' + data.elapsed),
-    ];
-
-    if (data.throughput) {
-      statsArr.push(padLine('Throughput ' + data.throughput + ' ROMs/sec'));
-    }
-    if (data.space_saved && data.space_saved_bytes > 0) {
-      var savedText = 'Saved      ' + data.space_saved;
-      statsArr.push(padLine(savedText));
-    }
-
-    statsArr.push(padLine(''));
-
-    var sepText = hc.repeat(bw + 4);
-    var fullBox = topBar + '\n' + titleLine + '\n' + midBar + '\n' + statsArr.join('\n') + '\n' + botBar;
-    var tidbits = data.tidbits || [];
-
-    var sep1 = document.createElement('div');
-    sep1.className = 'fanfare-border';
-    sep1.textContent = '\n' + sepText;
-    container.appendChild(sep1);
-    var box1 = document.createElement('div');
-    box1.className = 'fanfare-border';
-    box1.textContent = fullBox;
-    container.appendChild(box1);
-    tidbits.forEach(function(t) {
-      var tidbitEl = document.createElement('div');
-      tidbitEl.textContent = '        ' + t;
-      container.appendChild(tidbitEl);
-    });
-
-    if (data.decade_breakdown) {
-      var decSection = document.createElement('div');
-      decSection.className = 'log-fanfare-section';
-      var decHeader = document.createElement('span');
-      decHeader.className = 'section-header';
-      decHeader.textContent = '        Decades  ';
-      decSection.appendChild(decHeader);
-      var decParts = Object.entries(data.decade_breakdown).sort(function(a, b) { return a[0].localeCompare(b[0]); });
-      var decText = decParts.map(function(d) { return d[0] + ': ' + d[1]; }).join('  ');
-      var decSpan = document.createElement('span');
-      decSpan.textContent = decText;
-      decSection.appendChild(decSpan);
-      container.appendChild(decSection);
-    }
-
-    if (data.system_rankings && data.system_rankings.length > 0) {
-      var sysHeader = document.createElement('div');
-      sysHeader.className = 'log-fanfare-section';
-      var sysHSpan = document.createElement('span');
-      sysHSpan.className = 'section-header';
-      sysHSpan.textContent = '        Top Systems by Size';
-      sysHeader.appendChild(sysHSpan);
-      container.appendChild(sysHeader);
-      data.system_rankings.sort(function(a, b) { return b.size - a.size; });
-      data.system_rankings.slice(0, 5).forEach(function(sys) {
-        var sysLine = document.createElement('div');
-        sysLine.className = 'log-fanfare-section';
-        sysLine.textContent = '          ' + sys.system + ': ' + formatSize(sys.size) + ' (' + sys.selected + ' ROMs)';
-        container.appendChild(sysLine);
-      });
-    }
-
-    if (data.filter_impact && Object.keys(data.filter_impact).length > 0) {
-      var filtHeader = document.createElement('div');
-      filtHeader.className = 'log-fanfare-section';
-      var filtHSpan = document.createElement('span');
-      filtHSpan.className = 'section-header';
-      filtHSpan.textContent = '        Filter Impact';
-      filtHeader.appendChild(filtHSpan);
-      container.appendChild(filtHeader);
-      Object.entries(data.filter_impact).forEach(function(entry) {
-        var fLine = document.createElement('div');
-        fLine.className = 'log-fanfare-section';
-        fLine.textContent = '          ' + entry[0] + ': ' + entry[1].toLocaleString() + ' removed';
-        container.appendChild(fLine);
-      });
-    }
-
-    if (data.notable_finds && Object.keys(data.notable_finds).length > 0) {
-      var nf = data.notable_finds;
-      var nfLines = [];
-      if (nf.rare_regions) nfLines.push('\uD83C\uDF0D Rare regions: ' + nf.rare_regions.join(', '));
-      if (nf.largest_rom && nf.largest_rom[1] > 0) nfLines.push('\uD83D\uDCC0 Largest ROM: ' + nf.largest_rom[0] + ' (' + formatSize(nf.largest_rom[1]) + ')');
-      if (nf.smallest_rom && nf.smallest_rom[1] > 0) nfLines.push('\uD83D\uDD2C Smallest ROM: ' + nf.smallest_rom[0] + ' (' + formatSize(nf.smallest_rom[1]) + ')');
-      nfLines.forEach(function(line) {
-        var nfEl = document.createElement('div');
-        nfEl.textContent = '        ' + line;
-        container.appendChild(nfEl);
-      });
-    }
-
-    var sep2 = document.createElement('div');
-    sep2.className = 'fanfare-border';
-    sep2.textContent = sepText + '\n';
-    container.appendChild(sep2);
+    var line = document.createElement('div');
+    line.className = 'log-fanfare';
+    line.textContent = 'Complete: ' + data.selected.toLocaleString() + ' ROMs'
+      + ' across ' + data.systems + ' system' + (data.systems !== 1 ? 's' : '')
+      + ' (' + data.total_size + ') in ' + data.elapsed;
+    logView.appendChild(line);
     this._scrollLog();
   },
 };
@@ -2341,9 +2332,18 @@ function _handleEventOriginal(event) {
     setStatus(d.state, d.message);
     if (d.state === 'running') {
       LogRenderer.reset();
+      /* Clear stale system pills — new scan will repopulate */
+      systemPillState = {};
+      renderSystemPills();
+      renderDedupPriorityPills();
     }
     if (d.state === 'completed' || d.state === 'error' || d.state === 'cancelled') {
       setRunning(false);
+      /* Prune dedup priority to only include systems from this scan */
+      dedupPriorityOrder = dedupPriorityOrder.filter(function(s) {
+        return s in systemPillState;
+      });
+      renderDedupPriorityPills();
       if (d.state === 'completed' && Object.keys(cardElements).length > 0) {
         if (currentView === 'picker') {
           refreshPicker();

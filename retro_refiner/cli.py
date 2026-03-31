@@ -207,12 +207,54 @@ def run_headless(args: list):
             except Exception as exc:  # pylint: disable=broad-except
                 logger.error("{}: filter error: {}", system.upper(), exc)
 
-        selected_size = sum(all_sizes.get(u, 0) for u in selected_urls)
-        total_selected += len(selected_urls)
-        total_size += selected_size
-        system_selected_urls[system] = selected_urls
+        # Filter local files
+        selected_local = []
+        if local_files and not config.selection.all_roms:
+            from retro_refiner.filter import filter_roms_from_files  # pylint: disable=import-outside-toplevel
+            sel = config.selection
+            rp = sel.region_priority
+            kr = sel.keep_regions
+            keep_list = ([r.strip() for r in kr.split(',')
+                          if r.strip()] if kr else None)
+            local_roms, _ = filter_roms_from_files(
+                [Path(f) for f in local_files],
+                dest_dir=config.destination or '.',
+                system=system, dry_run=True,
+                exclude_protos=sel.exclude_protos,
+                include_betas=sel.include_betas,
+                include_unlicensed=sel.include_unlicensed,
+                include_demos=sel.include_demos,
+                include_educational=sel.include_educational,
+                include_patterns=sel.include_patterns or None,
+                exclude_patterns=sel.exclude_patterns or None,
+                region_priority=rp,
+                keep_regions=keep_list,
+                year_from=sel.year_from,
+                year_to=sel.year_to,
+                no_filter=sel.all_roms,
+                best_version=sel.best_version,
+                english_only=sel.english_only,
+            )
+            selected_local = [str(Path(f).parent / rom.filename)
+                              for rom in local_roms
+                              for f in local_files
+                              if Path(f).name == rom.filename]
+        elif local_files:
+            selected_local = [str(f) for f in local_files]
 
-        print(f"  {system.upper()}: {len(selected_urls)}/{source_count} "
+        # Combine counts
+        all_selected = list(selected_urls) + selected_local
+        selected_size = sum(all_sizes.get(u, 0) for u in selected_urls)
+        for f in selected_local:
+            try:
+                selected_size += Path(f).stat().st_size
+            except OSError:
+                pass
+        total_selected += len(all_selected)
+        total_size += selected_size
+        system_selected_urls[system] = all_selected
+
+        print(f"  {system.upper()}: {len(all_selected)}/{source_count} "
               f"selected ({format_size(selected_size)})")
 
     print(f"{'='*60}")

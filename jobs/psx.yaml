@@ -1,0 +1,96 @@
+# Retro-Refiner configuration
+
+sources:
+- https://myrient.erista.me/files/Redump/Sony%20-%20PlayStation/
+- https://myrient.erista.me/files/T-En%20Collection/Sony%20-%20PlayStation%20%5BT-En%5D%20Collection/Discs/
+source_settings: {}
+destination: null
+systems: null
+selection:
+  english_only: true
+  exclude_protos: true
+  include_betas: false
+  include_unlicensed: false
+  region_priority:
+  - USA
+  - World
+  - Europe
+  - Australia
+  - England
+  - Spain
+  - France
+  - Germany
+  - Italy
+  - Netherlands
+  - Sweden
+  - Asia
+  - Japan
+  - Korea
+  - China
+  - Taiwan
+  - Brazil
+  keep_regions: null
+  include_patterns: []
+  exclude_patterns: []
+  all_roms: false
+  best_version: true
+  verbose: false
+  genres: null
+  year_from: null
+  year_to: null
+budget:
+  top: null
+  limit: null
+  size: null
+  include_unrated: false
+  prefer_exclusives: null
+network:
+  parallel: 4
+  scan_workers: 16
+output:
+  local_file_action: copy
+  flat: false
+  playlists: false
+  gamelist: null
+  retroarch_playlists: null
+  prefer_source: null
+  print_roms: false
+  validate_destination: true
+  clean_destination: false
+  crc_validation: false
+advanced:
+  no_verify: false
+  no_cache: false
+  no_dat: false
+  no_chd: false
+  no_adult: true
+  mame_version: null
+  recursive: false
+  max_depth: 3
+  cache_dir: null
+  dat_dir: null
+  tp_include_platforms: null
+  tp_exclude_platforms: null
+  tp_all_versions: false
+  ratings_source: combined
+theme:
+  mode: phosphor
+  accent: '#e94560'
+auth:
+  ia_access_key: null
+  ia_secret_key: null
+  igdb_client_id: null
+  igdb_client_secret: null
+deduplication:
+  priority: null
+  pc_lists: []
+  delete: false
+window:
+  x: null
+  y: null
+  width: 1200
+  height: 800
+  section_states:
+    sources: true
+    selection: true
+    advanced: true

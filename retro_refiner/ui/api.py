@@ -75,6 +75,8 @@ class Api:
     def load_settings(self, path: str) -> str:
         """Load config from file and return as JSON."""
         self._config = load_config(Path(path))
+        self._manual_selections = dict(self._config.picker_overrides)
+        self._picker_state.clear()
         return orjson.dumps(self._config.to_dict()).decode()
 
     def get_default_config(self) -> str:
@@ -288,6 +290,7 @@ class Api:
             return '{}'
         try:
             self._config = load_config(path)
+            self._manual_selections = dict(self._config.picker_overrides)
             return orjson.dumps(self._config.to_dict()).decode()
         except (OSError, ValueError):
             return '{}'
@@ -397,6 +400,8 @@ class Api:
         sel.exclude_protos = ui.get('exclude_protos', False)
         sel.include_betas = ui.get('include_betas', False)
         sel.include_unlicensed = not ui.get('no_unlicensed', False)
+        sel.include_demos = ui.get('include_demos', False)
+        sel.include_educational = ui.get('include_educational', False)
         rp = ui.get('region_priority', '').strip()
         if rp:
             sel.region_priority = [r.strip() for r in rp.split(',')
@@ -734,10 +739,16 @@ class Api:
             logger.info("Run complete: {} selected across {} systems",
                         total_selected, len(all_systems))
 
-            self._compute_fanfare(
-                config, total_selected, total_excluded,
-                total_size, run_start, all_systems,
-                total_source_size)
+            from retro_refiner.network import format_size  # pylint: disable=import-outside-toplevel
+            elapsed = time.monotonic() - run_start
+            elapsed_str = (f'{elapsed:.1f}s' if elapsed < 60
+                           else f'{int(elapsed // 60)}m {int(elapsed % 60)}s')
+            self._push_event('fanfare', {
+                'selected': total_selected,
+                'systems': len(all_systems),
+                'total_size': format_size(total_size),
+                'elapsed': elapsed_str,
+            })
 
             label = 'Commit' if commit else 'Preview'
             self._push_event('status', {
@@ -962,6 +973,7 @@ class Api:
         self._last_results = {}
         self._picker_state = {}
         self._manual_selections = {}
+        self._config.picker_overrides = {}
         for sys_code in set(all_urls.keys()) | set(local_systems.keys()):
             self._last_results[sys_code] = {
                 'urls': all_urls.get(sys_code, []),
@@ -1197,6 +1209,8 @@ class Api:
                     exclude_protos=sel.exclude_protos,
                     include_betas=sel.include_betas,
                     include_unlicensed=sel.include_unlicensed,
+                    include_demos=sel.include_demos,
+                    include_educational=sel.include_educational,
                     region_priority=region_list,
                     keep_regions=keep_list,
                     year_from=int(yf) if yf else None,
@@ -1246,6 +1260,9 @@ class Api:
         for f in selected_local[:max(0, 5 - len(preview))]:
             preview.append(Path(f).stem)
 
+        verbose_stats = self._compute_system_stats(
+            selected_urls, selected_local, all_sizes, system)
+
         self._push_event('card', {
             'system': system,
             'state': 'complete',
@@ -1255,7 +1272,7 @@ class Api:
             'source_count': source_count,
             'source_size': sys_size,
             'filter_breakdown': filter_breakdown,
-            'preview_titles': preview,
+            'verbose_stats': verbose_stats,
         })
 
         # Emit system-complete for log renderer
@@ -1268,8 +1285,6 @@ class Api:
                     'reason': exc_rom.reason,
                 })
 
-        verbose_stats = self._compute_system_stats(
-            selected_urls, selected_local, all_sizes, system)
         self._push_event('system-complete', {
             'system': system,
             'display_name': display_name,
@@ -1611,6 +1626,7 @@ class Api:
         """Download files using httpx with ThreadPoolExecutor."""
         import httpx  # pylint: disable=import-outside-toplevel
         from concurrent.futures import ThreadPoolExecutor  # pylint: disable=import-outside-toplevel
+        from retro_refiner.network import format_size  # pylint: disable=import-outside-toplevel
         logger.debug("Downloading {} files for {} (parallel={})",
                      len(downloads), system, parallel)
 
@@ -1626,12 +1642,16 @@ class Api:
         )
 
         done_set = set()
+        # Shared byte counter for real-time speed — single-element list
+        # avoids needing a lock (GIL protects int addition)
+        bytes_dl = [0]
 
         def _download_one(idx_url_path):
             idx, (url, dest_path) = idx_url_path
             dest_path.parent.mkdir(parents=True, exist_ok=True)
             try:
-                stream_download(client, url, dest_path)
+                stream_download(client, url, dest_path,
+                                bytes_counter=bytes_dl)
                 done_set.add(idx)
                 return idx, None
             except Exception as exc:  # pylint: disable=broad-except
@@ -1657,8 +1677,11 @@ class Api:
                     eta = self._eta_str(elapsed, completed, total)
                     rate = completed / max(elapsed, 0.1)
                     elapsed_s = self._elapsed_str(elapsed)
+                    speed = format_size(
+                        int(bytes_dl[0] / max(elapsed, 0.1)))
                     msg = (f'{self._step_prefix(3)}'
                            f'{display}: {completed}/{total} '
+                           f'\u2502 {speed}/s '
                            f'\u2502 {rate:.1f} files/s '
                            f'\u2502 {elapsed_s}'
                            f'{eta}')
@@ -1876,11 +1899,26 @@ class Api:
                             f'{total_local} local files...\n',
                 })
 
+                from retro_refiner.network import format_size as _fmt  # pylint: disable=import-outside-toplevel
+                _xfer_bytes = [0]
+                _xfer_t0 = time.monotonic()
+                _file_sizes = {f.name: f.stat().st_size
+                               for f in files_to_transfer
+                               if f.exists()}
+
                 def _on_local_progress(evt, _sys=display):
+                    # Track bytes from completed files
+                    if evt.current > 0 and evt.message:
+                        _xfer_bytes[0] += _file_sizes.get(
+                            evt.message, 0)
+                    elapsed = time.monotonic() - _xfer_t0
+                    speed = _fmt(int(
+                        _xfer_bytes[0] / max(elapsed, 0.1)))
                     self._push_event('progress', {
                         'phase': 'transfer',
                         'message': f'{_sys}: {evt.current}'
-                                   f'/{evt.total}',
+                                   f'/{evt.total}'
+                                   f' \u2502 {speed}/s',
                         'current': evt.current,
                         'total': evt.total,
                     })
@@ -1952,7 +1990,7 @@ class Api:
             system_titles[system] = titles
 
         # Walk systems in priority order — earlier systems claim titles
-        claimed = set()
+        claimed = {}  # norm_title -> system that claimed it
         # Process priority systems first, then remaining alphabetically
         all_systems = list(self._last_results.keys())
         ordered = [s for s in priority if s in all_systems]
@@ -1961,10 +1999,11 @@ class Api:
         total_deduped = 0
         for system in ordered:
             titles = system_titles.get(system, {})
-            dupes_in_system = set(titles.keys()) & claimed
+            dupes_in_system = set(titles.keys()) & set(claimed.keys())
             if not dupes_in_system:
                 # No dupes — claim all titles
-                claimed |= set(titles.keys())
+                for t in titles:
+                    claimed[t] = system
                 continue
 
             # Remove duplicate titles from this system's selections
@@ -1993,8 +2032,18 @@ class Api:
             removed_count = len(removed_urls) + len(removed_local)
             total_deduped += removed_count
 
+            # Store per-ROM reason with the claiming system
+            url_reasons = data.get('url_reasons', {})
+            for norm_title in dupes_in_system:
+                owner = _display_name(claimed[norm_title])
+                for entry_type, entry in titles[norm_title]:
+                    reason = f'cross-platform duplicate ({owner})'
+                    url_reasons[entry] = reason
+            data['url_reasons'] = url_reasons
+
             # Claim non-dupe titles
-            claimed |= set(titles.keys()) - dupes_in_system
+            for t in set(titles.keys()) - dupes_in_system:
+                claimed[t] = system
 
             # Log dedup results for this system
             display = _display_name(system)
@@ -2284,6 +2333,8 @@ class Api:
                 if rom['filename'] in sel_map:
                     rom['status'] = ('selected' if sel_map[rom['filename']]
                                      else 'excluded')
+        # Sync to config for persistence
+        self._config.picker_overrides = dict(self._manual_selections)
 
     def reset_picker(self, system: str):
         """Reset picker state to original filter results for a system.
@@ -2293,9 +2344,11 @@ class Api:
         if system:
             self._picker_state.pop(system, None)
             self._manual_selections.pop(system, None)
+            self._config.picker_overrides.pop(system, None)
         else:
             self._picker_state.clear()
             self._manual_selections.clear()
+            self._config.picker_overrides.clear()
 
     @staticmethod
     def _eta_str(elapsed, completed, total):
@@ -2411,7 +2464,7 @@ def _get_exclusion_reason(rom_info):
         reasons.append('Hack')
     if reasons:
         return ', '.join(reasons)
-    return 'Not best version'
+    return 'older version'
 
 
 def _parse_csv(value):

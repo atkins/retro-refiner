@@ -47,6 +47,8 @@ class SelectionConfig:
     exclude_protos: bool = False
     include_betas: bool = False
     include_unlicensed: bool = False
+    include_demos: bool = False
+    include_educational: bool = False
     region_priority: List[str] = field(
         default_factory=lambda: list(DEFAULT_REGION_PRIORITY))
     keep_regions: Optional[str] = None
@@ -162,6 +164,8 @@ class Config:
     deduplication: DeduplicationConfig = field(
         default_factory=DeduplicationConfig)
     window: WindowConfig = field(default_factory=WindowConfig)
+    picker_overrides: Dict[str, Dict[str, bool]] = field(
+        default_factory=dict)
 
     # Map of section name -> dataclass type for from_dict
     SECTION_TYPES = {
@@ -188,13 +192,18 @@ class Config:
                          if k in {f.name for f in
                                   section_cls.__dataclass_fields__.values()}}
                 kwargs[key] = section_cls(**valid)
-            elif key in ('sources', 'source_settings', 'destination', 'systems'):
+            elif key in ('sources', 'source_settings', 'destination',
+                        'systems', 'picker_overrides'):
                 kwargs[key] = value
         return cls(**kwargs)
 
     def to_dict(self) -> dict:
         """Serialize to a nested dict."""
-        return asdict(self)
+        data = asdict(self)
+        # Omit empty picker_overrides to keep YAML clean
+        if not data.get('picker_overrides'):
+            data.pop('picker_overrides', None)
+        return data
 
 
 # =============================================================================

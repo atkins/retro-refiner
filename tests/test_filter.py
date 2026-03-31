@@ -3170,7 +3170,8 @@ class TestFilterNetworkRomsBreakdown:
         ]
         config = Config(selection=SelectionConfig(best_version=True))
         result = filter_network_roms("nes", urls, config)
-        assert result.stats.filter_breakdown.get("duplicate version", 0) == 1
+        assert result.stats.filter_breakdown.get(
+            "lower region priority", 0) == 1
 
     def test_breakdown_tracks_non_english(self):
         urls = [

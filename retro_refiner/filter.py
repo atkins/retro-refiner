@@ -31,12 +31,44 @@ from retro_refiner.network import get_filename_from_url
 
 _RE_EXTENSION = re.compile(
     r'\.(zip|7z|rar|sfc|smc|nes|n64|z64|v64|md|gen|bin|gb|gbc|gba|nds|gcm'
-    r'|iso|cue|pce|col|a26|a52|a78|jag|lnx|st|int|gg|sms|sg|32x|vb|ws|wsc'
-    r'|rom|mx1|mx2)$', re.IGNORECASE)
+    r'|iso|cue|chd|pbp|cso|pce|col|a26|a52|a78|jag|lnx|st|int|gg|sms|sg'
+    r'|32x|vb|ws|wsc|rom|mx1|mx2)$', re.IGNORECASE)
 _RE_BETA = re.compile(r'\(Beta[^)]*\)')
 _RE_PROTO = re.compile(r'\(Proto[^)]*\)')
 _RE_MULTI_GAME = re.compile(r'\+ .+ \(')
 _RE_NUMBERING = re.compile(r'\b(\d) & (\d)\b')
+# Title-based demo disc patterns (Demo CD, Euro Demo, magazine discs, etc.)
+_RE_DEMO_TITLE = re.compile(
+    r'^Demo\b'
+    r'|^DemoDemo\b'
+    r'|^Euro Demo\b'
+    r'|\bDemo (?:CD|Disc|Disk|DVD)\b'
+    r'|\bDemo\s*\('
+    r'|\bDemo\s+\d'
+    r'|\bDemos?\s*[(!]'
+    r'|\bDemo All\b'
+    r'|\bPlayable Demo\b'
+    r'|^Dual Shock Demo\b'
+    r'|\bMagazine.+Demo\b'
+    r'|^Official.+Demo\b'
+    r'|^Jampack\b'
+    r'|\bInteractive.+Sampler\b'
+    r'|\bPress Kit\b'
+    r'|^PlayStation Underground\b'
+    r'|^PS One Special Demo\b'
+    r'|\bKiller Demos\b'
+    r'|^E3 Demo\b'
+    r'|\bCollector.s CD\b'
+    r'|^Essential PlayStation\b'
+    r'|^PlayStation.Pepsi Sampler\b'
+    r'|^PlayStation Sampler\b'
+    r'|^Blockbuster.+Challenge\b'
+    r'|^Beat-Em-Up Special\b'
+    r'|^Australian Summer Special\b'
+    r'|^Winter Releases\b'
+    r'|^Best of PlayStation Underground\b'
+    r'|\bKiosk\b',
+    re.IGNORECASE)
 _RE_TRANSLATION = re.compile(r'\[T-En[^\]]*\]')
 _RE_REGION = re.compile(r'\(([^)]+)\)')
 _RE_ENGLISH_TAG = re.compile(r'\([^)]*\bEn\b[^)]*\)')
@@ -115,6 +147,33 @@ _HACK_PATTERNS = [re.compile(p, re.IGNORECASE) for p in [
     r'GBA Script',
 ]]
 
+# Per-system educational title patterns (keyed by system code)
+# Per-system educational title patterns (keyed by system code)
+# Lightspan educational series + children's learning software
+_EDUCATIONAL_PATTERNS: Dict[str, List[re.Pattern]] = {
+    'psx': [re.compile(p, re.IGNORECASE) for p in [
+        # Lightspan series
+        r'^Secret of Googol\b',
+        r'^Mars Moose\b',
+        r'^Math (on the Move|Gallery)\b',
+        r'^Timeless (Math|Jade)\b',
+        r"^P\.K\.'s",
+        r'^Family Connection.+Lightspan\b',
+        r'\bLightspan\b',
+        r'^Liquid Books Adventure\b',
+        r'^K9\.5\b',
+        r'^Head to Toe\b',
+        r'^JumpStart\b',
+        # Children's learning software
+        r'^Sesame Street\b',
+        r'^Disney Learning\b',
+        r'^Disney.s Story Studio\b',
+        r'^Disney.s Winnie the Pooh - (Preschool|Kindergarten)',
+        r'\bPreschool\b',
+        r'\bKindergarten\b',
+    ]],
+}
+
 
 # =============================================================================
 # ROM Filename Parsing
@@ -150,6 +209,9 @@ def parse_rom_filename(filename: str) -> RomInfo:
                or 'Atari PAM' in name or '(Trade Demo)' in name
                or 'Boot Disc' in name
                or 'Kensa' in name)
+    # Title-based demo disc detection (Demo CD, Euro Demo, etc.)
+    if not is_demo:
+        is_demo = bool(_RE_DEMO_TITLE.search(name))
     is_promo = ('(Promo)' in name or '(Movie Promo)' in name
                 or 'Present Campaign' in name
                 or 'Senyou Cartridge' in name
@@ -446,17 +508,75 @@ def select_best_rom(roms: List[RomInfo],
     return candidates[0] if candidates else None
 
 
+def _get_1g1r_loss_reason(loser: RomInfo, winner: RomInfo,
+                          region_priority: List[str] = None) -> str:
+    """Return a human-readable reason why a ROM lost the 1G1R selection.
+
+    Mirrors the priority chain in select_best_rom: checks each criterion
+    in order and returns the first that differentiates the two ROMs.
+    """
+    if region_priority is None:
+        region_priority = DEFAULT_REGION_PRIORITY
+    english_regions = {'USA', 'World', 'Europe', 'Australia', 'England'}
+
+    # Translation lost to official release
+    if loser.is_translation and not winner.is_translation:
+        return 'translation — official release exists'
+
+    # Non-English lost to English
+    if not loser.is_english and winner.is_english:
+        return 'non-english'
+
+    # Lower region priority
+    priority_dict = {reg: idx for idx, reg in enumerate(region_priority)}
+    loser_pri = priority_dict.get(loser.region, 99)
+    winner_pri = priority_dict.get(winner.region, 99)
+    if loser_pri > winner_pri:
+        return 'lower region priority'
+
+    # Older revision
+    if loser.revision < winner.revision:
+        return 'older revision'
+
+    # Hacked version lost to clean
+    if loser.has_hacks and not winner.has_hacks:
+        return 'modified/hacked version'
+
+    # Official lost to translation (unusual — custom foreign priority)
+    if not loser.is_translation and winner.is_translation:
+        if loser.region not in english_regions:
+            return 'translation preferred'
+
+    return 'duplicate version'
+
+
+_RE_DISC_PREFIX = re.compile(
+    r'^(.*?)\s*\((?:Disc|Disk|Part)\s+\d+', re.IGNORECASE)
+
+
+def _disc_prefix(filename: str) -> str:
+    """Extract the filename prefix before the disc marker.
+
+    e.g. 'Game (Europe) (Disc 1).zip' → 'Game (Europe)'
+         'Game (Europe) (En,Fr) (Disc 2).zip' → 'Game (Europe) (En,Fr)'
+    """
+    m = _RE_DISC_PREFIX.match(filename)
+    return m.group(1).strip() if m else filename
+
+
 def _collect_sibling_discs(best: RomInfo,
                            group: List[RomInfo]) -> List[RomInfo]:
     """Given a selected ROM, find all discs of the same game matching
-    its region/revision."""
+    its region/revision and filename edition prefix."""
     if best.disc_number == 0:
         return [best]
+    best_prefix = _disc_prefix(best.filename)
     siblings = [r for r in group
                 if r.disc_number > 0
                 and r.region == best.region
                 and r.revision == best.revision
-                and r.is_translation == best.is_translation]
+                and r.is_translation == best.is_translation
+                and _disc_prefix(r.filename) == best_prefix]
     siblings.sort(key=lambda r: r.disc_number)
     return siblings if siblings else [best]
 
@@ -469,6 +589,14 @@ def matches_patterns(name: str, patterns: List[str]) -> bool:
     """Check if a filename matches any of the glob patterns."""
     name_lower = name.lower()
     return any(fnmatch.fnmatch(name_lower, pat.lower()) for pat in patterns)
+
+
+def is_educational_title(filename: str, system: str) -> bool:
+    """Check if a filename matches educational title patterns for a system."""
+    patterns = _EDUCATIONAL_PATTERNS.get(system)
+    if not patterns:
+        return False
+    return any(p.search(filename) for p in patterns)
 
 
 # =============================================================================
@@ -562,6 +690,19 @@ def filter_network_roms(system, urls, config, url_sizes=None,
                     filename=filename, reason='unlicensed',
                     size=url_sizes.get(url, 0)))
                 continue
+            if rom_info.is_demo and not sel.include_demos:
+                breakdown['demo'] += 1
+                excluded_list.append(ExcludedRom(
+                    filename=filename, reason='demo',
+                    size=url_sizes.get(url, 0)))
+                continue
+            if (not sel.include_educational
+                    and is_educational_title(filename, system)):
+                breakdown['educational'] += 1
+                excluded_list.append(ExcludedRom(
+                    filename=filename, reason='educational',
+                    size=url_sizes.get(url, 0)))
+                continue
 
             if rom_info.year > 0:
                 if sel.year_from and rom_info.year < sel.year_from:
@@ -609,14 +750,19 @@ def filter_network_roms(system, urls, config, url_sizes=None,
 
         selected_urls = []
         selected_roms_list: List[RomInfo] = []
+        # Map each ROM filename to the winner of its group (for reasons)
+        group_winner: Dict[str, RomInfo] = {}
         for _title, roms in grouped.items():
             if keep_regions:
                 seen_regions: set = set()
+                best_for_group = None
                 for reg in keep_regions:
                     for rom in sorted(roms, key=lambda r: (
                             r.is_translation, r.has_hacks, -r.revision)):
                         if rom.region == reg and reg not in seen_regions:
                             if rom.filename in url_map:
+                                if best_for_group is None:
+                                    best_for_group = rom
                                 for sibling in _collect_sibling_discs(
                                         rom, roms):
                                     if sibling.filename in url_map:
@@ -626,13 +772,17 @@ def filter_network_roms(system, urls, config, url_sizes=None,
                                 seen_regions.add(reg)
                             break
                 if not seen_regions:
-                    best = select_best_rom(roms, region_priority)
-                    if best and best.filename in url_map:
-                        for sibling in _collect_sibling_discs(best, roms):
+                    best_for_group = select_best_rom(roms, region_priority)
+                    if best_for_group and best_for_group.filename in url_map:
+                        for sibling in _collect_sibling_discs(
+                                best_for_group, roms):
                             if sibling.filename in url_map:
                                 selected_urls.append(
                                     url_map[sibling.filename])
                                 selected_roms_list.append(sibling)
+                if best_for_group:
+                    for rom in roms:
+                        group_winner[rom.filename] = best_for_group
             else:
                 best = select_best_rom(roms, region_priority)
                 if best and best.filename in url_map:
@@ -640,6 +790,8 @@ def filter_network_roms(system, urls, config, url_sizes=None,
                         if sibling.filename in url_map:
                             selected_urls.append(url_map[sibling.filename])
                             selected_roms_list.append(sibling)
+                    for rom in roms:
+                        group_winner[rom.filename] = best
 
         # Apply english-only filter
         if sel.english_only:
@@ -656,8 +808,12 @@ def filter_network_roms(system, urls, config, url_sizes=None,
         for rom in all_roms:
             url = url_map.get(rom.filename)
             if url and url not in selected_url_set:
+                winner = group_winner.get(rom.filename)
                 if sel.english_only and not rom.is_english:
                     reason = 'non-english'
+                elif winner:
+                    reason = _get_1g1r_loss_reason(
+                        rom, winner, region_priority)
                 else:
                     reason = 'duplicate version'
                 breakdown[reason] += 1
@@ -727,6 +883,8 @@ def filter_roms_from_files(rom_files: list, dest_dir: str, system: str,
                            exclude_protos: bool = False,
                            include_betas: bool = False,
                            include_unlicensed: bool = False,
+                           include_demos: bool = False,
+                           include_educational: bool = False,
                            region_priority: List[str] = None,
                            keep_regions: List[str] = None,
                            flat_output: bool = False,
@@ -801,6 +959,13 @@ def filter_roms_from_files(rom_files: list, dest_dir: str, system: str,
                 continue
             if rom_info.is_unlicensed and not include_unlicensed:
                 excluded_reasons[str(filepath)] = 'Unlicensed'
+                continue
+            if rom_info.is_demo and not include_demos:
+                excluded_reasons[str(filepath)] = 'Demo'
+                continue
+            if (not include_educational
+                    and is_educational_title(filename, system)):
+                excluded_reasons[str(filepath)] = 'Educational'
                 continue
 
             if rom_info.year > 0:

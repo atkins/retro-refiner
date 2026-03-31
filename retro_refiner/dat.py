@@ -538,6 +538,14 @@ def parse_clrmamepro_dat(dat_path: Path) -> Dict[str, DatRomEntry]:
         elif in_game:
             brace_count += line.count('(') - line.count(')')
 
+            # Capture game name when it's on its own line
+            if (current_game is None
+                    and line.startswith('name ')
+                    and 'rom' not in line):
+                name_match = re.search(r'name\s+"([^"]+)"', line)
+                if name_match:
+                    current_game = name_match.group(1)
+
             if 'rom' in line and 'name' in line:
                 rom_match = re.search(r'name\s+"([^"]+)"', line)
                 size_match = re.search(r'size\s+(\d+)', line)

@@ -459,7 +459,7 @@ def test_get_exclusion_reason_special(filename, expected_substr):
 
 def test_get_exclusion_reason_normal():
     rom = parse_rom_filename('Super Mario World (USA).zip')
-    assert _get_exclusion_reason(rom) == 'Not best version'
+    assert _get_exclusion_reason(rom) == 'older version'
 
 
 # =============================================================================

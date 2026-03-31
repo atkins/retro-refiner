@@ -837,11 +837,15 @@ def _is_retryable_httpx(exc):
     retry=retry_if_exception(_is_retryable_httpx),
     reraise=True,
 )
-def stream_download(client, url, dest_path):
+def stream_download(client, url, dest_path, bytes_counter=None):
     """Stream a URL to a file with retry on transient errors.
 
     Retries up to 3 times on 5xx, timeout, and connection errors.
     Does NOT retry on 4xx client errors.  Removes partial files on failure.
+
+    Args:
+        bytes_counter: Optional list [total_bytes] protected by a lock.
+            Incremented per chunk for real-time speed tracking.
     """
     logger.debug("Downloading {} -> {}", url, dest_path)
     try:
@@ -852,6 +856,8 @@ def stream_download(client, url, dest_path):
                     if _shutdown_event.is_set():
                         raise SystemExit("Shutdown requested")
                     f.write(chunk)
+                    if bytes_counter is not None:
+                        bytes_counter[0] += len(chunk)
     except BaseException:
         # Remove partial file before retry or final failure
         try:
