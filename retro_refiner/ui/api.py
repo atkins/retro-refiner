@@ -1817,11 +1817,36 @@ class Api:
             local_files = [f for f in local_files
                            if manual.get(Path(f).name, True)]
 
-        if not selected_urls and not local_files:
+        # Remove mode: delete excluded local files from source folders
+        if config.output.local_file_action == 'remove':
+            all_local = set(str(f) for f in result.get('local_files', []))
+            keep = set(str(f) for f in local_files)
+            to_delete = [Path(f) for f in all_local - keep]
+            if not to_delete:
+                return
+            display = _display_name(system)
+            deleted = 0
+            errors = 0
+            for fpath in to_delete:
+                try:
+                    if fpath.exists():
+                        fpath.unlink()
+                        deleted += 1
+                except OSError as exc:
+                    logger.warning("Failed to remove {}: {}", fpath, exc)
+                    errors += 1
+            if deleted or errors:
+                parts = []
+                if deleted:
+                    parts.append(f'removed {deleted} files')
+                if errors:
+                    parts.append(f'{errors} errors')
+                self._push_event('log', {
+                    'text': f'  {display}: {", ".join(parts)}\n',
+                })
             return
 
-        # Remove mode only affects local files — no destination needed
-        if config.output.local_file_action == 'remove':
+        if not selected_urls and not local_files:
             return
 
         flat = config.output.flat
@@ -2233,6 +2258,30 @@ class Api:
                     'source_size': 0,
                     'filter_breakdown': {},
                 })
+
+    def get_remove_summary(self) -> str:
+        """Compute summary of files that would be deleted by 'remove' action.
+
+        Returns JSON: {total: int, sources: [{path: str, count: int}, ...]}
+        """
+        total = 0
+        source_counts: dict[str, int] = {}
+        for system, result in self._last_results.items():
+            all_local = set(str(f) for f in result.get('local_files', []))
+            selected = set(str(f) for f in result.get('selected_local', []))
+            # Apply manual picker overrides
+            manual = self._manual_selections.get(system, {})
+            if manual:
+                selected = {f for f in selected
+                            if manual.get(Path(f).name, True)}
+            to_delete = all_local - selected
+            for fpath in to_delete:
+                parent = str(Path(fpath).parent)
+                source_counts[parent] = source_counts.get(parent, 0) + 1
+                total += 1
+        sources = [{'path': p, 'count': c}
+                   for p, c in sorted(source_counts.items())]
+        return orjson.dumps({'total': total, 'sources': sources}).decode()
 
     def get_system_roms(self, system: str) -> str:
         """Get ROM list for a system as JSON.

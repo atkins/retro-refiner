@@ -611,7 +611,7 @@
   /* Confirm modal */
   .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 1000; align-items: center; justify-content: center; }
   .modal-overlay.visible { display: flex; }
-  .modal-box { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 8px; padding: 20px 24px; min-width: 300px; max-width: 420px; box-shadow: 0 8px 32px rgba(0,0,0,0.4); }
+  .modal-box { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 8px; padding: 20px 24px; min-width: 300px; max-width: 480px; box-shadow: 0 8px 32px rgba(0,0,0,0.4); }
   .modal-box p { color: var(--text-primary); margin: 0 0 16px; font-size: 13px; line-height: 1.5; }
   .modal-buttons { display: flex; justify-content: flex-end; gap: 8px; }
   .modal-buttons button { padding: 6px 16px; border-radius: 3px; border: none; font-size: 10px; font-weight: 600; cursor: pointer; font-family: var(--font-ui); }
@@ -1396,12 +1396,15 @@ function saveConfig() {
   });
 }
 
-function showConfirm(message, onConfirm) {
+function showConfirm(message, onConfirm, opts) {
   var overlay = document.getElementById('confirm-modal');
-  document.getElementById('confirm-modal-text').textContent = message;
+  var textEl = document.getElementById('confirm-modal-text');
+  textEl.textContent = '';
+  if (opts && opts.buildContent) { opts.buildContent(textEl); } else { textEl.textContent = message; }
   overlay.classList.add('visible');
   var ok = document.getElementById('confirm-modal-ok');
   var cancel = document.getElementById('confirm-modal-cancel');
+  ok.textContent = (opts && opts.okLabel) || 'Continue';
   function close() {
     overlay.classList.remove('visible');
     ok.removeEventListener('click', onOk);
@@ -1728,7 +1731,9 @@ function doRun() {
     showView('log');
     return;
   }
-  showConfirm('Start committing files to the destination?', function() {
+  var lfa = document.getElementById('local-file-action');
+  var isRemove = lfa && lfa.value === 'remove';
+  function startCommit() {
     setRunning(true);
     clearResults();
     showView('log');
@@ -1736,7 +1741,39 @@ function doRun() {
     pushConfigToBackend().then(function() {
       if (window.pywebview) window.pywebview.api.run_commit();
     });
-  });
+  }
+  if (isRemove && window.pywebview) {
+    window.pywebview.api.get_remove_summary().then(function(json) {
+      var info = JSON.parse(json);
+      if (info.total === 0) {
+        showConfirm('No files to remove. Run a preview first.', function() {}, {okLabel: 'OK'});
+        return;
+      }
+      showConfirm('', startCommit, {
+        okLabel: 'Delete ' + info.total + ' files',
+        buildContent: function(el) {
+          var heading = document.createElement('strong');
+          heading.textContent = 'Permanently delete ' + info.total + ' file' + (info.total !== 1 ? 's' : '') + ' from source folders?';
+          el.appendChild(heading);
+          var list = document.createElement('ul');
+          list.style.cssText = 'margin: 10px 0 0; padding-left: 18px; list-style: disc;';
+          info.sources.forEach(function(s) {
+            var li = document.createElement('li');
+            li.style.cssText = 'margin: 4px 0; word-break: break-all;';
+            li.textContent = s.count + ' file' + (s.count !== 1 ? 's' : '') + ' from ' + s.path;
+            list.appendChild(li);
+          });
+          el.appendChild(list);
+          var warn = document.createElement('p');
+          warn.style.cssText = 'margin: 10px 0 0; color: var(--text-muted); font-size: 11px;';
+          warn.textContent = 'This cannot be undone.';
+          el.appendChild(warn);
+        }
+      });
+    });
+  } else {
+    showConfirm('Start committing files to the destination?', startCommit);
+  }
 }
 
 function doStop() {
