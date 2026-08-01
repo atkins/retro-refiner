@@ -1,5 +1,6 @@
 """Tests for retro_refiner v2 wrapper modules."""
 import importlib
+import types
 from pathlib import Path
 
 import pytest
@@ -465,3 +466,63 @@ def test_normalize_title_for_dedupe_nonempty():
 def test_parse_pc_game_list_missing_file():
     titles = parse_pc_game_list("/nonexistent/file.xml")
     assert titles == set()
+
+
+# =============================================================================
+# --check-gui selftest
+# =============================================================================
+# Packaging can drop a webview platform module: the build succeeds, the
+# headless CLI works, and only opening a window fails. check_gui walks the
+# renderer-selection import path so CI catches that on the artifact.
+
+class TestCheckGui:
+
+    def test_returns_zero_when_backend_loads(self, monkeypatch):
+        import importlib
+        from retro_refiner.__main__ import check_gui
+
+        stub = types.SimpleNamespace(
+            initialize=lambda: types.SimpleNamespace(renderer='edgechromium'))
+        real = importlib.import_module
+
+        def _fake(name, *a, **k):
+            return stub if name == 'webview.guilib' else real(name, *a, **k)
+
+        monkeypatch.setattr(importlib, 'import_module', _fake)
+        assert check_gui() == 0
+
+    def test_returns_nonzero_when_platform_module_missing(self, monkeypatch):
+        import importlib
+        from retro_refiner.__main__ import check_gui
+
+        def _boom():
+            raise ImportError(
+                "Module 'webview.platforms.win32' was actively excluded "
+                "from Nuitka compilation.")
+
+        stub = types.SimpleNamespace(initialize=_boom)
+        real = importlib.import_module
+
+        def _fake(name, *a, **k):
+            return stub if name == 'webview.guilib' else real(name, *a, **k)
+
+        monkeypatch.setattr(importlib, 'import_module', _fake)
+        assert check_gui() == 1
+
+    def test_survives_non_exception_failures(self, monkeypatch):
+        # pywebview can raise SystemExit when no renderer is usable; the
+        # check must report that as a failure, not propagate it.
+        import importlib
+        from retro_refiner.__main__ import check_gui
+
+        def _boom():
+            raise SystemExit('no renderer')
+
+        stub = types.SimpleNamespace(initialize=_boom)
+        real = importlib.import_module
+
+        def _fake(name, *a, **k):
+            return stub if name == 'webview.guilib' else real(name, *a, **k)
+
+        monkeypatch.setattr(importlib, 'import_module', _fake)
+        assert check_gui() == 1

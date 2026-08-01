@@ -22,12 +22,12 @@ python -m retro_refiner --export-config
 
 ### Run tests
 ```bash
-python -m pytest                     # 1437 tests, ~2s
+python -m pytest                     # 1440 tests, ~2s
 python -m pytest -v                  # verbose output
 python -m pytest tests/test_selection.py  # just core tests
 python tests/test_smoke.py           # network smoke tests (slow, needs Myrient)
 ```
-Uses pytest. Config in `pyproject.toml`. Smoke tests excluded by default. **1437 tests total, all passing.**
+Uses pytest. Config in `pyproject.toml`. Smoke tests excluded by default. **1440 tests total, all passing.**
 
 ### Lint
 ```bash
@@ -45,9 +45,21 @@ Standalone tool that downloads DATs for all systems, detects missing title mappi
 
 ### Build executable
 ```bash
-pip install "nuitka[onefile]" pywebview httpx pyyaml humanize tenacity orjson beautifulsoup4
-python -m nuitka --standalone --onefile --assume-yes-for-downloads --enable-plugin=no-qt --include-data-dir=data=data --include-data-dir=retro_refiner/ui/assets=retro_refiner/ui/assets --windows-icon-from-ico=retro_refiner/ui/assets/icon.ico --windows-console-mode=disable --output-filename=retro-refiner.exe --python-flag=-m retro_refiner
+pip install -r requirements-build.txt
+python -m nuitka --standalone --onefile --assume-yes-for-downloads --enable-plugin=no-qt --disable-plugin=pywebview --include-package=loguru --include-data-dir=data=data --include-data-dir=retro_refiner/ui/assets=retro_refiner/ui/assets --windows-icon-from-ico=retro_refiner/ui/assets/icon.ico --windows-console-mode=disable --output-filename=retro-refiner.exe --python-flag=-m retro_refiner
+./retro-refiner.exe --check-gui   # must exit 0 -- see below
 ```
+
+**Build deps are pinned in `requirements-build.txt`.** They were unpinned until a
+toolchain drift shipped a broken release: Nuitka's `pywebview` plugin allowlists which
+`webview.platforms` modules to compile in, and its Windows list has no entry for
+`webview.platforms.win32`, which pywebview 6.x added and `winforms.py` imports. Nuitka
+excluded it, the build stayed green, and the GUI died on launch. `--disable-plugin=pywebview`
+lets Nuitka's ordinary dependency detection find it.
+
+`--check-gui` runs pywebview's renderer selection without opening a window and exits
+non-zero if the backend cannot load. **Always run it against the built artifact** — the
+`--export-config` smoke test never imports webview, which is why the broken build passed CI.
 
 ## Architecture
 

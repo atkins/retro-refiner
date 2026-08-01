@@ -21,7 +21,7 @@ jobs:
           python-version: '3.11'
 
       - name: Install Python dependencies
-        run: pip install "nuitka[onefile]" pywebview httpx pyyaml humanize tenacity orjson beautifulsoup4 loguru truststore
+        run: pip install -r requirements-build.txt
 
       - name: Inject version from tag
         shell: bash
@@ -36,6 +36,7 @@ jobs:
           --standalone --onefile
           --assume-yes-for-downloads
           --enable-plugin=no-qt
+          --disable-plugin=pywebview
           --include-package=loguru
           --include-data-dir=data=data
           --include-data-dir=retro_refiner/ui/assets=retro_refiner/ui/assets
@@ -45,9 +46,21 @@ jobs:
           --python-flag=-m
           retro_refiner
 
-      - name: Smoke test
+      # Nuitka's pywebview plugin is disabled above: it allowlists which
+      # webview.platforms modules to compile in, and its Windows list has no
+      # entry for webview.platforms.win32, which pywebview 6.x added and
+      # winforms.py imports. With the plugin off, Nuitka's ordinary dependency
+      # detection picks the module up.
+
+      - name: Smoke test (headless)
         shell: bash
         run: ./retro-refiner.exe --export-config > /dev/null
+
+      # Guards the failure above: --export-config never touches webview, so a
+      # bundle missing a platform module passed this job and died on launch.
+      - name: Smoke test (GUI backend)
+        shell: bash
+        run: ./retro-refiner.exe --check-gui
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -69,7 +82,7 @@ jobs:
           sudo apt-get install -y libgirepository1.0-dev libcairo2-dev libwebkit2gtk-4.1-dev gir1.2-webkit2-4.1 patchelf
 
       - name: Install Python dependencies
-        run: pip install "nuitka[onefile]" pywebview httpx pyyaml humanize tenacity orjson beautifulsoup4 loguru truststore
+        run: pip install -r requirements-build.txt
 
       - name: Inject version from tag
         shell: bash
@@ -109,7 +122,7 @@ jobs:
           python-version: '3.11'
 
       - name: Install Python dependencies
-        run: pip install "nuitka[onefile]" pywebview httpx pyyaml humanize tenacity orjson beautifulsoup4 loguru truststore
+        run: pip install -r requirements-build.txt
 
       - name: Inject version from tag
         shell: bash
