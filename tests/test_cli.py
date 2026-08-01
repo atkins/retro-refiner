@@ -212,3 +212,43 @@ def test_package_config_is_usable():
     import retro_refiner
     cfg = retro_refiner.Config()
     assert isinstance(cfg, Config)
+
+
+# =============================================================================
+# _entry_filename / _entry_size Tests
+# =============================================================================
+# Budget filters operate on a combined list of URLs and local paths. Local
+# paths must not be parsed as URLs — on Windows a backslash path has no
+# forward slashes, so URL-style splitting returned the entire path and the
+# ROM never matched a rating.
+
+from retro_refiner.cli import _entry_filename, _entry_size  # noqa: E402
+
+
+@pytest.mark.parametrize("entry,expected", [
+    ("http://x/Super%20Mario%20World%20(USA).sfc",
+     "Super Mario World (USA).sfc"),
+    ("https://x/a/b/Chrono%20Trigger.sfc?token=1", "Chrono Trigger.sfc"),
+    ("https://x/a/Game.sfc#frag", "Game.sfc"),
+    (r"C:\Users\me\roms\Super Mario World (USA).sfc",
+     "Super Mario World (USA).sfc"),
+    ("/home/me/roms/Chrono Trigger (USA).sfc", "Chrono Trigger (USA).sfc"),
+    ("Game.sfc", "Game.sfc"),
+])
+def test_entry_filename(entry, expected):
+    assert _entry_filename(entry) == expected
+
+
+def test_entry_size_uses_scan_sizes_for_urls():
+    url = "http://x/Game.sfc"
+    assert _entry_size(url, {url: 4096}) == 4096
+
+
+def test_entry_size_stats_local_files(tmp_path):
+    p = tmp_path / "Game.sfc"
+    p.write_bytes(b"\0" * 2048)
+    assert _entry_size(str(p), {}) == 2048
+
+
+def test_entry_size_missing_file_is_zero(tmp_path):
+    assert _entry_size(str(tmp_path / "nope.sfc"), {}) == 0

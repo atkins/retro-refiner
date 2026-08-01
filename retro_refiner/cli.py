@@ -267,7 +267,7 @@ def run_headless(args: list):
     # Recount after budget filters
     total_selected = sum(len(v) for v in system_selected_urls.values())
     total_size = sum(
-        sum(all_sizes.get(u, 0) for u in urls)
+        sum(_entry_size(u, all_sizes) for u in urls)
         for urls in system_selected_urls.values()
     )
 
@@ -390,6 +390,24 @@ def _parse_size_string(size_str):
     return parse_budget_size(size_str)
 
 
+def _entry_filename(entry):
+    """Extract a ROM filename from either a URL or a local filesystem path."""
+    if '://' in entry:
+        return urllib.parse.unquote(
+            entry.split('?')[0].split('#')[0].split('/')[-1])
+    return Path(entry).name
+
+
+def _entry_size(entry, all_sizes):
+    """Size in bytes for a URL (from the scan) or a local file (from disk)."""
+    if entry in all_sizes:
+        return all_sizes[entry]
+    try:
+        return Path(entry).stat().st_size
+    except OSError:
+        return 0
+
+
 def _apply_cli_budget_filters(config, system_selected_urls, all_sizes):
     """Apply --limit, --top, and --size budget filters in CLI mode."""
     # --limit: simple total cap
@@ -455,23 +473,28 @@ def _apply_cli_ratings_budget(config, system_selected_urls, all_sizes):
         if not sys_ratings:
             continue
 
-        # Build RomInfo objects from filenames
-        url_roms = []
-        url_map = {}
-        for url in sys_urls:
-            filename = urllib.parse.unquote(
-                url.split('?')[0].split('#')[0].split('/')[-1])
-            rom = parse_rom_filename(filename)
-            url_roms.append(rom)
-            url_map[id(rom)] = url
+        # Build RomInfo objects from filenames. Entries may be URLs or
+        # local filesystem paths, so both forms must be handled.
+        # ``roms`` is never rebound, keeping every RomInfo alive so the
+        # id() keys below stay valid.
+        roms = []
+        entry_map = {}  # id(rom) -> url or local path
+        rom_sizes = {}  # id(rom) -> size in bytes
+        for entry in sys_urls:
+            rom = parse_rom_filename(_entry_filename(entry))
+            roms.append(rom)
+            entry_map[id(rom)] = entry
+            rom_sizes[id(rom)] = _entry_size(entry, all_sizes)
+
+        kept = roms
 
         if config.budget.top:
-            before = len(url_roms)
-            url_roms = apply_top_n_filter(
-                url_roms, sys_ratings, config.budget.top,
+            before = len(kept)
+            kept = apply_top_n_filter(
+                kept, sys_ratings, config.budget.top,
                 include_unrated=config.budget.include_unrated,
             )
-            after = len(url_roms)
+            after = len(kept)
             if after < before:
                 print(f"  {system.upper()}: top filter "
                       f"{before} -> {after}")
@@ -479,26 +502,19 @@ def _apply_cli_ratings_budget(config, system_selected_urls, all_sizes):
         if config.budget.size:
             budget_bytes = _parse_size_string(config.budget.size)
             if budget_bytes and budget_bytes > 0:
-                rom_sizes = {}
-                for rom in url_roms:
-                    url = url_map[id(rom)]
-                    rom_sizes[rom.filename] = all_sizes.get(url, 0)
-
-                before = len(url_roms)
-                url_roms, _ = apply_size_budget(
-                    url_roms, rom_sizes, budget_bytes,
+                before = len(kept)
+                kept, _ = apply_size_budget(
+                    kept, rom_sizes, budget_bytes,
                     ratings=sys_ratings,
-                    name_fn=lambda r: r.filename,
+                    name_fn=id,
                     rating_name_fn=lambda r: r.base_title,
                 )
-                after = len(url_roms)
+                after = len(kept)
                 if after < before:
                     print(f"  {system.upper()}: size budget "
                           f"{before} -> {after}")
 
-        system_selected_urls[system] = [
-            url_map[id(rom)] for rom in url_roms
-        ]
+        system_selected_urls[system] = [entry_map[id(rom)] for rom in kept]
 
     return system_selected_urls
 

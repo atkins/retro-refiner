@@ -724,8 +724,10 @@ class Api:
             for system in all_systems:
                 sys_data = self._last_results.get(system, {})
                 sys_urls = sys_data.get('selected_urls', [])
-                total_selected += len(sys_urls)
+                sys_local = sys_data.get('selected_local', [])
+                total_selected += len(sys_urls) + len(sys_local)
                 total_size += sum(all_sizes.get(u, 0) for u in sys_urls)
+                total_size += sum(_local_file_size(f) for f in sys_local)
             total_excluded = total_source - total_selected
 
             # Push summary
@@ -2183,7 +2185,8 @@ class Api:
                 return
             sys_data = self._last_results.get(system, {})
             sys_urls = sys_data.get('selected_urls', [])
-            if not sys_urls:
+            sys_local = sys_data.get('selected_local', [])
+            if not sys_urls and not sys_local:
                 continue
 
             sys_ratings = ratings.get(system, {})
@@ -2193,27 +2196,38 @@ class Api:
             if not sys_ratings:
                 continue
 
-            # Build lightweight RomInfo objects from URL filenames
-            url_roms = []
-            url_map = {}  # base_title -> url
+            # Build lightweight RomInfo objects for both network and local
+            # ROMs so budget filters apply regardless of source type.
+            # ``roms`` is never rebound, which keeps every RomInfo alive for
+            # the whole iteration so the id() keys below stay valid.
+            roms = []
+            origin = {}     # id(rom) -> ('url' | 'local', value)
+            rom_sizes = {}  # id(rom) -> size in bytes
             for url in sys_urls:
                 filename = urllib.parse.unquote(
                     url.split('?')[0].split('#')[0].split('/')[-1])
                 rom = parse_rom_filename(filename)
-                url_roms.append(rom)
-                url_map[id(rom)] = url
+                roms.append(rom)
+                origin[id(rom)] = ('url', url)
+                rom_sizes[id(rom)] = all_sizes.get(url, 0)
+            for fpath in sys_local:
+                rom = parse_rom_filename(Path(fpath).name)
+                roms.append(rom)
+                origin[id(rom)] = ('local', fpath)
+                rom_sizes[id(rom)] = _local_file_size(fpath)
+
+            source_total = len(roms)
+            kept = roms
 
             if config.budget.top:
-                before = len(url_roms)
-                rated_count = sum(1 for r in url_roms
-                                  if r.base_title in sys_ratings)
-                url_roms = apply_top_n_filter(
-                    url_roms, sys_ratings, config.budget.top,
+                before = len(kept)
+                kept = apply_top_n_filter(
+                    kept, sys_ratings, config.budget.top,
                     include_unrated=config.budget.include_unrated,
                 )
-                after = len(url_roms)
-                logger.debug("{}: top-N filter {} -> {} (rated {} of {})",
-                             system, before, after, rated_count, before)
+                after = len(kept)
+                logger.debug("{}: top-N filter {} -> {}",
+                             system, before, after)
                 if after < before:
                     self._push_event('log', {
                         'text': f'  {system.upper()}: top filter '
@@ -2223,38 +2237,36 @@ class Api:
             if config.budget.size:
                 budget_bytes = _parse_size_string(config.budget.size)
                 if budget_bytes and budget_bytes > 0:
-                    # Build size lookup keyed by filename
-                    rom_sizes = {}
-                    for rom in url_roms:
-                        url = url_map[id(rom)]
-                        rom_sizes[rom.filename] = all_sizes.get(url, 0)
-
-                    before = len(url_roms)
-                    url_roms, _ = apply_size_budget(
-                        url_roms, rom_sizes, budget_bytes,
+                    before = len(kept)
+                    kept, _ = apply_size_budget(
+                        kept, rom_sizes, budget_bytes,
                         ratings=sys_ratings,
-                        name_fn=lambda r: r.filename,
+                        name_fn=id,
                         rating_name_fn=lambda r: r.base_title,
                     )
-                    after = len(url_roms)
+                    after = len(kept)
                     if after < before:
                         self._push_event('log', {
                             'text': f'  {system.upper()}: size budget '
                                     f'{before} -> {after}\n',
                         })
 
-            # Rebuild selected URLs from surviving roms
-            new_urls = [url_map[id(rom)] for rom in url_roms]
-            if len(new_urls) != len(sys_urls):
+            # Rebuild both selection lists from surviving roms
+            if len(kept) != source_total:
+                new_urls = [origin[id(r)][1] for r in kept
+                            if origin[id(r)][0] == 'url']
+                new_local = [origin[id(r)][1] for r in kept
+                             if origin[id(r)][0] == 'local']
                 sys_data['selected_urls'] = new_urls
-                new_size = sum(all_sizes.get(u, 0) for u in new_urls)
+                sys_data['selected_local'] = new_local
+                new_size = sum(rom_sizes[id(r)] for r in kept)
                 self._push_event('card', {
                     'system': system,
                     'state': 'complete',
-                    'selected_count': len(new_urls),
-                    'excluded_count': len(sys_urls) - len(new_urls),
+                    'selected_count': len(kept),
+                    'excluded_count': source_total - len(kept),
                     'selected_size': new_size,
-                    'source_count': len(sys_urls),
+                    'source_count': source_total,
                     'source_size': 0,
                     'filter_breakdown': {},
                 })
@@ -2542,6 +2554,14 @@ def _float_or_none(value):
         return float(value)
     except (ValueError, TypeError):
         return None
+
+
+def _local_file_size(path):
+    """Return the size of a local file in bytes, or 0 if unreadable."""
+    try:
+        return Path(path).stat().st_size
+    except OSError:
+        return 0
 
 
 def _parse_size_string(size_str):

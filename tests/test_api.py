@@ -743,3 +743,122 @@ def test_save_ui_state_skip(api, tmp_path):
         assert not state_file.exists()
     finally:
         api_mod.get_runtime_path = orig_get_runtime
+
+
+# =============================================================================
+# Budget filter tests (top-N / size) — must apply to local files, not just URLs
+# =============================================================================
+
+class TestBudgetFiltersLocalFiles:
+    """Regression tests: budget filters previously ignored local ROMs."""
+
+    @staticmethod
+    def _make_roms(tmp_path, specs):
+        """Create local ROM files. specs: [(filename, size_bytes), ...]"""
+        paths = []
+        for name, size in specs:
+            p = tmp_path / name
+            p.write_bytes(b'\0' * size)
+            paths.append(str(p))
+        return paths
+
+    @staticmethod
+    def _stub_ratings(monkeypatch, system, entries):
+        """Patch the ratings pipeline to return a fixed ratings dict.
+
+        entries: {title: rating}
+        """
+        import retro_refiner.ratings as ratings_mod
+        from retro_refiner.dat import normalize_title
+
+        table = {
+            normalize_title(t): {'rating': r, 'votes': 100, 'name': t}
+            for t, r in entries.items()
+        }
+        monkeypatch.setattr(ratings_mod, 'download_launchbox_data',
+                            lambda *a, **k: Path('fake.xml'))
+        monkeypatch.setattr(ratings_mod, 'build_ratings_cache',
+                            lambda *a, **k: {system: table})
+
+    def _run(self, api, tmp_path, monkeypatch, budget_kwargs, specs, ratings):
+        from retro_refiner.config import Config
+
+        self._stub_ratings(monkeypatch, 'snes', ratings)
+        paths = self._make_roms(tmp_path, specs)
+
+        api._running = True
+        api._last_results = {
+            'snes': {'urls': [], 'local_files': paths,
+                     'selected_urls': [], 'selected_local': list(paths)},
+        }
+        config = Config()
+        config.advanced.dat_dir = str(tmp_path / 'dat')
+        for key, val in budget_kwargs.items():
+            setattr(config.budget, key, val)
+
+        api._apply_ratings_budget(config, {'snes'}, {})
+        return api._last_results['snes']['selected_local']
+
+    def test_top_n_filters_local_files(self, api, tmp_path, monkeypatch):
+        kept = self._run(
+            api, tmp_path, monkeypatch,
+            {'top': '2'},
+            [('Super Mario World (USA).sfc', 512),
+             ('Chrono Trigger (USA).sfc', 512),
+             ('Bad Game (USA).sfc', 512)],
+            {'Super Mario World': 9.5, 'Chrono Trigger': 9.4, 'Bad Game': 2.0},
+        )
+        assert len(kept) == 2
+        names = {Path(f).name for f in kept}
+        assert 'Bad Game (USA).sfc' not in names
+
+    def test_size_budget_filters_local_files(self, api, tmp_path, monkeypatch):
+        kept = self._run(
+            api, tmp_path, monkeypatch,
+            {'size': '2KB'},
+            [('Super Mario World (USA).sfc', 1024),
+             ('Chrono Trigger (USA).sfc', 1024),
+             ('Bad Game (USA).sfc', 1024)],
+            {'Super Mario World': 9.5, 'Chrono Trigger': 9.4, 'Bad Game': 2.0},
+        )
+        assert len(kept) == 2
+        names = {Path(f).name for f in kept}
+        assert 'Bad Game (USA).sfc' not in names
+
+    def test_no_budget_keeps_everything(self, api, tmp_path, monkeypatch):
+        kept = self._run(
+            api, tmp_path, monkeypatch,
+            {},
+            [('Super Mario World (USA).sfc', 512),
+             ('Chrono Trigger (USA).sfc', 512)],
+            {'Super Mario World': 9.5, 'Chrono Trigger': 9.4},
+        )
+        assert len(kept) == 2
+
+    def test_mixed_local_and_network_share_one_budget(
+            self, api, tmp_path, monkeypatch):
+        from retro_refiner.config import Config
+
+        self._stub_ratings(monkeypatch, 'snes', {
+            'Super Mario World': 9.5, 'Chrono Trigger': 9.4, 'Bad Game': 2.0,
+        })
+        local = self._make_roms(tmp_path, [('Chrono Trigger (USA).sfc', 512)])
+        urls = ['http://x/Super%20Mario%20World%20(USA).sfc',
+                'http://x/Bad%20Game%20(USA).sfc']
+
+        api._running = True
+        api._last_results = {
+            'snes': {'urls': urls, 'local_files': local,
+                     'selected_urls': list(urls),
+                     'selected_local': list(local)},
+        }
+        config = Config()
+        config.advanced.dat_dir = str(tmp_path / 'dat')
+        config.budget.top = '2'
+
+        api._apply_ratings_budget(config, {'snes'}, {u: 512 for u in urls})
+
+        data = api._last_results['snes']
+        assert len(data['selected_urls']) + len(data['selected_local']) == 2
+        assert len(data['selected_local']) == 1  # Chrono Trigger survives
+        assert data['selected_urls'] == [urls[0]]  # Bad Game dropped
