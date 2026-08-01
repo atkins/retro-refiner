@@ -4,6 +4,7 @@ Covers the untested functions: catver.ini parsing, MAME DAT parsing,
 MAME filtering pipeline, category inclusion/exclusion, clone selection.
 """
 # pylint: disable=missing-function-docstring
+import os
 import sys
 from pathlib import Path
 
@@ -675,3 +676,175 @@ class TestFilterMameNetworkRoms:
         selected, info = filter_mame_network_roms([], {}, {})
         assert selected == []
         assert info['source_size'] == 0
+
+
+# =============================================================================
+# MAME: filter_mame_network_roms with LOCAL filesystem entries
+# =============================================================================
+
+class TestFilterMameLocalEntries:
+    """filter_mame_network_roms accepts local paths, not just URLs.
+
+    Only the basename and the parent folder name are consulted, and the
+    entries must come back out verbatim so the caller can transfer them.
+    """
+
+    @pytest.fixture
+    def games(self):
+        games = {
+            'sf2': _make_mame_game('sf2', 'Street Fighter II (World)',
+                                   category='Fighter / Versus',
+                                   region='World'),
+            'sf2ce': _make_mame_game('sf2ce', "SF2 CE (USA)",
+                                     category='Fighter / Versus',
+                                     is_parent=False, parent_name='sf2',
+                                     region='USA'),
+            'pacman': _make_mame_game('pacman', 'Pac-Man (USA)',
+                                      category='Maze', region='USA'),
+            'neogeo': _make_mame_game('neogeo', 'Neo Geo BIOS',
+                                      is_bios=True,
+                                      category='System / BIOS'),
+            'pokermon': _make_mame_game('pokermon', 'Poker Game (USA)',
+                                        category='Casino', region='USA'),
+        }
+        return games
+
+    @pytest.fixture
+    def categories(self, games):
+        return {name: g.category for name, g in games.items()}
+
+    @pytest.fixture
+    def rom_dir(self, tmp_path):
+        """A local arcade folder; files are created so paths are realistic."""
+        folder = tmp_path / 'arcade'
+        folder.mkdir()
+        return folder
+
+    @staticmethod
+    def _entries(folder, names):
+        """Create the named files and return their paths as strings."""
+        paths = []
+        for name in names:
+            target = folder / name
+            target.write_bytes(b'x' * 10)
+            paths.append(str(target))
+        return paths
+
+    def test_bios_and_gambling_excluded(self, games, categories, rom_dir):
+        entries = self._entries(
+            rom_dir, ['pacman.zip', 'neogeo.zip', 'pokermon.zip'])
+        selected, _info = filter_mame_network_roms(
+            entries, categories, games)
+        names = {Path(p).name for p in selected}
+        assert names == {'pacman.zip'}
+
+    def test_clone_dedup_prefers_usa(self, games, categories, rom_dir):
+        entries = self._entries(rom_dir, ['sf2.zip', 'sf2ce.zip'])
+        selected, _info = filter_mame_network_roms(
+            entries, categories, games)
+        names = {Path(p).name for p in selected}
+        assert names == {'sf2ce.zip'}
+
+    def test_title_and_region_maps(self, games, categories, rom_dir):
+        entries = self._entries(rom_dir, ['pacman.zip', 'sf2.zip'])
+        _selected, info = filter_mame_network_roms(
+            entries, categories, games)
+        assert info['title_map']['pacman'] == 'Pac-Man (USA)'
+        assert info['title_map']['sf2'] == 'Street Fighter II (World)'
+        assert info['region_map']['pacman'] == 'USA'
+        assert info['region_map']['sf2'] == 'World'
+
+    def test_entries_returned_verbatim(self, games, categories, rom_dir):
+        entries = self._entries(rom_dir, ['pacman.zip', 'sf2ce.zip'])
+        selected, _info = filter_mame_network_roms(
+            entries, categories, games)
+        assert sorted(selected) == sorted(entries)
+        # Identity, not just equality: no re-encoding/normalisation happened
+        for item in selected:
+            assert any(item is original for original in entries)
+
+    def test_adult_filter_applies(self, rom_dir):
+        games = {
+            'mature1': _make_mame_game(
+                'mature1', 'Mature Game (USA)',
+                category='Fighter / Versus * Mature *', region='USA'),
+        }
+        categories = {'mature1': 'Fighter / Versus * Mature *'}
+        entries = self._entries(rom_dir, ['mature1.zip'])
+
+        kept, _ = filter_mame_network_roms(
+            entries, categories, games, include_adult=True)
+        assert kept == entries
+
+        dropped, info = filter_mame_network_roms(
+            entries, categories, games, include_adult=False)
+        assert dropped == []
+        assert info['excluded_reasons'][entries[0]] == 'Adult/mature content'
+
+    def test_chd_resolves_under_subfolder(self, tmp_path):
+        """The parent folder name resolves a CHD to its MAME game."""
+        games = {
+            'area51': _make_mame_game('area51', 'Area 51 (USA)',
+                                      category='Shooter / Gallery',
+                                      has_chd=True,
+                                      chd_names=['040503_1309.chd'],
+                                      region='USA'),
+        }
+        categories = {'area51': 'Shooter / Gallery'}
+        folder = tmp_path / 'area51'
+        folder.mkdir()
+        chd = folder / '040503_1309.chd'
+        chd.write_bytes(b'x' * 10)
+        entries = [str(chd)]
+
+        selected, info = filter_mame_network_roms(
+            entries, categories, games, url_sizes={entries[0]: 10})
+        assert selected == entries
+        assert info['title_map']['040503_1309'] == 'Area 51 (USA)'
+        assert info['region_map']['040503_1309'] == 'USA'
+        assert info['selected_size'] == 10
+
+    def test_chd_resolves_by_parent_folder_only(self, tmp_path):
+        """Folder fallback alone: the DAT lists no chd_names for the game.
+
+        Isolates ``_entry_parent_name`` on a local path -- the CHD stem is
+        meaningless, so only the 'area51' folder can identify the game.
+        """
+        games = {
+            'area51': _make_mame_game('area51', 'Area 51 (USA)',
+                                      category='Shooter / Gallery',
+                                      has_chd=True, region='USA'),
+        }
+        categories = {'area51': 'Shooter / Gallery'}
+        folder = tmp_path / 'area51'
+        folder.mkdir()
+        chd = folder / '040503_1309.chd'
+        chd.write_bytes(b'x' * 10)
+        entries = [str(chd)]
+
+        selected, info = filter_mame_network_roms(entries, categories, games)
+        assert selected == entries
+        assert info['title_map']['040503_1309'] == 'Area 51 (USA)'
+
+    @pytest.mark.skipif(os.name != 'nt',
+                        reason='backslash paths are Windows-only')
+    def test_windows_backslash_paths(self, games, categories):
+        entries = [
+            r'E:\Roms\arcade\pacman.zip',
+            r'E:\Roms\arcade\neogeo.zip',
+            r'E:\Roms\arcade\pokermon.zip',
+        ]
+        selected, info = filter_mame_network_roms(
+            entries, categories, games)
+        assert selected == [r'E:\Roms\arcade\pacman.zip']
+        assert info['title_map']['pacman'] == 'Pac-Man (USA)'
+        assert info['excluded_reasons'][r'E:\Roms\arcade\neogeo.zip'] == 'BIOS'
+
+    def test_filter_breakdown_returned(self, games, categories, rom_dir):
+        entries = self._entries(
+            rom_dir, ['pacman.zip', 'neogeo.zip', 'pokermon.zip'])
+        _selected, info = filter_mame_network_roms(
+            entries, categories, games)
+        assert info['filter_breakdown']['BIOS'] == 1
+        assert info['filter_breakdown']['Gambling'] == 1
+        assert 'Maze' not in info['filter_breakdown']

@@ -159,8 +159,20 @@ def run_headless(args: list):
         source_count = len(urls) + len(local_files)
 
         selected_urls = urls  # default: keep all
+        selected_local = []
 
-        if urls:
+        # Arcade filters take basenames (and the parent folder, for CHDs),
+        # so local paths go through them alongside URLs -- see api.py
+        # `_filter_system`.
+        arcade = system in ('mame', 'fbneo', 'fba', 'arcade', 'teknoparrot')
+        local_keys = list(dict.fromkeys(str(f) for f in local_files))
+        local_key_set = set(local_keys)
+        entries = (list(urls) + local_keys) if arcade else list(urls)
+        entry_sizes = ({e: _entry_size(e, all_sizes) for e in entries}
+                       if arcade else all_sizes)
+        selected_entries = entries
+
+        if entries:
             try:
                 if system in ('mame', 'fbneo', 'fba', 'arcade'):
                     dat_dir = Path(config.advanced.dat_dir or './dat_files')
@@ -170,16 +182,16 @@ def run_headless(args: list):
                     if catver_path and dat_path:
                         categories = parse_catver_ini(str(catver_path))
                         games = parse_mame_dat(str(dat_path))
-                        selected_urls, _ = filter_mame_network_roms(
-                            urls, categories=categories, games=games,
-                            url_sizes=all_sizes,
+                        selected_entries, _ = filter_mame_network_roms(
+                            entries, categories=categories, games=games,
+                            url_sizes=entry_sizes,
                             verbose=config.selection.verbose,
                             no_filter=config.selection.all_roms,
                             english_only=config.selection.english_only,
                         )
                 elif system == 'teknoparrot':
-                    selected_urls, _ = filter_teknoparrot_network_roms(
-                        urls, url_sizes=all_sizes,
+                    selected_entries, _ = filter_teknoparrot_network_roms(
+                        entries, url_sizes=entry_sizes,
                         verbose=config.selection.verbose,
                         no_filter=config.selection.all_roms,
                         english_only=config.selection.english_only,
@@ -203,13 +215,20 @@ def run_headless(args: list):
                         url_sizes=all_sizes,
                         dat_entries=dat_entries,
                     )
-                    selected_urls = fr.selected if fr.selected else urls
+                    selected_entries = fr.selected if fr.selected else urls
             except Exception as exc:  # pylint: disable=broad-except
                 logger.error("{}: filter error: {}", system.upper(), exc)
 
-        # Filter local files
-        selected_local = []
-        if local_files and not config.selection.all_roms:
+        if arcade:
+            selected_urls = [e for e in selected_entries
+                             if e not in local_key_set]
+            selected_local = [e for e in selected_entries
+                              if e in local_key_set]
+        else:
+            selected_urls = selected_entries
+
+        # Filter local files (console systems only)
+        if local_files and not arcade and not config.selection.all_roms:
             from retro_refiner.filter import filter_roms_from_files  # pylint: disable=import-outside-toplevel
             sel = config.selection
             rp = sel.region_priority
@@ -239,7 +258,7 @@ def run_headless(args: list):
                               for rom in local_roms
                               for f in local_files
                               if Path(f).name == rom.filename]
-        elif local_files:
+        elif local_files and not arcade:
             selected_local = [str(f) for f in local_files]
 
         # Combine counts

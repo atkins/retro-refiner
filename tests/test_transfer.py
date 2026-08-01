@@ -200,6 +200,126 @@ def test_transfer_files_progress_callback(tmp_path):
     assert events[0].phase == "transferring"
 
 
+def test_transfer_files_relpaths_preserve_subdirs(tmp_path):
+    """Same basename in different subdirs must not collide (data loss)."""
+    src_dir = tmp_path / "src"
+    dst_dir = tmp_path / "dst"
+    (src_dir / "usa").mkdir(parents=True)
+    (src_dir / "japan").mkdir(parents=True)
+    dst_dir.mkdir()
+
+    f_usa = src_dir / "usa" / "game.zip"
+    f_jpn = src_dir / "japan" / "game.zip"
+    f_usa.write_bytes(b"usa_content")
+    f_jpn.write_bytes(b"japan_content")
+
+    relpaths = {
+        str(f_usa): "usa/game.zip",
+        str(f_jpn): "japan/game.zip",
+    }
+
+    stats = transfer_files([f_usa, f_jpn], dst_dir, mode="copy",
+                           flat=False, system="snes", relpaths=relpaths)
+
+    assert stats["transferred"] == 2
+    assert stats["skipped"] == 0
+    assert stats["errors"] == 0
+
+    out_usa = dst_dir / "snes" / "usa" / "game.zip"
+    out_jpn = dst_dir / "snes" / "japan" / "game.zip"
+    assert out_usa.exists()
+    assert out_jpn.exists()
+    assert out_usa.read_bytes() == b"usa_content"
+    assert out_jpn.read_bytes() == b"japan_content"
+
+
+@pytest.mark.parametrize("relpaths", [None, {}])
+def test_transfer_files_relpaths_fallback_to_name(tmp_path, relpaths):
+    """Omitted/empty relpaths keeps the pre-fix basename behaviour."""
+    src_dir = tmp_path / "src"
+    dst_dir = tmp_path / "dst"
+    (src_dir / "sub").mkdir(parents=True)
+    dst_dir.mkdir()
+
+    f1 = src_dir / "sub" / "game.zip"
+    f1.write_bytes(b"fallback")
+
+    stats = transfer_files([f1], dst_dir, mode="copy", flat=False,
+                           system="snes", relpaths=relpaths)
+
+    assert stats["transferred"] == 1
+    assert stats["skipped"] == 0
+    assert (dst_dir / "snes" / "game.zip").read_bytes() == b"fallback"
+    assert not (dst_dir / "snes" / "sub").exists()
+
+
+def test_transfer_files_relpaths_partial_map_falls_back(tmp_path):
+    """Sources missing from the map still land on their basename."""
+    src_dir = tmp_path / "src"
+    dst_dir = tmp_path / "dst"
+    (src_dir / "usa").mkdir(parents=True)
+    dst_dir.mkdir()
+
+    mapped = src_dir / "usa" / "mapped.zip"
+    unmapped = src_dir / "usa" / "unmapped.zip"
+    mapped.write_bytes(b"m")
+    unmapped.write_bytes(b"u")
+
+    stats = transfer_files([mapped, unmapped], dst_dir, mode="copy",
+                           flat=False, system="snes",
+                           relpaths={str(mapped): "usa/mapped.zip"})
+
+    assert stats["transferred"] == 2
+    assert (dst_dir / "snes" / "usa" / "mapped.zip").exists()
+    assert (dst_dir / "snes" / "unmapped.zip").exists()
+
+
+def test_transfer_files_relpaths_skips_existing_at_relpath(tmp_path):
+    """Skip detection uses the relative destination, not the basename."""
+    src_dir = tmp_path / "src"
+    dst_dir = tmp_path / "dst"
+    (src_dir / "usa").mkdir(parents=True)
+    (dst_dir / "snes" / "usa").mkdir(parents=True)
+
+    f1 = src_dir / "usa" / "game.zip"
+    f1.write_bytes(b"new_content")
+    (dst_dir / "snes" / "usa" / "game.zip").write_bytes(b"old_content")
+
+    stats = transfer_files([f1], dst_dir, mode="copy", flat=False,
+                           system="snes",
+                           relpaths={str(f1): "usa/game.zip"})
+
+    assert stats["skipped"] == 1
+    assert stats["transferred"] == 0
+    assert ((dst_dir / "snes" / "usa" / "game.zip").read_bytes()
+            == b"old_content")
+
+
+def test_transfer_files_relpaths_move_mode_preserves_subdirs(tmp_path):
+    """Move mode also creates missing intermediate directories."""
+    src_dir = tmp_path / "src"
+    dst_dir = tmp_path / "dst"
+    (src_dir / "disc1").mkdir(parents=True)
+    (src_dir / "disc2").mkdir(parents=True)
+    dst_dir.mkdir()
+
+    f1 = src_dir / "disc1" / "game.bin"
+    f2 = src_dir / "disc2" / "game.bin"
+    f1.write_bytes(b"one")
+    f2.write_bytes(b"two")
+
+    relpaths = {str(f1): "disc1/game.bin", str(f2): "disc2/game.bin"}
+    stats = transfer_files([f1, f2], dst_dir, mode="move", flat=False,
+                           system="psx", relpaths=relpaths)
+
+    assert stats["transferred"] == 2
+    assert stats["skipped"] == 0
+    assert not f1.exists()
+    assert not f2.exists()
+    assert (dst_dir / "psx" / "disc1" / "game.bin").read_bytes() == b"one"
+    assert (dst_dir / "psx" / "disc2" / "game.bin").read_bytes() == b"two"
+
+
 def test_generate_m3u_playlist(tmp_path):
     rom_files = [
         Path("/roms/Zelda (USA).sfc"),

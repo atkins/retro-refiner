@@ -345,3 +345,23 @@ def test_load_config_bad_content_returns_config(tmp_path):
     bad_path.write_text('just a bare string with no colon', encoding='utf-8')
     cfg = load_config(bad_path)
     assert isinstance(cfg, Config)
+
+
+# =============================================================================
+# Backward Compatibility Tests
+# =============================================================================
+
+def test_load_config_ignores_removed_genres_field(tmp_path):
+    """selection.genres was removed as dead config, but existing state files and
+    jobs/*.yaml still carry the key — from_dict must keep ignoring unknown keys."""
+    yaml_path = tmp_path / 'legacy.yaml'
+    yaml_path.write_text(
+        'selection:\n'
+        '  english_only: true\n'
+        '  genres: null\n',
+        encoding='utf-8',
+    )
+
+    cfg = load_config(yaml_path)
+    assert cfg.selection.english_only is True
+    assert not hasattr(cfg.selection, 'genres')

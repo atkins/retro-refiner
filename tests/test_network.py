@@ -14,7 +14,7 @@ from pathlib import Path
 import pytest
 
 from retro_refiner.network import (
-    is_url, get_filename_from_url, normalize_url, is_rom_file,
+    is_url, get_filename_from_url, get_filename_from_entry, normalize_url, is_rom_file,
     is_directory_link, format_url, format_size, parse_size_string,
     parse_budget_size, extract_links_from_html, extract_file_sizes_from_html,
     parse_html_for_files_with_sizes, parse_html_for_files,
@@ -118,6 +118,64 @@ def test_get_filename_from_url_unicode():
         "https://example.com/roms/T%C3%A9tris%20%28Japan%29.zip")
     assert "tris" in result
     assert "(Japan)" in result
+
+
+# =============================================================================
+# get_filename_from_entry tests
+# =============================================================================
+
+@pytest.mark.parametrize("url,expected", [
+    ("https://example.com/roms/Super%20Mario%20World%20%28USA%29.zip",
+     "Super Mario World (USA).zip"),
+    ("https://example.com/roms/game.zip?dl=1#top", "game.zip"),
+])
+def test_get_filename_from_entry_url(url, expected):
+    """URLs still go through the URL path: decoded, query/fragment stripped."""
+    assert get_filename_from_entry(url) == expected
+
+
+def test_get_filename_from_entry_local_path(tmp_path):
+    """A local path yields its basename regardless of platform separator."""
+    local = tmp_path / 'sub' / 'Pac-Man (USA).zip'
+    assert get_filename_from_entry(str(local)) == 'Pac-Man (USA).zip'
+
+
+def test_get_filename_from_entry_local_path_is_not_url_decoded(tmp_path):
+    """Local names keep '#', '?' and '%20' verbatim - the URL path mangles them.
+
+    This is why get_filename_from_entry and get_filename_from_url must stay
+    separate functions: every character the URL parser treats as syntax is a
+    perfectly legal character in a filename.
+    """
+    name = 'Game #2 (What?) 100%20 Complete.zip'
+    local = tmp_path / 'sub' / name
+
+    assert get_filename_from_entry(str(local)) == name
+
+    mangled = get_filename_from_url(str(local))
+    assert mangled != name
+    assert '#' not in mangled
+    assert '?' not in mangled
+    assert '%20' not in mangled
+
+
+def test_get_filename_from_entry_percent_not_decoded_locally(tmp_path):
+    """'%20' in a local filename stays literal instead of becoming a space."""
+    local = tmp_path / 'Metal Gear 100%20Percent.zip'
+    assert get_filename_from_entry(str(local)) == 'Metal Gear 100%20Percent.zip'
+    # The URL helper unquotes, turning the literal '%20' into a space.
+    mangled = get_filename_from_url(str(local))
+    assert '%20' not in mangled
+    assert mangled.endswith('Metal Gear 100 Percent.zip')
+
+
+@pytest.mark.skipif(os.name != 'nt', reason='Windows-only backslash path semantics')
+def test_get_filename_from_entry_windows_path():
+    """A Windows path has no '/' separators - splitting on '/' would fail."""
+    entry = r'C:\ROMs\Nintendo 64\Super Mario 64 (USA).z64'
+    assert get_filename_from_entry(entry) == 'Super Mario 64 (USA).z64'
+    # The URL helper would return the whole path unchanged.
+    assert get_filename_from_url(entry) == entry
 
 
 # =============================================================================

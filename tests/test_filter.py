@@ -2714,6 +2714,190 @@ class TestFilterRomsFromFiles1G1R:
 
 
 # =============================================================================
+# filter_roms_from_files — DAT entries integration
+# =============================================================================
+
+def _make_dat_entry(name, rom_name, crc, region="USA"):
+    """Build a DatRomEntry with the boilerplate fields filled in."""
+    return DatRomEntry(
+        name=name, rom_name=rom_name, size=1024, crc=crc,
+        md5="", sha1="", region=region, is_parent=True, parent_name="",
+    )
+
+
+class TestFilterRomsFromFilesDatEntries:
+    """Local ROMs group by canonical DAT titles, like network ROMs do."""
+
+    # Two filenames that share no base title of their own -- they only
+    # become one game once the DAT names are consulted.
+    FILENAMES = ["Super Mario World (USA).zip", "SMW (Europe).zip"]
+
+    DAT_ENTRIES = {
+        "11111111": _make_dat_entry(
+            "Super Mario World (USA)", "Super Mario World (USA).zip",
+            "11111111", region="USA",
+        ),
+        "22222222": _make_dat_entry(
+            "Super Mario World (Europe)", "SMW (Europe).zip",
+            "22222222", region="Europe",
+        ),
+    }
+
+    def test_dat_title_used_for_grouping(self, tmp_path):
+        roms = _make_local_roms(tmp_path, self.FILENAMES)
+        selected, _ = filter_roms_from_files(
+            roms, str(tmp_path / "dest"), "snes",
+            dry_run=True, best_version=True,
+            dat_entries=self.DAT_ENTRIES, no_verify=True,
+        )
+        # Both DAT names normalize to "super mario world", so the two
+        # files are one game and only the USA copy survives.
+        assert len(selected) == 1
+        assert selected[0].filename == "Super Mario World (USA).zip"
+
+    def test_without_dats_titles_do_not_group(self, tmp_path):
+        roms = _make_local_roms(tmp_path, self.FILENAMES)
+        selected, _ = filter_roms_from_files(
+            roms, str(tmp_path / "dest"), "snes",
+            dry_run=True, best_version=True,
+        )
+        # Control: the filenames alone ("Super Mario World" vs "SMW")
+        # give two distinct titles, so nothing is deduped.
+        assert len(selected) == 2
+
+    def test_dat_title_grouping_records_loser_reason(self, tmp_path):
+        roms = _make_local_roms(tmp_path, self.FILENAMES)
+        _, info = filter_roms_from_files(
+            roms, str(tmp_path / "dest"), "snes",
+            dry_run=True, best_version=True,
+            dat_entries=self.DAT_ENTRIES, no_verify=True,
+        )
+        reasons = info["excluded_reasons"]
+        assert len(reasons) == 1
+        loser = next(p for p in roms if p.name == "SMW (Europe).zip")
+        assert reasons[str(loser)] == "lower region priority"
+
+    def test_dry_run_with_dats_does_not_touch_dest(self, tmp_path):
+        roms = _make_local_roms(tmp_path, self.FILENAMES)
+        dest = tmp_path / "dest_untouched"
+        filter_roms_from_files(
+            roms, str(dest), "snes",
+            dry_run=True, best_version=True,
+            dat_entries=self.DAT_ENTRIES, no_verify=True,
+        )
+        # A preview must never hash local ROMs or drop a CRC cache into
+        # the destination before the user commits.
+        assert not dest.exists()
+
+    def test_no_verify_skips_crc_cache_io(self, tmp_path, monkeypatch):
+        calls = []
+        monkeypatch.setattr(
+            'retro_refiner.filter.load_crc_cache',
+            lambda path: calls.append('load') or {},
+        )
+        monkeypatch.setattr(
+            'retro_refiner.filter.save_crc_cache',
+            lambda path, cache: calls.append('save'),
+        )
+        roms = _make_local_roms(tmp_path, self.FILENAMES)
+        filter_roms_from_files(
+            roms, str(tmp_path / "dest"), "snes",
+            dry_run=True, best_version=True,
+            dat_entries=self.DAT_ENTRIES, no_verify=True,
+        )
+        assert calls == []
+
+
+# =============================================================================
+# filter_roms_from_files — Filter breakdown
+# =============================================================================
+
+class TestFilterRomsFromFilesBreakdown:
+    """info['filter_breakdown'] mirrors the network reason vocabulary."""
+
+    def test_breakdown_tracks_prototype(self, tmp_path):
+        roms = _make_local_roms(tmp_path, [
+            "Mario (USA).zip", "Proto (Proto).zip",
+        ])
+        _, info = filter_roms_from_files(
+            roms, str(tmp_path / "dest"), "nes",
+            dry_run=True, best_version=True, exclude_protos=True,
+        )
+        assert info["filter_breakdown"].get("prototype", 0) == 1
+
+    def test_breakdown_tracks_exclude_pattern(self, tmp_path):
+        roms = _make_local_roms(tmp_path, [
+            "Mario (USA).zip", "Zelda (USA).zip",
+        ])
+        _, info = filter_roms_from_files(
+            roms, str(tmp_path / "dest"), "nes",
+            dry_run=True, best_version=True,
+            exclude_patterns=["*zelda*"],
+        )
+        assert info["filter_breakdown"].get("exclude pattern", 0) == 1
+
+    def test_breakdown_tracks_1g1r_losers(self, tmp_path):
+        roms = _make_local_roms(tmp_path, [
+            "Mario (USA).zip", "Mario (Europe).zip",
+        ])
+        selected, info = filter_roms_from_files(
+            roms, str(tmp_path / "dest"), "nes",
+            dry_run=True, best_version=True,
+        )
+        assert len(selected) == 1
+        assert info["filter_breakdown"]["lower region priority"] == 1
+
+    def test_breakdown_tracks_non_english(self, tmp_path):
+        roms = _make_local_roms(tmp_path, [
+            "Mario (USA).zip", "Jeu (Japan).zip",
+        ])
+        _, info = filter_roms_from_files(
+            roms, str(tmp_path / "dest"), "nes",
+            dry_run=True, best_version=True, english_only=True,
+        )
+        assert info["filter_breakdown"].get("non-english", 0) == 1
+
+    def test_breakdown_keys_match_network_vocabulary(self, tmp_path):
+        roms = _make_local_roms(tmp_path, [
+            "Mario (USA).zip", "Game (Beta).zip",
+        ])
+        _, info = filter_roms_from_files(
+            roms, str(tmp_path / "dest"), "nes",
+            dry_run=True, best_version=True, include_betas=False,
+        )
+        # Lowercase keys identical to filter_network_roms, so the GUI
+        # renders one consistent set of tags for both source types.
+        assert info["filter_breakdown"].get("beta", 0) == 1
+        assert set(info["excluded_reasons"].values()) == {"beta"}
+
+    def test_transfer_path_also_returns_breakdown(self, tmp_path):
+        rom_dir = tmp_path / "roms"
+        rom_dir.mkdir()
+        roms = _make_local_roms(rom_dir, [
+            "Mario (USA).zip", "Game (Beta).zip",
+        ])
+        dest = tmp_path / "dest"
+        selected, info = filter_roms_from_files(
+            roms, str(dest), "nes",
+            dry_run=False, best_version=True, transfer_mode='copy',
+        )
+        assert len(selected) == 1
+        assert (dest / "nes" / "Mario (USA).zip").exists()
+        assert info["filter_breakdown"].get("beta", 0) == 1
+
+    def test_no_filter_reports_empty_breakdown(self, tmp_path):
+        roms = _make_local_roms(tmp_path, [
+            "Mario (USA).zip", "Game (Beta).zip", "Proto (Proto).zip",
+        ])
+        selected, info = filter_roms_from_files(
+            roms, str(tmp_path / "dest"), "nes",
+            dry_run=True, no_filter=True,
+        )
+        assert len(selected) == 3
+        assert info["filter_breakdown"] == {}
+
+
+# =============================================================================
 # filter_roms_from_files — English-Only (from test_filter_dat)
 # =============================================================================
 

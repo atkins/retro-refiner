@@ -5,6 +5,7 @@ import threading
 import time
 import urllib.parse
 from collections import Counter
+from functools import lru_cache
 from pathlib import Path
 from statistics import median
 
@@ -25,6 +26,21 @@ _SYSTEM_ABBREVS = frozenset(
     ('snes', 'nes', 'gba', 'gbc', 'n64', 'psx', 'ps2', 'ps3', 'psp',
      '3do', '3ds', 'dsi', 'fds', 'msx', 'msx2', 'n64dd', 'ngp', 'ngpc',
      'scv', 'sgx', 'tg16', 'tgcd'))
+
+# Arcade / TeknoParrot systems: they carry their own metadata (catver.ini,
+# MAME DAT) rather than libretro DATs, and their filters accept local paths.
+_ARCADE_SYSTEMS = frozenset(
+    ('mame', 'fbneo', 'fba', 'arcade', 'teknoparrot'))
+
+
+@lru_cache(maxsize=4096)
+def _folder_system(name: str):
+    """System code a single folder name identifies, or None.
+
+    Cached because a commit resolves the same folder names once per file.
+    """
+    from retro_refiner.scanner import detect_system_from_path  # pylint: disable=import-outside-toplevel
+    return detect_system_from_path(name)
 
 
 def _display_name(system: str) -> str:
@@ -419,7 +435,8 @@ class Api:
         # Budget
         bud = self._config.budget
         bud.top = ui.get('top') or None
-        bud.limit = _int_or_none(ui.get('limit'))
+        # bud.limit has no sidebar widget (merged into top-N); it is set
+        # from the config file only, so any loaded value is left intact.
         bud.size = ui.get('size') or None
         bud.include_unrated = ui.get('include_unrated', False)
         bud.prefer_exclusives = _float_or_none(
@@ -1024,6 +1041,32 @@ class Api:
 
         return all_urls, all_sizes, local_systems, all_systems
 
+    def _load_console_dats(self, system, config):
+        """Download + load libretro DAT entries for a console system.
+
+        Returns a CRC-keyed dict of DatRomEntry, or None if unavailable.
+        """
+        from retro_refiner.dat import (  # pylint: disable=import-outside-toplevel
+            download_libretro_dat, load_all_system_dats,
+        )
+        try:
+            dat_dir = Path(config.advanced.dat_dir or './dat_files')
+            dat_dir.mkdir(parents=True, exist_ok=True)
+            if not download_libretro_dat(system, dat_dir):
+                return None
+            dat_entries = load_all_system_dats(system, dat_dir)
+        except Exception as exc:  # pylint: disable=broad-except
+            self._push_event('log', {
+                'text': f'  DAT load error: {exc}\n',
+                'className': 'log-error',
+            })
+            return None
+        if dat_entries:
+            self._push_event('log', {
+                'text': f'  Loaded {len(dat_entries)} DAT entries\n',
+            })
+        return dat_entries or None
+
     def _filter_system(self, system, urls, local_files,
                        config, all_sizes):
         """Filter ROMs for a single system.
@@ -1036,14 +1079,18 @@ class Api:
                      system, len(urls), len(local_files))
         source_count = len(urls) + len(local_files)
 
-        # Compute sizes
+        # Compute sizes.  ``entry_sizes`` is keyed the way the arcade
+        # filters key their input: a URL string or a local path string.
         net_size = sum(all_sizes.get(u, 0) for u in urls)
+        entry_sizes = {u: all_sizes.get(u, 0) for u in urls}
+        local_keys = {}  # str(path) -> Path, for arcade entry map-back
         local_size = 0
         for filepath in local_files:
-            try:
-                local_size += Path(filepath).stat().st_size
-            except OSError:
-                pass
+            key = str(filepath)
+            size = _local_file_size(key)
+            local_keys[key] = Path(filepath)
+            entry_sizes[key] = size
+            local_size += size
         sys_size = net_size + local_size
 
         display_name = _display_name(system)
@@ -1096,8 +1143,22 @@ class Api:
         result = None
         sel = config.selection
 
-        # --- Filter network URLs ---
-        if urls:
+        # Arcade filters (MAME/FBNeo/TeknoParrot) key off the basename --
+        # plus the parent folder, for CHD resolution -- which a local path
+        # carries just as well as a URL, so network and local entries go
+        # through them as one list.  ``local_keys`` maps the result back.
+        arcade = system in _ARCADE_SYSTEMS
+        entries = (list(urls) + list(local_keys)) if arcade else list(urls)
+        selected_entries = entries
+
+        # --- Load DATs once per system, shared by network + local ---
+        dat_entries = None
+        if (not arcade and (urls or local_files)
+                and not config.advanced.no_dat):
+            dat_entries = self._load_console_dats(system, config)
+
+        # --- Filter ROMs (arcade filters take local paths too) ---
+        if entries:
             try:
                 if system in ('mame', 'fbneo', 'fba', 'arcade'):
                     from retro_refiner.mame import (  # pylint: disable=import-outside-toplevel
@@ -1112,14 +1173,14 @@ class Api:
                     if catver_path and dat_path:
                         categories = parse_catver_ini(str(catver_path))
                         games = parse_mame_dat(str(dat_path))
-                        selected_urls, _info = filter_mame_network_roms(
-                            urls,
+                        selected_entries, _info = filter_mame_network_roms(
+                            entries,
                             categories=categories,
                             games=games,
                             include_patterns=sel.include_patterns or None,
                             exclude_patterns=sel.exclude_patterns or None,
                             include_adult=not config.advanced.no_adult,
-                            url_sizes=all_sizes,
+                            url_sizes=entry_sizes,
                             verbose=sel.verbose,
                             no_filter=sel.all_roms,
                             english_only=sel.english_only,
@@ -1136,15 +1197,15 @@ class Api:
                     tp_include = None
                     if config.advanced.tp_include_platforms:
                         tp_include = {p.strip() for p in config.advanced.tp_include_platforms.split(',')}
-                    selected_urls, _info = filter_teknoparrot_network_roms(
-                        urls,
+                    selected_entries, _info = filter_teknoparrot_network_roms(
+                        entries,
                         include_platforms=tp_include,
                         exclude_platforms=tp_exclude,
                         region_priority=sel.region_priority,
                         keep_all_versions=config.advanced.tp_all_versions,
                         include_patterns=sel.include_patterns or None,
                         exclude_patterns=sel.exclude_patterns or None,
-                        url_sizes=all_sizes,
+                        url_sizes=entry_sizes,
                         verbose=sel.verbose,
                         no_filter=sel.all_roms,
                         english_only=sel.english_only,
@@ -1153,28 +1214,14 @@ class Api:
                     if isinstance(_info, dict):
                         url_reasons = _info.get('excluded_reasons', {})
                 else:
-                    # Console system -- load DATs for better filtering
-                    dat_entries = None
-                    if not config.advanced.no_dat:
-                        from retro_refiner.dat import (  # pylint: disable=import-outside-toplevel
-                            download_libretro_dat, load_all_system_dats,
-                        )
-                        dat_dir = Path(config.advanced.dat_dir or './dat_files')
-                        dat_dir.mkdir(parents=True, exist_ok=True)
-                        dat_path = download_libretro_dat(system, dat_dir)
-                        if dat_path:
-                            dat_entries = load_all_system_dats(system, dat_dir)
-                            if dat_entries:
-                                self._push_event('log', {
-                                    'text': f'  Loaded {len(dat_entries)} DAT entries\n',
-                                })
-
+                    # Console system -- DATs were loaded above and are
+                    # shared with the local-file branch below.
                     result = filter_network_roms(
                         system, urls, config,
                         url_sizes=all_sizes,
                         dat_entries=dat_entries,
                     )
-                    selected_urls = result.selected
+                    selected_entries = result.selected
                     filter_breakdown = result.stats.filter_breakdown if result.stats else {}
                     # Build filename-keyed reason map from excluded list
                     fname_reasons = {exc.filename: exc.reason
@@ -1190,8 +1237,20 @@ class Api:
                     'className': 'log-error',
                 })
 
-        # --- Filter local files ---
-        if local_files:
+        if arcade:
+            # Split the arcade result back into network and local halves
+            selected_urls = [e for e in selected_entries
+                             if e not in local_keys]
+            selected_local = [local_keys[e] for e in selected_entries
+                              if e in local_keys]
+            # Re-derive the selected local size (it held the source size)
+            local_size = sum(entry_sizes.get(str(f), 0)
+                             for f in selected_local)
+        else:
+            selected_urls = selected_entries
+
+        # --- Filter local files (console systems only) ---
+        if local_files and not arcade:
             try:
                 region_list = sel.region_priority or None
                 kr = sel.keep_regions
@@ -1220,6 +1279,12 @@ class Api:
                     no_filter=sel.all_roms,
                     best_version=sel.best_version,
                     english_only=sel.english_only,
+                    dat_entries=dat_entries,
+                    # A preview must never hash every local ROM: CRC
+                    # verification only overrides post-selection region
+                    # data this caller discards, and it would write a CRC
+                    # cache into the destination before commit.
+                    no_verify=True,
                 )
                 name_to_path = {Path(f).name: Path(f)
                                 for f in local_files}
@@ -1232,6 +1297,16 @@ class Api:
                 # Merge local file exclusion reasons
                 local_reasons = local_info.get('excluded_reasons', {})
                 url_reasons.update(local_reasons)
+                # Merge the local breakdown additively -- a system with
+                # both source types must report every exclusion, not just
+                # the network ones.  Copy first so the FilterResult's own
+                # stats dict is not mutated in place.
+                local_breakdown = local_info.get('filter_breakdown', {})
+                if local_breakdown:
+                    merged = dict(filter_breakdown)
+                    for reason, count in local_breakdown.items():
+                        merged[reason] = merged.get(reason, 0) + count
+                    filter_breakdown = merged
             except Exception as exc:  # pylint: disable=broad-except
                 self._push_event('log', {
                     'text': f'  Local filter error: {exc}\n',
@@ -1260,7 +1335,8 @@ class Api:
             rom_name = fname.rsplit('.', 1)[0]
             preview.append(title_map.get(rom_name, rom_name))
         for f in selected_local[:max(0, 5 - len(preview))]:
-            preview.append(Path(f).stem)
+            stem = Path(f).stem
+            preview.append(title_map.get(stem, stem))
 
         verbose_stats = self._compute_system_stats(
             selected_urls, selected_local, all_sizes, system)
@@ -1746,6 +1822,31 @@ class Api:
                 return clean[len(src_clean) + 1:]
         return clean.split('/')[-1]
 
+    def _local_to_relpath(self, filepath, sources, system):
+        """Extract relative path for a local file based on source roots.
+
+        Mirrors _url_to_relpath for filesystem sources so a recursive scan
+        keeps its subdirectory structure instead of collapsing to the
+        basename.  The base is the deepest ancestor folder that names the
+        system (the scanner used that folder to assign the system, and the
+        destination already has a folder for it); otherwise the source
+        root.  Falls back to just the filename if no source matches.
+        """
+        p_file = Path(filepath)
+        for src in sources:
+            if '://' in str(src):
+                continue
+            try:
+                parts = p_file.relative_to(Path(src)).parts
+            except ValueError:
+                continue
+            start = 0
+            for idx, part in enumerate(parts[:-1]):
+                if _folder_system(part) == system:
+                    start = idx + 1
+            return '/'.join(parts[start:])
+        return p_file.name
+
     def _download_to_destination(self, downloads, parallel, system):
         """Download files to destination with temp file safety.
 
@@ -1766,25 +1867,45 @@ class Api:
                 tmp_path.rename(final_path)
 
     def _check_disk_space(self, config, all_systems, total_size, dest_dir):
-        """Check disk space before committing. Returns False if insufficient."""
-        if total_size <= 0 or not dest_dir.exists():
+        """Check disk space before committing. Returns False if insufficient.
+
+        ``total_size`` covers the remote downloads only.  Local transfers
+        are priced here instead, because what they cost depends on the
+        transfer mode: links and same-volume moves consume nothing.
+        """
+        if not dest_dir.exists():
             return True
         import shutil as _shutil  # pylint: disable=import-outside-toplevel
         try:
             existing_size = 0
+            local_size = 0
             flat = config.output.flat
+            action = config.output.local_file_action
+            dest_vol = _volume_id(dest_dir)
             for system in all_systems:
                 sys_data = self._last_results.get(system, {})
-                sys_urls = sys_data.get('selected_urls', [])
                 target = dest_dir if flat else dest_dir / system
-                if not target.is_dir():
+                target_exists = target.is_dir()
+                # Local files land at the relative path the commit will
+                # use, and transfer_files skips any already there.
+                for filepath in sys_data.get('selected_local', []):
+                    relpath = (Path(filepath).name if flat
+                               else self._local_to_relpath(
+                                   filepath, config.sources, system))
+                    if target_exists and (target / relpath).exists():
+                        continue
+                    local_size += _local_transfer_cost(
+                        filepath, action, dest_vol)
+                if not target_exists:
                     continue
-                for url in sys_urls:
-                    relpath = self._url_to_relpath(url, config.sources)
+                for url in sys_data.get('selected_urls', []):
+                    relpath = (self._url_to_filename(url) if flat
+                               else self._url_to_relpath(
+                                   url, config.sources))
                     fpath = target / relpath
                     if fpath.exists():
                         existing_size += fpath.stat().st_size
-            needed = total_size - existing_size
+            needed = total_size + local_size - existing_size
             free = _shutil.disk_usage(dest_dir).free
             if needed > 0 and free < needed:
                 from retro_refiner.network import format_size  # pylint: disable=import-outside-toplevel
@@ -1814,10 +1935,12 @@ class Api:
         # Apply manual picker overrides
         manual = self._manual_selections.get(system, {})
         if manual:
-            selected_urls = [u for u in selected_urls
-                             if manual.get(self._url_to_filename(u), True)]
+            titles = result.get('title_map', {})
+            selected_urls = [
+                u for u in selected_urls
+                if _manual_keep(manual, titles, self._url_to_filename(u))]
             local_files = [f for f in local_files
-                           if manual.get(Path(f).name, True)]
+                           if _manual_keep(manual, titles, Path(f).name)]
 
         # Remove mode: delete excluded local files from source folders
         if config.output.local_file_action == 'remove':
@@ -1855,17 +1978,27 @@ class Api:
         target_dir = dest_dir if flat else dest_dir / system
         target_dir.mkdir(parents=True, exist_ok=True)
 
-        # Build expected file set with sizes, using relative paths
-        # to preserve subdirectory structure from recursive scans
+        # Build expected file set with sizes, using relative paths to
+        # preserve subdirectory structure from recursive scans.  Flat
+        # output deliberately collapses everything to bare filenames.
         expected = {}
+        url_relpaths = {}    # url -> destination-relative path
+        local_relpaths = {}  # str(source path) -> destination-relative path
         sizes = result.get('sizes', {})
         for url in selected_urls:
-            relpath = self._url_to_relpath(url, config.sources)
+            relpath = (self._url_to_filename(url) if flat
+                       else self._url_to_relpath(url, config.sources))
+            url_relpaths[url] = relpath
             expected[relpath] = sizes.get(url, 0)
         for filepath in local_files:
             p_file = Path(filepath)
-            if p_file.exists():
-                expected[p_file.name] = p_file.stat().st_size
+            if not p_file.exists():
+                continue
+            relpath = (p_file.name if flat
+                       else self._local_to_relpath(
+                           p_file, config.sources, system))
+            local_relpaths[str(p_file)] = relpath
+            expected[relpath] = p_file.stat().st_size
 
         # Phase 1: Validate destination
         logger.debug("{}: validating destination ({} expected files)",
@@ -1894,7 +2027,7 @@ class Api:
         # Phase 2: Download remote files directly to destination
         downloads = []
         for url in selected_urls:
-            relpath = self._url_to_relpath(url, config.sources)
+            relpath = url_relpaths[url]
             if relpath in skip_files:
                 continue
             dest_path = target_dir / relpath
@@ -1917,8 +2050,10 @@ class Api:
         display = _display_name(system)
         if local_files and config.output.local_file_action != 'remove':
             from retro_refiner.transfer import transfer_files  # pylint: disable=import-outside-toplevel
-            files_to_transfer = [Path(f) for f in local_files
-                                 if Path(f).name not in skip_files]
+            files_to_transfer = [
+                Path(f) for f in local_files
+                if local_relpaths.get(str(Path(f)), Path(f).name)
+                not in skip_files]
             if files_to_transfer:
                 total_local = len(files_to_transfer)
                 self._push_event('log', {
@@ -1954,7 +2089,8 @@ class Api:
                     files_to_transfer, dest_dir, system=system,
                     mode=config.output.local_file_action,
                     flat=flat,
-                    on_progress=_on_local_progress)
+                    on_progress=_on_local_progress,
+                    relpaths=local_relpaths)
                 logger.debug("{}: transferred {} local files",
                              system, stats["transferred"])
                 self._push_event('log', {
@@ -2112,9 +2248,59 @@ class Api:
             })
 
     def _apply_budget_filters(self, config, all_systems, all_sizes):
-        """Apply --top and --size budget filters after filtering."""
+        """Apply --limit, --top and --size budget filters after filtering."""
+        if config.budget.limit:
+            self._apply_hard_limit(config.budget.limit, all_systems,
+                                   all_sizes)
         if config.budget.top or config.budget.size:
             self._apply_ratings_budget(config, all_systems, all_sizes)
+
+    def _apply_hard_limit(self, limit, all_systems, all_sizes):
+        """Cap the total number of selected ROMs across all systems.
+
+        Mirrors the CLI's ``--limit``: systems are walked in name order and
+        truncated once the shared budget runs out.  Network and local
+        selections draw on the one budget, URLs first.
+        """
+        remaining = limit
+        retained = 0
+        for system in sorted(all_systems):
+            if not self._running:
+                return
+            sys_data = self._last_results.get(system, {})
+            sys_urls = sys_data.get('selected_urls', [])
+            sys_local = sys_data.get('selected_local', [])
+            source_total = len(sys_urls) + len(sys_local)
+            if source_total == 0:
+                continue
+            if source_total <= remaining:
+                remaining -= source_total
+                retained += source_total
+                continue
+
+            new_urls = sys_urls[:remaining]
+            new_local = sys_local[:max(0, remaining - len(sys_urls))]
+            remaining = 0
+            sys_data['selected_urls'] = new_urls
+            sys_data['selected_local'] = new_local
+            kept = len(new_urls) + len(new_local)
+            retained += kept
+            new_size = sum(all_sizes.get(u, 0) for u in new_urls)
+            new_size += sum(_local_file_size(f) for f in new_local)
+            self._push_event('card', {
+                'system': system,
+                'state': 'complete',
+                'selected_count': kept,
+                'excluded_count': source_total - kept,
+                'selected_size': new_size,
+                'source_count': source_total,
+                'source_size': 0,
+                'filter_breakdown': {},
+            })
+
+        self._push_event('log', {
+            'text': f'\n  limit {limit}: {retained} ROMs retained\n',
+        })
 
     def _apply_ratings_budget(self, config, all_systems, all_sizes):
         """Load ratings and apply --top / --size budget filters."""
@@ -2284,8 +2470,9 @@ class Api:
             # Apply manual picker overrides
             manual = self._manual_selections.get(system, {})
             if manual:
+                titles = result.get('title_map', {})
                 selected = {f for f in selected
-                            if manual.get(Path(f).name, True)}
+                            if _manual_keep(manual, titles, Path(f).name)}
             to_delete = all_local - selected
             for fpath in to_delete:
                 parent = str(Path(fpath).parent)
@@ -2351,11 +2538,12 @@ class Api:
                     reason = _get_exclusion_reason(rom_info)
             rom_name = Path(filename).stem
             display_name = title_map.get(rom_name, filename)
+            region = region_map.get(rom_name, rom_info.region)
             roms.append({
                 'filename': display_name,
                 'url': str(filepath),
                 'size': size,
-                'region': rom_info.region,
+                'region': region,
                 'status': 'selected' if is_selected else 'excluded',
                 'reason': reason,
             })
@@ -2494,6 +2682,21 @@ class Api:
         return ''
 
 
+def _manual_keep(manual, title_map, filename):
+    """Look up a manual picker override for a ROM filename.
+
+    The picker labels arcade rows with the MAME description rather than
+    the filename, so an override may be keyed by either.  Defaults to
+    keeping the ROM.
+    """
+    if filename in manual:
+        return manual[filename]
+    display = title_map.get(Path(filename).stem)
+    if display in manual:
+        return manual[display]
+    return True
+
+
 def _get_exclusion_reason(rom_info):
     """Return a human-readable reason why a ROM was excluded."""
     reasons = []
@@ -2562,6 +2765,43 @@ def _local_file_size(path):
         return Path(path).stat().st_size
     except OSError:
         return 0
+
+
+def _volume_id(path):
+    """Identify the volume a path lives on, or None if unreadable.
+
+    ``st_dev`` is the device id on POSIX and the volume serial number on
+    Windows, so it tracks the real volume through drive-letter aliasing,
+    junctions and mount points -- all of which a drive-letter comparison
+    gets wrong.
+    """
+    try:
+        return Path(path).stat().st_dev
+    except OSError:
+        return None
+
+
+# Local transfer modes that never write bytes into the destination:
+# 'link'/'hardlink' create a directory entry, and 'remove' deletes from the
+# source without touching the destination.  Keep in sync with
+# transfer.transfer_files, which copies any mode it does not recognise --
+# notably the GUI's 'symlink' value, which is not its 'link' mode.
+_FREE_LOCAL_ACTIONS = frozenset(('link', 'hardlink', 'remove'))
+
+
+def _local_transfer_cost(path, action, dest_vol):
+    """Destination bytes a local ROM consumes under a transfer mode.
+
+    A move within a single volume is a rename and costs nothing.  Anything
+    not provably free -- including an unreadable volume id -- is charged
+    the full file size.
+    """
+    if action in _FREE_LOCAL_ACTIONS:
+        return 0
+    if (action == 'move' and dest_vol is not None
+            and _volume_id(path) == dest_vol):
+        return 0
+    return _local_file_size(path)
 
 
 def _parse_size_string(size_str):

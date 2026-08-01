@@ -22,12 +22,12 @@ python -m retro_refiner --export-config
 
 ### Run tests
 ```bash
-python -m pytest                     # 1315 tests, ~2s
+python -m pytest                     # 1398 tests, ~2s
 python -m pytest -v                  # verbose output
 python -m pytest tests/test_selection.py  # just core tests
 python tests/test_smoke.py           # network smoke tests (slow, needs Myrient)
 ```
-Uses pytest. Config in `pyproject.toml`. Smoke tests excluded by default. **1315 tests total, all passing.**
+Uses pytest. Config in `pyproject.toml`. Smoke tests excluded by default. **1398 tests total, all passing.**
 
 ### Lint
 ```bash
@@ -224,8 +224,10 @@ CHD filenames (e.g., `040503_1309.chd`) resolve to MAME games via three lookups 
 
 Multi-CHD games (69 parents) need all their CHDs selected. Shared system CHDs (e.g., Lindbergh `mda-c0004a...chd` across 19 games) must only appear once in selected_urls. `game_to_chd_files` reverse-maps game→CHD filenames present in the URL set.
 
+Local arcade ROMs go through the same filters: `_filter_system` passes `list(urls) + [str(p) for p in local_files]` as one entry list (systems in `_ARCADE_SYSTEMS`), since the MAME/TP filters only read the basename and parent folder name (`network.get_filename_from_entry`, `mame._entry_parent_name`). The result is split back into `selected_urls` / `selected_local` via the `local_keys` map. A URL and a local file sharing a basename deliberately collide into one entry — network and local ROMs compete in a single pool rather than being counted twice.
+
 ### Local File Filtering
-Local files go through `filter_roms_from_files(dry_run=True)` with the same selection config as network sources. Results are combined with network filtering for accurate counts.
+Local files go through `filter_roms_from_files(dry_run=True)` with the same selection config as network sources, sharing the DAT entries loaded once per system by `_load_console_dats` (so local ROMs group by the same canonical DAT titles network ROMs do). CRC verification is force-disabled on this path (`no_verify=True`) because a preview must not hash every local ROM or write a CRC cache into the destination. Arcade systems are the exception: they bypass this function entirely (see MAME CHD Resolution). Results are combined with network filtering for accurate counts. `filter_roms_from_files` returns `filter_breakdown` keyed with the same lowercase reason vocabulary as `filter_network_roms`, and `_filter_system` merges the two additively.
 
 ### Cancellation
 `cancel_run()` sets `self._running = False` AND calls `network.request_shutdown()` to stop in-flight network operations. `_do_run()` calls `reset_shutdown()` at start. Cancellation is checked at multiple layers:

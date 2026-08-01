@@ -4,6 +4,7 @@ Covers: TeknoParrot DAT parsing, TP filtering pipeline, name normalization,
 version parsing, region priority, and platform filtering.
 """
 # pylint: disable=missing-function-docstring
+import os
 import sys
 from pathlib import Path
 
@@ -509,3 +510,67 @@ class TestFilterTeknoParrotNetworkRoms:
             region_priority=['Japan', 'Export'])
         assert len(selected) == 1
         assert 'Japan' in selected[0]
+
+
+# =============================================================================
+# TeknoParrot filtering of LOCAL filesystem entries (network/local parity)
+# =============================================================================
+
+class TestFilterTeknoParrotLocalEntries:
+    """Local paths must be treated like URLs: only the basename matters."""
+
+    @pytest.fixture
+    def local_versions(self, tmp_path):
+        """Two versions of the same game in DIFFERENT subdirectories."""
+        names = [
+            'Initial D (1.0) (2012) [Sega RingEdge 2] [TP].zip',
+            'Initial D (2.0) (2014) [Sega RingEdge 2] [TP].zip',
+        ]
+        paths = []
+        for idx, name in enumerate(names):
+            subdir = tmp_path / f'disc{idx}'
+            subdir.mkdir()
+            target = subdir / name
+            target.write_bytes(b'x' * 1000)
+            paths.append(str(target))
+        return paths
+
+    def test_version_dedup_across_subfolders(self, local_versions):
+        """Dedup must group by basename, not by full path."""
+        sizes = {p: 1000 for p in local_versions}
+        selected, _ = filter_teknoparrot_network_roms(
+            local_versions, url_sizes=sizes)
+        assert len(selected) == 1
+        assert '(2.0)' in Path(selected[0]).name
+
+    def test_local_entries_returned_verbatim(self, local_versions):
+        """The selected entry is the original path, not a basename."""
+        sizes = {p: 1000 for p in local_versions}
+        selected, info = filter_teknoparrot_network_roms(
+            local_versions, url_sizes=sizes)
+        assert selected[0] in local_versions
+        assert Path(selected[0]).is_file()
+        # Sizes are keyed by the same entries, so accounting still works.
+        assert info['source_size'] == 2000
+        assert info['selected_size'] == 1000
+        assert info['excluded_reasons'][local_versions[0]] == (
+            'duplicate version')
+
+    def test_keep_all_versions_local(self, local_versions):
+        sizes = {p: 1000 for p in local_versions}
+        selected, _ = filter_teknoparrot_network_roms(
+            local_versions, url_sizes=sizes, keep_all_versions=True)
+        assert sorted(selected) == sorted(local_versions)
+
+    @pytest.mark.skipif(os.name != 'nt',
+                        reason='backslash-separated paths are Windows-only')
+    def test_windows_backslash_paths_dedup(self):
+        """A pure Windows path has no '/' at all — basename must still parse."""
+        paths = [
+            r'D:\roms\tp\a\Initial D (1.0) (2012) [Sega RingEdge 2] [TP].zip',
+            r'D:\roms\tp\b\Initial D (2.0) (2014) [Sega RingEdge 2] [TP].zip',
+        ]
+        selected, _ = filter_teknoparrot_network_roms(
+            paths, url_sizes={p: 1000 for p in paths})
+        assert len(selected) == 1
+        assert '(2.0)' in Path(selected[0]).name

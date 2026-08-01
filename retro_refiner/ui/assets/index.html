@@ -1525,7 +1525,7 @@ function restoreUiState(cfg) {
 
   /* Budget */
   document.getElementById('opt-top').value = bud.top || '';
-  // opt-limit removed (merged into top-N)
+  // No opt-limit widget (merged into top-N); bud.limit is config-file only
   document.getElementById('opt-size').value = bud.size || '';
   document.getElementById('opt-include-unrated').checked = !!bud.include_unrated;
   document.getElementById('opt-prefer-exclusives').value = bud.prefer_exclusives || '';
@@ -1641,7 +1641,6 @@ function gatherUiState() {
     year_to: document.getElementById('opt-year-to').value || '',
     /* Budget */
     top: document.getElementById('opt-top').value || '',
-    limit: '',
     size: document.getElementById('opt-size').value || '',
     include_unrated: document.getElementById('opt-include-unrated').checked,
     prefer_exclusives: document.getElementById('opt-prefer-exclusives').value || '',

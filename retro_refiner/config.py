@@ -57,7 +57,6 @@ class SelectionConfig:
     all_roms: bool = False
     best_version: bool = False
     verbose: bool = False
-    genres: Optional[str] = None
     year_from: Optional[int] = None
     year_to: Optional[int] = None
 

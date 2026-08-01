@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Callable, Dict, List, Optional, Tuple
 
 from retro_refiner.log import logger
+from retro_refiner.network import get_filename_from_entry
 
 
 # =============================================================================
@@ -595,6 +596,16 @@ def build_mame_copy_set(selected_roms, games, available_roms, set_format):
 # Network MAME filtering (standalone)
 # =============================================================================
 
+def _entry_parent_name(entry: str) -> str:
+    """Parent folder name of a URL or local path (used for CHD lookup)."""
+    if '://' in entry:
+        parts = entry.split('?')[0].split('#')[0].rstrip('/').split('/')
+        if len(parts) >= 2:
+            return urllib.request.unquote(parts[-2])
+        return ''
+    return Path(entry).parent.name
+
+
 def filter_mame_network_roms(rom_urls, categories, games,
                              include_patterns=None,
                              exclude_patterns=None,
@@ -604,9 +615,11 @@ def filter_mame_network_roms(rom_urls, categories, games,
                              no_filter=False,
                              english_only=False):
     # type: (List[str], dict, dict, list, list, bool, dict, bool, bool, bool) -> Tuple[List[str], dict]
-    """Filter MAME/FBNeo ROMs from network sources using category filtering.
+    """Filter MAME/FBNeo ROMs using category filtering.
 
-    Standalone implementation extracted from the monolith.
+    ``rom_urls`` entries may be URLs or local filesystem paths -- only the
+    basename and the parent folder name are consulted, and entries are
+    returned as given.
 
     Returns:
         (selected_urls, size_info_dict)
@@ -620,15 +633,13 @@ def filter_mame_network_roms(rom_urls, categories, games,
     total_source_size = 0
 
     for url in rom_urls:
-        url_clean = url.split('?')[0].split('#')[0]
-        filename = urllib.request.unquote(url_clean.split('/')[-1])
+        filename = get_filename_from_entry(url)
         url_map[filename] = url
         size = url_sizes.get(url, 0)
         size_map[filename] = size
         total_source_size += size
-        url_parts = url_clean.rstrip('/').split('/')
-        if len(url_parts) >= 2:
-            parent_folder = urllib.request.unquote(url_parts[-2])
+        parent_folder = _entry_parent_name(url)
+        if parent_folder:
             url_game_map[filename] = parent_folder
 
     # Build CHD name -> parent game lookup (keys without extension)
@@ -797,10 +808,11 @@ def filter_mame_network_roms(rom_urls, categories, games,
     logger.debug("MAME filter result: {} selected, {} excluded",
                  len(selected_urls), len(excluded_urls))
     for url in selected_urls:
-        logger.debug("  SELECTED: {}", url.split('/')[-1])
+        logger.debug("  SELECTED: {}", get_filename_from_entry(url))
     for url in excluded_urls:
         reason = excluded_reasons.get(url, 'unknown')
-        logger.debug("  EXCLUDED: {} ({})", url.split('/')[-1], reason)
+        logger.debug("  EXCLUDED: {} ({})",
+                     get_filename_from_entry(url), reason)
 
     # Build title and region maps: rom_name -> display info
     # Include all URLs (not just selected) so excluded ROMs also show titles
@@ -826,4 +838,5 @@ def filter_mame_network_roms(rom_urls, categories, games,
         'title_map': title_map,
         'region_map': region_map,
         'excluded_reasons': excluded_reasons,
+        'filter_breakdown': dict(excluded_counts),
     }

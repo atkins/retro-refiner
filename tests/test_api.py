@@ -5,6 +5,7 @@ Comprehensive tests for retro_refiner/ui/api.py.
 Tests the Api class and module-level helpers without requiring a GUI window.
 """
 
+import collections
 import json
 import shutil
 from pathlib import Path
@@ -14,10 +15,11 @@ import pytest
 from retro_refiner.ui.api import (
     Api, _display_name, _get_exclusion_reason,
     _parse_csv, _int_or_none, _float_or_none, _parse_size_string,
-    _SYSTEM_ABBREVS,
+    _SYSTEM_ABBREVS, _manual_keep, _volume_id, _local_transfer_cost,
 )
 from retro_refiner.config import Config
 from retro_refiner.filter import parse_rom_filename
+from retro_refiner.mame import MameGameInfo
 
 
 @pytest.fixture
@@ -26,6 +28,25 @@ def api():
     a = Api()
     a._window = None
     return a
+
+
+def _make_mame_game(name, description, year='1991',
+                    manufacturer='Test', category='Maze',
+                    is_parent=True, parent_name='', is_bios=False,
+                    is_device=False, has_chd=False, chd_names=None,
+                    region='World', bios_name='', rom_files=None):
+    """Build a MameGameInfo (12 required fields) for filter tests.
+
+    Mirrors the helper of the same name in tests/test_filter.py.
+    """
+    return MameGameInfo(
+        name=name, description=description, year=year,
+        manufacturer=manufacturer, category=category,
+        is_parent=is_parent, parent_name=parent_name,
+        is_bios=is_bios, is_device=is_device,
+        has_chd=has_chd, chd_names=chd_names or [], region=region,
+        bios_name=bios_name, rom_files=rom_files,
+    )
 
 
 # =============================================================================
@@ -226,7 +247,6 @@ def test_update_config_from_ui(api):
         'year_from': '1990',
         'year_to': '2000',
         'top': '100',
-        'limit': '500',
         'size': '10GB',
         'include_unrated': True,
         'prefer_exclusives': '1.5',
@@ -862,3 +882,605 @@ class TestBudgetFiltersLocalFiles:
         assert len(data['selected_urls']) + len(data['selected_local']) == 2
         assert len(data['selected_local']) == 1  # Chrono Trigger survives
         assert data['selected_urls'] == [urls[0]]  # Bad Game dropped
+
+# =============================================================================
+# Arcade local-file filtering - local ROMs must reach the arcade filters
+# =============================================================================
+
+class TestArcadeLocalFiltering:
+    """Regression: local arcade ROMs must go through the arcade filters.
+
+    Before the fix only network URLs were handed to
+    filter_mame_network_roms / filter_teknoparrot_network_roms, so a local
+    arcade folder got no category filtering, no version dedup and no
+    title/region maps.
+    """
+
+    @staticmethod
+    def _stub_mame_data(monkeypatch, tmp_path, categories, games):
+        """Patch the MAME data download/parse trio (no network)."""
+        import retro_refiner.mame as mame_mod
+
+        catver = tmp_path / 'catver.ini'
+        catver.write_text('[Category]\n', encoding='utf-8')
+        dat = tmp_path / 'mame.dat'
+        dat.write_text('<datafile></datafile>', encoding='utf-8')
+
+        monkeypatch.setattr(mame_mod, 'download_mame_data',
+                            lambda *a, **k: (catver, dat))
+        monkeypatch.setattr(mame_mod, 'parse_catver_ini',
+                            lambda *a, **k: dict(categories))
+        monkeypatch.setattr(mame_mod, 'parse_mame_dat',
+                            lambda *a, **k: dict(games))
+
+    @staticmethod
+    def _make_files(folder, specs):
+        """Create files under folder. specs: [(name, size), ...]"""
+        folder.mkdir(parents=True, exist_ok=True)
+        paths = []
+        for name, size in specs:
+            path = folder / name
+            path.write_bytes(b'\0' * size)
+            paths.append(str(path))
+        return paths
+
+    @staticmethod
+    def _config(tmp_path):
+        config = Config()
+        config.advanced.dat_dir = str(tmp_path / 'dat')
+        config.destination = str(tmp_path / 'dest')
+        return config
+
+    def _run(self, api, system, local_files, config):
+        api._last_results = {system: {'urls': [], 'sizes': {},
+                                      'local_files': list(local_files)}}
+        api._filter_system(system, [], list(local_files), config, {})
+        return api._last_results[system]
+
+    def test_local_mame_gets_category_filtering(self, api, tmp_path,
+                                                monkeypatch):
+        pacman, bios = self._make_files(
+            tmp_path / 'roms',
+            [('pacman.zip', 100), ('neogeo.zip', 50)])
+        self._stub_mame_data(
+            monkeypatch, tmp_path,
+            {'pacman': 'Maze', 'neogeo': 'System / BIOS'},
+            {'pacman': _make_mame_game('pacman', 'Pac-Man',
+                                       category='Maze'),
+             'neogeo': _make_mame_game('neogeo', 'Neo Geo BIOS',
+                                       category='System / BIOS',
+                                       is_bios=True)})
+
+        data = self._run(api, 'mame', [pacman, bios],
+                         self._config(tmp_path))
+
+        assert data['selected_local'] == [pacman]
+        assert data['url_reasons'][bios] == 'BIOS'
+
+    def test_local_mame_populates_title_and_region_maps(self, api, tmp_path,
+                                                        monkeypatch):
+        (sf2,) = self._make_files(tmp_path / 'roms', [('sf2.zip', 100)])
+        self._stub_mame_data(
+            monkeypatch, tmp_path, {'sf2': 'Fighter'},
+            {'sf2': _make_mame_game('sf2', 'Street Fighter II (World)',
+                                    category='Fighter', region='World')})
+
+        data = self._run(api, 'mame', [sf2], self._config(tmp_path))
+
+        assert data['selected_local'] == [sf2]
+        assert data['title_map']['sf2'] == 'Street Fighter II (World)'
+        assert data['region_map']['sf2'] == 'World'
+
+    def test_local_mame_adult_filter(self, api, tmp_path, monkeypatch):
+        (adult,) = self._make_files(tmp_path / 'roms', [('nudemj.zip', 100)])
+        self._stub_mame_data(
+            monkeypatch, tmp_path, {'nudemj': 'Maze * Mature *'},
+            {'nudemj': _make_mame_game('nudemj', 'Adult Game',
+                                       category='Maze * Mature *')})
+
+        config = self._config(tmp_path)
+        config.advanced.no_adult = True
+        data = self._run(api, 'mame', [adult], config)
+
+        assert data['selected_local'] == []
+        assert data['url_reasons'][adult] == 'Adult/mature content'
+
+    def test_local_teknoparrot_version_dedup(self, api, tmp_path):
+        old, new = self._make_files(tmp_path / 'roms', [
+            ('Wangan Midnight Maximum Tune 5 (1.03) '
+             '[Namco System 357] [TP].zip', 100),
+            ('Wangan Midnight Maximum Tune 5 (2.00) '
+             '[Namco System 357] [TP].zip', 100),
+        ])
+
+        data = self._run(api, 'teknoparrot', [old, new],
+                         self._config(tmp_path))
+
+        assert data['selected_local'] == [new]
+        assert data['url_reasons'][old] == 'duplicate version'
+
+    def test_console_system_still_uses_file_filter(self, api, tmp_path,
+                                                   monkeypatch):
+        """The 'not arcade' gate keeps console systems on the file path."""
+        import retro_refiner.filter as filter_mod
+        import retro_refiner.mame as mame_mod
+        import retro_refiner.teknoparrot as tp_mod
+
+        (game,) = self._make_files(tmp_path / 'roms',
+                                   [('Super Mario World (USA).sfc', 100)])
+
+        file_calls = []
+
+        def _file_spy(rom_files, **_kwargs):
+            file_calls.append(list(rom_files))
+            return ([parse_rom_filename(Path(f).name) for f in rom_files],
+                    {'selected_size': 100})
+
+        monkeypatch.setattr(filter_mod, 'filter_roms_from_files', _file_spy)
+
+        arcade_calls = []
+        monkeypatch.setattr(
+            mame_mod, 'filter_mame_network_roms',
+            lambda *a, **k: (arcade_calls.append('mame'), ([], {}))[1])
+        monkeypatch.setattr(
+            tp_mod, 'filter_teknoparrot_network_roms',
+            lambda *a, **k: (arcade_calls.append('tp'), ([], {}))[1])
+
+        config = self._config(tmp_path)
+        config.advanced.no_dat = True
+        data = self._run(api, 'snes', [game], config)
+
+        assert file_calls == [[game]]
+        assert arcade_calls == []
+        assert data['selected_local'] == [game]
+
+    def test_picker_shows_mame_region_for_local(self, api, tmp_path,
+                                                monkeypatch):
+        (sf2,) = self._make_files(tmp_path / 'roms', [('sf2.zip', 100)])
+        self._stub_mame_data(
+            monkeypatch, tmp_path, {'sf2': 'Fighter'},
+            {'sf2': _make_mame_game('sf2', 'Street Fighter II (World)',
+                                    category='Fighter', region='World')})
+
+        self._run(api, 'mame', [sf2], self._config(tmp_path))
+        rows = json.loads(api.get_system_roms('mame'))
+
+        assert len(rows) == 1
+        assert rows[0]['filename'] == 'Street Fighter II (World)'
+        assert rows[0]['region'] == 'World'
+        assert rows[0]['status'] == 'selected'
+
+
+# =============================================================================
+# _manual_keep tests
+# =============================================================================
+
+class TestManualKeep:
+    """Picker overrides may be keyed by filename or by display title."""
+
+    def test_matches_real_filename(self):
+        assert _manual_keep({'sf2.zip': False}, {}, 'sf2.zip') is False
+
+    def test_matches_display_title(self):
+        manual = {'Street Fighter II (World)': False}
+        titles = {'sf2': 'Street Fighter II (World)'}
+        assert _manual_keep(manual, titles, 'sf2.zip') is False
+
+    def test_defaults_to_true_without_override(self):
+        manual = {'other.zip': False}
+        titles = {'sf2': 'Street Fighter II (World)'}
+        assert _manual_keep(manual, titles, 'sf2.zip') is True
+
+
+# =============================================================================
+# DAT sharing between network and local filtering
+# =============================================================================
+
+class TestFilterSystemSharesDats:
+    """Local console filtering must receive the same DATs the URLs got."""
+
+    @staticmethod
+    def _spy_file_filter(monkeypatch, captured):
+        import retro_refiner.filter as filter_mod
+
+        def _fake(rom_files, **kwargs):
+            captured.update(kwargs)
+            captured['rom_files'] = list(rom_files)
+            return ([], {'selected_size': 0})
+
+        monkeypatch.setattr(filter_mod, 'filter_roms_from_files', _fake)
+
+    @staticmethod
+    def _stub_dat_loader(monkeypatch, api, loads, value):
+        monkeypatch.setattr(
+            api, '_load_console_dats',
+            lambda system, config: (loads.append(system), value)[1])
+
+    @staticmethod
+    def _make_rom(tmp_path, name='Game (USA).sfc'):
+        rom = tmp_path / name
+        rom.write_bytes(b'\0' * 16)
+        return str(rom)
+
+    def test_local_only_system_gets_dat_entries(self, api, tmp_path,
+                                                monkeypatch):
+        captured = {}
+        loads = []
+        sentinel = {'DEADBEEF': 'sentinel-entry'}
+        self._spy_file_filter(monkeypatch, captured)
+        self._stub_dat_loader(monkeypatch, api, loads, sentinel)
+
+        rom = self._make_rom(tmp_path)
+        config = Config()
+        config.advanced.dat_dir = str(tmp_path / 'dat')
+        api._last_results = {'snes': {'urls': [], 'sizes': {},
+                                      'local_files': [rom]}}
+        api._filter_system('snes', [], [rom], config, {})
+
+        assert loads == ['snes']
+        assert captured['dat_entries'] is sentinel
+        assert captured['no_verify'] is True
+
+    def test_no_dat_config_skips_the_load(self, api, tmp_path, monkeypatch):
+        captured = {}
+        loads = []
+        self._spy_file_filter(monkeypatch, captured)
+        self._stub_dat_loader(monkeypatch, api, loads, {'X': 'y'})
+
+        rom = self._make_rom(tmp_path)
+        config = Config()
+        config.advanced.dat_dir = str(tmp_path / 'dat')
+        config.advanced.no_dat = True
+        api._last_results = {'snes': {'urls': [], 'sizes': {},
+                                      'local_files': [rom]}}
+        api._filter_system('snes', [], [rom], config, {})
+
+        assert loads == []
+        assert captured['dat_entries'] is None
+
+    @pytest.mark.parametrize('system', ['mame', 'teknoparrot'])
+    def test_arcade_system_never_loads_console_dats(self, api, tmp_path,
+                                                    monkeypatch, system):
+        import retro_refiner.mame as mame_mod
+
+        monkeypatch.setattr(mame_mod, 'download_mame_data',
+                            lambda *a, **k: (None, None))
+        loads = []
+        self._stub_dat_loader(monkeypatch, api, loads, None)
+
+        rom = self._make_rom(tmp_path, 'sf2.zip')
+        config = Config()
+        config.advanced.dat_dir = str(tmp_path / 'dat')
+        api._last_results = {system: {'urls': [], 'sizes': {},
+                                      'local_files': [rom]}}
+        api._filter_system(system, [], [rom], config, {})
+
+        assert loads == []
+
+
+# =============================================================================
+# _local_to_relpath tests
+# =============================================================================
+
+class TestLocalToRelpath:
+    """Local files keep their subdirectories below the system folder."""
+
+    def test_strips_system_folder(self, api, tmp_path):
+        src = tmp_path / 'roms'
+        rom = src / 'snes' / 'usa' / 'game.zip'
+        assert api._local_to_relpath(rom, [str(src)], 'snes') == 'usa/game.zip'
+
+    def test_strips_no_intro_folder(self, api, tmp_path):
+        src = tmp_path / 'roms'
+        rom = (src / 'Nintendo - Super Nintendo Entertainment System'
+               / 'usa' / 'game.zip')
+        assert api._local_to_relpath(rom, [str(src)], 'snes') == 'usa/game.zip'
+
+    def test_keeps_non_system_subdir(self, api, tmp_path):
+        src = tmp_path / 'roms'
+        rom = src / 'Favorites' / 'game.zip'
+        assert (api._local_to_relpath(rom, [str(src)], 'snes')
+                == 'Favorites/game.zip')
+
+    def test_source_root_is_system_folder(self, api, tmp_path):
+        src = tmp_path / 'roms' / 'snes'
+        rom = src / 'usa' / 'game.zip'
+        assert api._local_to_relpath(rom, [str(src)], 'snes') == 'usa/game.zip'
+
+    def test_no_subdir(self, api, tmp_path):
+        src = tmp_path / 'roms'
+        rom = src / 'game.zip'
+        assert api._local_to_relpath(rom, [str(src)], 'snes') == 'game.zip'
+
+    def test_outside_sources_falls_back_to_filename(self, api, tmp_path):
+        src = tmp_path / 'roms'
+        rom = tmp_path / 'elsewhere' / 'deep' / 'game.zip'
+        assert api._local_to_relpath(rom, [str(src)], 'snes') == 'game.zip'
+
+    def test_url_sources_ignored(self, api, tmp_path):
+        src = tmp_path / 'roms'
+        rom = src / 'snes' / 'usa' / 'game.zip'
+        sources = ['https://example.com/roms/', str(src)]
+        assert api._local_to_relpath(rom, sources, 'snes') == 'usa/game.zip'
+
+
+# =============================================================================
+# _commit_system: local subdirectory preservation
+# =============================================================================
+
+class TestCommitSystemLocalRelpaths:
+    """Regression: local transfers used to collapse to the bare basename."""
+
+    @staticmethod
+    def _setup(tmp_path, specs):
+        """specs: [(path relative to roms/, size)] -> (config, dest, paths)"""
+        roms = tmp_path / 'roms'
+        dest = tmp_path / 'dest'
+        dest.mkdir()
+        paths = []
+        for rel, size in specs:
+            path = roms.joinpath(*rel.split('/'))
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(b'\0' * size)
+            paths.append(str(path))
+        config = Config()
+        config.sources = [str(roms)]
+        config.destination = str(dest)
+        config.output.local_file_action = 'copy'
+        return config, dest, paths
+
+    def test_commit_system_preserves_local_subdirs(self, api, tmp_path):
+        config, dest, paths = self._setup(tmp_path, [
+            ('snes/usa/game.zip', 100),
+            ('snes/japan/game.zip', 200),
+        ])
+        api._last_results = {'snes': {
+            'urls': [], 'sizes': {}, 'local_files': paths,
+            'selected_urls': [], 'selected_local': paths,
+        }}
+
+        api._commit_system('snes', config, dest)
+
+        usa = dest / 'snes' / 'usa' / 'game.zip'
+        japan = dest / 'snes' / 'japan' / 'game.zip'
+        assert usa.read_bytes() == b'\0' * 100
+        assert japan.read_bytes() == b'\0' * 200
+
+    def test_commit_system_flat_collapses_local(self, api, tmp_path):
+        config, dest, paths = self._setup(tmp_path, [
+            ('snes/usa/mario.zip', 100),
+            ('snes/japan/zelda.zip', 200),
+        ])
+        config.output.flat = True
+        api._last_results = {'snes': {
+            'urls': [], 'sizes': {}, 'local_files': paths,
+            'selected_urls': [], 'selected_local': paths,
+        }}
+
+        api._commit_system('snes', config, dest)
+
+        assert (dest / 'mario.zip').exists()
+        assert (dest / 'zelda.zip').exists()
+        assert not (dest / 'snes').exists()
+
+
+# =============================================================================
+# _volume_id / _local_transfer_cost tests
+# =============================================================================
+
+class TestVolumeId:
+    def test_same_volume_matches(self, tmp_path):
+        sub = tmp_path / 'sub'
+        sub.mkdir()
+        assert _volume_id(sub) == _volume_id(tmp_path)
+
+    def test_missing_path_is_none(self, tmp_path):
+        assert _volume_id(tmp_path / 'does-not-exist') is None
+
+
+class TestLocalTransferCost:
+    """What a local transfer actually costs in the destination."""
+
+    @pytest.fixture
+    def rom(self, tmp_path):
+        path = tmp_path / 'game.zip'
+        path.write_bytes(b'\0' * 1000)
+        return path
+
+    def test_copy_costs_full_size(self, rom, tmp_path):
+        assert _local_transfer_cost(rom, 'copy', _volume_id(tmp_path)) == 1000
+
+    @pytest.mark.parametrize('action', ['link', 'hardlink', 'remove'])
+    def test_free_actions_cost_nothing(self, rom, tmp_path, action):
+        assert _local_transfer_cost(rom, action, _volume_id(tmp_path)) == 0
+
+    def test_move_on_same_volume_costs_nothing(self, rom, tmp_path):
+        assert _local_transfer_cost(rom, 'move', _volume_id(tmp_path)) == 0
+
+    def test_move_to_other_volume_costs_full_size(self, rom, tmp_path):
+        other_vol = _volume_id(tmp_path) + 1
+        assert _local_transfer_cost(rom, 'move', other_vol) == 1000
+
+    def test_move_with_unknown_volume_costs_full_size(self, rom):
+        assert _local_transfer_cost(rom, 'move', None) == 1000
+
+    def test_symlink_costs_full_size(self, rom, tmp_path):
+        # transfer_files has no 'symlink' branch: it falls through to
+        # shutil.copy2, so the destination really does grow.
+        assert _local_transfer_cost(rom, 'symlink',
+                                    _volume_id(tmp_path)) == 1000
+
+
+# =============================================================================
+# _check_disk_space tests
+# =============================================================================
+
+_DiskUsage = collections.namedtuple('_DiskUsage', 'total used free')
+
+
+class TestCheckDiskSpace:
+    """Local-only commits must be disk-checked too."""
+
+    @staticmethod
+    def _stub_free(monkeypatch, free):
+        monkeypatch.setattr(
+            shutil, 'disk_usage',
+            lambda _p: _DiskUsage(total=free * 10, used=0, free=free))
+
+    @staticmethod
+    def _setup(tmp_path, rel='snes/usa/game.zip', size=1000):
+        roms = tmp_path / 'roms'
+        dest = tmp_path / 'dest'
+        dest.mkdir()
+        rom = roms.joinpath(*rel.split('/'))
+        rom.parent.mkdir(parents=True, exist_ok=True)
+        rom.write_bytes(b'\0' * size)
+        config = Config()
+        config.sources = [str(roms)]
+        config.destination = str(dest)
+        return config, dest, str(rom)
+
+    def test_local_copy_can_exhaust_free_space(self, api, tmp_path,
+                                               monkeypatch):
+        config, dest, rom = self._setup(tmp_path)
+        self._stub_free(monkeypatch, 10)
+        api._last_results = {'snes': {'selected_urls': [],
+                                      'selected_local': [rom]}}
+
+        assert api._check_disk_space(config, {'snes'}, 0, dest) is False
+
+    def test_local_copy_that_fits_passes(self, api, tmp_path, monkeypatch):
+        config, dest, rom = self._setup(tmp_path)
+        self._stub_free(monkeypatch, 10 * 1000 * 1000)
+        api._last_results = {'snes': {'selected_urls': [],
+                                      'selected_local': [rom]}}
+
+        assert api._check_disk_space(config, {'snes'}, 0, dest) is True
+
+    def test_local_files_already_in_dest_are_not_charged(self, api, tmp_path,
+                                                         monkeypatch):
+        config, dest, rom = self._setup(tmp_path)
+        # The commit writes to <dest>/snes/usa/game.zip, not the basename.
+        existing = dest / 'snes' / 'usa' / 'game.zip'
+        existing.parent.mkdir(parents=True)
+        existing.write_bytes(b'\0' * 1000)
+        self._stub_free(monkeypatch, 10)
+        api._last_results = {'snes': {'selected_urls': [],
+                                      'selected_local': [rom]}}
+
+        assert api._check_disk_space(config, {'snes'}, 0, dest) is True
+
+    @pytest.mark.parametrize('action', ['hardlink', 'link', 'remove'])
+    def test_link_modes_need_no_space(self, api, tmp_path, monkeypatch,
+                                      action):
+        config, dest, rom = self._setup(tmp_path)
+        config.output.local_file_action = action
+        self._stub_free(monkeypatch, 10)
+        api._last_results = {'snes': {'selected_urls': [],
+                                      'selected_local': [rom]}}
+
+        assert api._check_disk_space(config, {'snes'}, 0, dest) is True
+
+    def test_same_volume_move_needs_no_space(self, api, tmp_path,
+                                             monkeypatch):
+        config, dest, rom = self._setup(tmp_path)
+        config.output.local_file_action = 'move'
+        self._stub_free(monkeypatch, 10)
+        api._last_results = {'snes': {'selected_urls': [],
+                                      'selected_local': [rom]}}
+
+        assert api._check_disk_space(config, {'snes'}, 0, dest) is True
+
+    def test_urls_still_counted(self, api, tmp_path, monkeypatch):
+        config, dest, _rom = self._setup(tmp_path)
+        self._stub_free(monkeypatch, 10)
+        api._last_results = {'snes': {
+            'selected_urls': ['https://example.com/snes/Game%20(USA).zip'],
+            'selected_local': [],
+        }}
+
+        assert api._check_disk_space(config, {'snes'}, 5000, dest) is False
+
+
+# =============================================================================
+# Hard --limit budget tests
+# =============================================================================
+
+class TestHardLimitBudget:
+    """--limit caps the total ROM count across every system."""
+
+    @staticmethod
+    def _urls(system, count):
+        return [f'https://example.com/{system}/Game{i}.zip'
+                for i in range(count)]
+
+    def test_limit_caps_total_across_systems(self, api):
+        api._running = True
+        api._last_results = {
+            'nes': {'selected_urls': self._urls('nes', 3),
+                    'selected_local': []},
+            'snes': {'selected_urls': self._urls('snes', 3),
+                     'selected_local': []},
+        }
+
+        api._apply_hard_limit(4, {'nes', 'snes'}, {})
+
+        total = sum(len(d['selected_urls']) + len(d['selected_local'])
+                    for d in api._last_results.values())
+        assert total == 4
+        assert len(api._last_results['nes']['selected_urls']) == 3
+        assert len(api._last_results['snes']['selected_urls']) == 1
+
+    def test_limit_counts_local_files_not_just_urls(self, api, tmp_path):
+        local = []
+        for i in range(3):
+            path = tmp_path / f'game{i}.zip'
+            path.write_bytes(b'\0' * 10)
+            local.append(str(path))
+        api._running = True
+        api._last_results = {
+            'snes': {'selected_urls': self._urls('snes', 1),
+                     'selected_local': local},
+        }
+
+        api._apply_hard_limit(2, {'snes'}, {})
+
+        data = api._last_results['snes']
+        assert len(data['selected_urls']) == 1
+        assert len(data['selected_local']) == 1
+
+    def test_limit_exhausted_empties_later_systems(self, api):
+        api._running = True
+        api._last_results = {
+            'nes': {'selected_urls': self._urls('nes', 5),
+                    'selected_local': []},
+            'snes': {'selected_urls': self._urls('snes', 2),
+                     'selected_local': []},
+        }
+
+        api._apply_hard_limit(2, {'nes', 'snes'}, {})
+
+        assert len(api._last_results['nes']['selected_urls']) == 2
+        assert api._last_results['snes']['selected_urls'] == []
+        assert api._last_results['snes']['selected_local'] == []
+
+    def test_no_limit_keeps_everything(self, api):
+        api._running = True
+        urls = self._urls('nes', 3)
+        api._last_results = {
+            'nes': {'selected_urls': list(urls), 'selected_local': []},
+        }
+        config = Config()
+
+        api._apply_budget_filters(config, {'nes'}, {})
+
+        assert api._last_results['nes']['selected_urls'] == urls
+
+
+def test_update_config_from_ui_preserves_budget_limit(api):
+    """The sidebar has no limit widget; a saved state must not null it."""
+    api._config.budget.limit = 500
+
+    api.update_config_from_ui(json.dumps({'top': '50'}))
+
+    assert api._config.budget.limit == 500

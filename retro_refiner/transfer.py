@@ -15,7 +15,9 @@ from retro_refiner.models import ProgressEvent
 
 def transfer_files(files: List[Path], dest_dir: Path, mode: str = 'copy',
                    flat: bool = False, system: Optional[str] = None,
-                   on_progress: Optional[Callable] = None) -> Dict[str, int]:
+                   on_progress: Optional[Callable] = None,
+                   relpaths: Optional[Dict[str, str]] = None
+                   ) -> Dict[str, int]:
     """Transfer ROM files to destination directory.
 
     Args:
@@ -25,6 +27,9 @@ def transfer_files(files: List[Path], dest_dir: Path, mode: str = 'copy',
         flat: If True, place all files in dest_dir without subdirectories.
         system: Optional system code for subdirectory naming.
         on_progress: Optional callback receiving ProgressEvent updates.
+        relpaths: Optional map of str(source path) -> destination-relative
+            path, preserving subdirectory structure from recursive scans.
+            Sources missing from the map fall back to their basename.
 
     Returns:
         Dict with 'transferred', 'skipped', and 'errors' counts.
@@ -46,10 +51,12 @@ def transfer_files(files: List[Path], dest_dir: Path, mode: str = 'copy',
                 message=src.name, system=system or ''
             ))
 
-        dst = target_dir / src.name
+        rel = relpaths.get(str(src)) if relpaths else None
+        dst = target_dir / (rel or src.name)
         if dst.exists():
             stats['skipped'] += 1
             continue
+        dst.parent.mkdir(parents=True, exist_ok=True)
 
         try:
             if mode == 'copy':

@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 from retro_refiner.log import logger
-from retro_refiner.network import get_filename_from_url
+from retro_refiner.network import get_filename_from_entry
 
 from retro_refiner.filter import matches_patterns
 
@@ -419,9 +419,10 @@ def filter_teknoparrot_network_roms(
         no_filter=False,
         english_only=False):
     # type: (List[str], set, set, list, bool, list, list, dict, bool, bool, bool) -> Tuple[List[str], dict]
-    """Filter TeknoParrot network ROM URLs with TP-specific logic.
+    """Filter TeknoParrot ROMs with TP-specific logic.
 
-    Standalone implementation extracted from the monolith.
+    ``rom_urls`` entries may be URLs or local filesystem paths; only the
+    basename is consulted and entries are returned as given.
 
     Returns:
         (selected_urls, size_info_dict)
@@ -441,7 +442,7 @@ def filter_teknoparrot_network_roms(
     excluded_reasons: Dict[str, str] = {}  # url -> reason
 
     for url in rom_urls:
-        filename = get_filename_from_url(url)
+        filename = get_filename_from_entry(url)
         file_size = url_sizes.get(url, 0)
         total_source_size += file_size
 
@@ -531,10 +532,10 @@ def filter_teknoparrot_network_roms(
     logger.debug("TeknoParrot filter result: {} selected, {} excluded",
                  len(selected_urls), len(excluded_urls))
     for url in selected_urls:
-        logger.debug("  SELECTED: {}", get_filename_from_url(url))
+        logger.debug("  SELECTED: {}", get_filename_from_entry(url))
     for url in excluded_urls:
         reason = excluded_reasons.get(url, 'unknown')
-        logger.debug("  EXCLUDED: {} ({})", get_filename_from_url(url),
+        logger.debug("  EXCLUDED: {} ({})", get_filename_from_entry(url),
                      reason)
 
     return selected_urls, {

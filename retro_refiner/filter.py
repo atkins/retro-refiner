@@ -909,7 +909,10 @@ def filter_roms_from_files(rom_files: list, dest_dir: str, system: str,
 
     Returns:
         (selected_roms, size_info_dict) where size_info_dict has keys
-        'source_size', 'selected_size', and 'rom_sizes'.
+        'source_size', 'selected_size', 'rom_sizes', 'excluded_reasons'
+        and 'filter_breakdown'.  The breakdown uses the same reason
+        vocabulary as filter_network_roms so the two can be merged, and
+        dat_entries drives the same canonical-title grouping.
     """
     if flat_output:
         dest_path = Path(dest_dir)
@@ -922,14 +925,22 @@ def filter_roms_from_files(rom_files: list, dest_dir: str, system: str,
     crc_to_dat = dat_entries or {}
     dat_matched = 0
 
+    # Build filename -> DAT name lookup for better title matching.
+    # Mirrors filter_network_roms so local ROMs group by the same
+    # canonical DAT title that network ROMs do.
+    dat_name_lookup: Dict[str, str] = {}
+    for entry in crc_to_dat.values():
+        dat_name_lookup[Path(entry.rom_name).stem.lower()] = entry.name
+
     crc_cache_path = dest_path / '_crc_cache.json'
     crc_cache = (load_crc_cache(crc_cache_path)
-                 if crc_to_dat and not no_cache else {})
+                 if crc_to_dat and not no_cache and not no_verify else {})
 
     all_roms = []
     file_map = {}
     size_map = {}
     excluded_reasons: Dict[str, str] = {}  # filepath_str -> reason
+    breakdown: Dict[str, int] = defaultdict(int)  # reason -> count
     filtered_by_pattern = 0
     total_source_size = 0
 
@@ -940,39 +951,48 @@ def filter_roms_from_files(rom_files: list, dest_dir: str, system: str,
             if (include_patterns
                     and not matches_patterns(filename, include_patterns)):
                 filtered_by_pattern += 1
-                excluded_reasons[str(filepath)] = 'pattern exclude'
+                breakdown['include pattern'] += 1
+                excluded_reasons[str(filepath)] = 'include pattern'
                 continue
             if (exclude_patterns
                     and matches_patterns(filename, exclude_patterns)):
                 filtered_by_pattern += 1
-                excluded_reasons[str(filepath)] = 'pattern exclude'
+                breakdown['exclude pattern'] += 1
+                excluded_reasons[str(filepath)] = 'exclude pattern'
                 continue
 
         rom_info = parse_rom_filename(filename)
 
         if not no_filter:
             if rom_info.is_proto and exclude_protos:
-                excluded_reasons[str(filepath)] = 'Prototype'
+                breakdown['prototype'] += 1
+                excluded_reasons[str(filepath)] = 'prototype'
                 continue
             if rom_info.is_beta and not include_betas:
-                excluded_reasons[str(filepath)] = 'Beta'
+                breakdown['beta'] += 1
+                excluded_reasons[str(filepath)] = 'beta'
                 continue
             if rom_info.is_unlicensed and not include_unlicensed:
-                excluded_reasons[str(filepath)] = 'Unlicensed'
+                breakdown['unlicensed'] += 1
+                excluded_reasons[str(filepath)] = 'unlicensed'
                 continue
             if rom_info.is_demo and not include_demos:
-                excluded_reasons[str(filepath)] = 'Demo'
+                breakdown['demo'] += 1
+                excluded_reasons[str(filepath)] = 'demo'
                 continue
             if (not include_educational
                     and is_educational_title(filename, system)):
-                excluded_reasons[str(filepath)] = 'Educational'
+                breakdown['educational'] += 1
+                excluded_reasons[str(filepath)] = 'educational'
                 continue
 
             if rom_info.year > 0:
                 if year_from and rom_info.year < year_from:
+                    breakdown['year range'] += 1
                     excluded_reasons[str(filepath)] = 'year range'
                     continue
                 if year_to and rom_info.year > year_to:
+                    breakdown['year range'] += 1
                     excluded_reasons[str(filepath)] = 'year range'
                     continue
 
@@ -996,7 +1016,13 @@ def filter_roms_from_files(rom_files: list, dest_dir: str, system: str,
     else:
         grouped = defaultdict(list)
         for rom in all_roms:
-            normalized = normalize_title(rom.base_title)
+            rom_base = Path(rom.filename).stem.lower()
+            if rom_base in dat_name_lookup:
+                dat_rom_info = parse_rom_filename(
+                    dat_name_lookup[rom_base] + '.zip')
+                normalized = normalize_title(dat_rom_info.base_title)
+            else:
+                normalized = normalize_title(rom.base_title)
             grouped[normalized].append(rom)
 
         if exclude_titles:
@@ -1055,6 +1081,32 @@ def filter_roms_from_files(rom_files: list, dest_dir: str, system: str,
             if not no_cache:
                 save_crc_cache(crc_cache_path, crc_cache)
 
+        # Track post-selection exclusions (1G1R losers, english-only)
+        # using the same reasons filter_network_roms reports, so network
+        # and local breakdowns can be merged additively.
+        selected_ids = {id(rom) for rom in selected_roms}
+        group_winner: Dict[str, RomInfo] = {}
+        for group_roms in grouped.values():
+            winner = next((r for r in group_roms
+                           if id(r) in selected_ids), None)
+            if winner:
+                for rom in group_roms:
+                    group_winner[rom.filename] = winner
+        for rom in all_roms:
+            if id(rom) in selected_ids:
+                continue
+            winner = group_winner.get(rom.filename)
+            if english_only and not rom.is_english:
+                reason = 'non-english'
+            elif winner:
+                reason = _get_1g1r_loss_reason(rom, winner, region_priority)
+            else:
+                reason = 'duplicate version'
+            breakdown[reason] += 1
+            loser_path = file_map.get(rom.filename)
+            if loser_path is not None:
+                excluded_reasons[str(loser_path)] = reason
+
         # Apply top-N filter
         if top_n and ratings:
             from retro_refiner.ratings import apply_top_n_filter  # pylint: disable=import-outside-toplevel
@@ -1071,6 +1123,7 @@ def filter_roms_from_files(rom_files: list, dest_dir: str, system: str,
             'selected_size': selected_size,
             'rom_sizes': size_map,
             'excluded_reasons': excluded_reasons,
+            'filter_breakdown': dict(breakdown),
         }
 
     # Transfer
@@ -1087,6 +1140,7 @@ def filter_roms_from_files(rom_files: list, dest_dir: str, system: str,
         'selected_size': selected_size,
         'rom_sizes': size_map,
         'excluded_reasons': excluded_reasons,
+        'filter_breakdown': dict(breakdown),
     }
 
 

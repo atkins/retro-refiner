@@ -430,6 +430,17 @@ def get_filename_from_url(url: str) -> str:
     return filename
 
 
+def get_filename_from_entry(entry: str) -> str:
+    """Filename for either a URL or a local filesystem path.
+
+    Local paths must not go through the URL path: '?', '#' and '%' are all
+    legal in a filename, and a Windows path has no '/' separators at all.
+    """
+    if '://' in entry:
+        return get_filename_from_url(entry)
+    return Path(entry).name
+
+
 def parse_html_for_files(html: str, base_url: str) -> List[str]:
     """Parse HTML content and extract ROM file URLs."""
     files = []
