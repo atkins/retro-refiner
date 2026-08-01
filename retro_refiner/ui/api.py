@@ -32,6 +32,11 @@ _SYSTEM_ABBREVS = frozenset(
 _ARCADE_SYSTEMS = frozenset(
     ('mame', 'fbneo', 'fba', 'arcade', 'teknoparrot'))
 
+# Exclusion reasons that mean "not a selectable game" rather than "a worse
+# version of one".  Files excluded for these reasons are dependencies of
+# the kept set and must never be deleted by the 'remove' file action.
+_DEPENDENCY_REASONS = frozenset(('BIOS', 'Device'))
+
 
 @lru_cache(maxsize=4096)
 def _folder_system(name: str):
@@ -1946,6 +1951,13 @@ class Api:
         if config.output.local_file_action == 'remove':
             all_local = set(str(f) for f in result.get('local_files', []))
             keep = set(str(f) for f in local_files)
+            # Never delete a file that was excluded because it is not a
+            # selectable game.  A BIOS or device set is a dependency of the
+            # games being kept, not a worse version of one, so deleting it
+            # breaks the very set this run just curated.
+            reasons = result.get('url_reasons', {})
+            keep |= {f for f in all_local
+                     if reasons.get(f) in _DEPENDENCY_REASONS}
             to_delete = [Path(f) for f in all_local - keep]
             if not to_delete:
                 return
@@ -2104,8 +2116,10 @@ class Api:
         if (config.output.clean_destination
                 and config.output.local_file_action != 'remove'):
             from retro_refiner.transfer import clean_destination  # pylint: disable=import-outside-toplevel
-            # Use filenames (not relative paths) for clean matching
-            keep = {Path(k).name for k in expected}
+            # ``expected`` is already keyed by exactly the paths the commit
+            # writes (relative for a recursive scan, bare names when flat),
+            # so it is the keep set clean_destination needs.
+            keep = set(expected)
             clean_stats = clean_destination(
                 dest_dir, system, flat, keep)
             logger.debug("{}: cleaned {} files from destination",
@@ -2473,6 +2487,11 @@ class Api:
                 titles = result.get('title_map', {})
                 selected = {f for f in selected
                             if _manual_keep(manual, titles, Path(f).name)}
+            # Mirror _commit_system: dependency sets are never deleted, so
+            # they must not be counted in the confirmation either.
+            reasons = result.get('url_reasons', {})
+            selected |= {f for f in all_local
+                         if reasons.get(f) in _DEPENDENCY_REASONS}
             to_delete = all_local - selected
             for fpath in to_delete:
                 parent = str(Path(fpath).parent)

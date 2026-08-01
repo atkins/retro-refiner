@@ -574,3 +574,62 @@ class TestFilterTeknoParrotLocalEntries:
             paths, url_sizes={p: 1000 for p in paths})
         assert len(selected) == 1
         assert '(2.0)' in Path(selected[0]).name
+
+
+# =============================================================================
+# TeknoParrot: local files need not follow the '[TP]' naming convention
+# =============================================================================
+# Local paths reach this filter now. A local folder is just files on disk
+# and has no reason to carry the network naming convention; dropping such
+# files would exclude a whole library -- and delete it under 'remove'.
+
+class TestUnparsedLocalEntriesPassThrough:
+
+    @staticmethod
+    def _plain_files(tmp_path):
+        entries = []
+        for name in ('Daytona USA.zip', 'Sega Rally.zip'):
+            p = tmp_path / name
+            p.write_bytes(b'\0' * 100)
+            entries.append(str(p))
+        return entries
+
+    def test_plainly_named_local_files_are_kept(self, tmp_path):
+        entries = self._plain_files(tmp_path)
+        selected, info = filter_teknoparrot_network_roms(entries)
+        assert set(selected) == set(entries)
+        assert info['excluded_reasons'] == {}
+
+    def test_unparsed_network_urls_are_still_excluded(self):
+        urls = ['http://x/Daytona USA.zip']
+        selected, info = filter_teknoparrot_network_roms(urls)
+        assert selected == []
+        assert info['excluded_reasons'][urls[0]] == 'unrecognized filename'
+
+    def test_passthrough_size_is_counted(self, tmp_path):
+        entries = self._plain_files(tmp_path)
+        sizes = {e: 100 for e in entries}
+        _sel, info = filter_teknoparrot_network_roms(
+            entries, url_sizes=sizes)
+        assert info['selected_size'] == 200
+
+    def test_tp_named_local_files_still_dedup(self, tmp_path):
+        # Passthrough must not disable real TP version dedup.
+        entries = []
+        for name in ('Initial D (1.0) (2012) [Sega RingEdge 2] [TP].zip',
+                     'Initial D (2.0) (2014) [Sega RingEdge 2] [TP].zip'):
+            p = tmp_path / name
+            p.write_bytes(b'\0' * 100)
+            entries.append(str(p))
+        selected, _info = filter_teknoparrot_network_roms(entries)
+        assert len(selected) == 1
+        assert '(2.0)' in Path(selected[0]).name
+
+    def test_mixed_parsed_and_unparsed_local(self, tmp_path):
+        plain = tmp_path / 'Daytona USA.zip'
+        plain.write_bytes(b'\0' * 100)
+        tagged = tmp_path / 'Initial D (2.0) (2014) [Sega RingEdge 2] [TP].zip'
+        tagged.write_bytes(b'\0' * 100)
+        selected, _info = filter_teknoparrot_network_roms(
+            [str(plain), str(tagged)])
+        assert set(selected) == {str(plain), str(tagged)}

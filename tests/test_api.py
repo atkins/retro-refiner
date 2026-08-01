@@ -1484,3 +1484,56 @@ def test_update_config_from_ui_preserves_budget_limit(api):
     api.update_config_from_ui(json.dumps({'top': '50'}))
 
     assert api._config.budget.limit == 500
+
+
+# =============================================================================
+# 'remove' action must never delete dependency sets
+# =============================================================================
+# Routing local arcade ROMs through the MAME filter means BIOS and device
+# sets get excluded as "not a selectable game". Under local_file_action
+# 'remove' an excluded file is unlinked from the user's own source folder,
+# which would destroy the very set the run just curated.
+
+class TestRemoveActionProtectsDependencies:
+
+    @staticmethod
+    def _setup(api, tmp_path, reason):
+        rom = tmp_path / 'mslug.zip'
+        rom.write_bytes(b'\0' * 10)
+        dep = tmp_path / 'neogeo.zip'
+        dep.write_bytes(b'\0' * 10)
+        junk = tmp_path / 'pokermon.zip'
+        junk.write_bytes(b'\0' * 10)
+        api._last_results = {
+            'mame': {
+                'urls': [], 'sizes': {},
+                'local_files': [str(rom), str(dep), str(junk)],
+                'selected_urls': [], 'selected_local': [str(rom)],
+                'url_reasons': {str(dep): reason,
+                                str(junk): 'Gambling'},
+            },
+        }
+        config = Config()
+        config.output.local_file_action = 'remove'
+        return rom, dep, junk, config
+
+    @pytest.mark.parametrize('reason', ['BIOS', 'Device'])
+    def test_dependency_is_not_deleted(self, api, tmp_path, reason):
+        rom, dep, junk, config = self._setup(api, tmp_path, reason)
+        api._commit_system('mame', config, tmp_path / 'dest')
+        assert rom.exists(), 'selected ROM must survive'
+        assert dep.exists(), f'{reason} set must never be deleted'
+        assert not junk.exists(), 'genuinely excluded ROM should go'
+
+    @pytest.mark.parametrize('reason', ['BIOS', 'Device'])
+    def test_remove_summary_matches_what_is_deleted(self, api, tmp_path,
+                                                    reason):
+        _rom, _dep, _junk, _config = self._setup(api, tmp_path, reason)
+        summary = json.loads(api.get_remove_summary())
+        assert summary['total'] == 1, (
+            'confirmation must not count files it will not delete')
+
+    def test_ordinary_exclusions_are_still_deleted(self, api, tmp_path):
+        _rom, _dep, junk, config = self._setup(api, tmp_path, 'BIOS')
+        api._commit_system('mame', config, tmp_path / 'dest')
+        assert not junk.exists()

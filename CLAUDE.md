@@ -22,12 +22,12 @@ python -m retro_refiner --export-config
 
 ### Run tests
 ```bash
-python -m pytest                     # 1398 tests, ~2s
+python -m pytest                     # 1420 tests, ~2s
 python -m pytest -v                  # verbose output
 python -m pytest tests/test_selection.py  # just core tests
 python tests/test_smoke.py           # network smoke tests (slow, needs Myrient)
 ```
-Uses pytest. Config in `pyproject.toml`. Smoke tests excluded by default. **1398 tests total, all passing.**
+Uses pytest. Config in `pyproject.toml`. Smoke tests excluded by default. **1420 tests total, all passing.**
 
 ### Lint
 ```bash

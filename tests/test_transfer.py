@@ -393,3 +393,68 @@ def test_generate_retroarch_playlist(tmp_path):
     assert "core_path" in entry
     assert entry["db_name"] == "snes.lpl"
     assert entry["core_path"] == "DETECT"
+
+
+# =============================================================================
+# clean_destination: recursive and relpath-aware
+# =============================================================================
+# A recursive scan writes ROMs into subdirectories, so a top-level-only
+# pass never saw them, and a basename-keyed keep set did not match the
+# relative paths the commit actually writes.
+
+class TestCleanDestinationRecursive:
+
+    @staticmethod
+    def _tree(dest):
+        sysdir = dest / 'snes'
+        (sysdir / 'usa').mkdir(parents=True)
+        (sysdir / 'japan').mkdir(parents=True)
+        (sysdir / 'usa' / 'game.zip').write_bytes(b'a')
+        (sysdir / 'japan' / 'game.zip').write_bytes(b'b')
+        (sysdir / 'orphan.zip').write_bytes(b'c')
+        return sysdir
+
+    def test_keeps_nested_files_listed_by_relpath(self, tmp_path):
+        sysdir = self._tree(tmp_path)
+        stats = clean_destination(
+            tmp_path, 'snes', False,
+            {'usa/game.zip', 'japan/game.zip'})
+        assert stats['removed'] == 1          # only orphan.zip
+        assert (sysdir / 'usa' / 'game.zip').exists()
+        assert (sysdir / 'japan' / 'game.zip').exists()
+        assert not (sysdir / 'orphan.zip').exists()
+
+    def test_removes_nested_file_not_in_keep_set(self, tmp_path):
+        sysdir = self._tree(tmp_path)
+        clean_destination(tmp_path, 'snes', False,
+                          {'usa/game.zip', 'orphan.zip'})
+        assert (sysdir / 'usa' / 'game.zip').exists()
+        assert not (sysdir / 'japan' / 'game.zip').exists()
+
+    def test_bare_filenames_still_honoured_for_flat_layout(self, tmp_path):
+        (tmp_path / 'a.zip').write_bytes(b'a')
+        (tmp_path / 'b.zip').write_bytes(b'b')
+        stats = clean_destination(tmp_path, None, True, {'a.zip'})
+        assert stats['removed'] == 1
+        assert (tmp_path / 'a.zip').exists()
+        assert not (tmp_path / 'b.zip').exists()
+
+    def test_generated_outputs_are_not_deleted(self, tmp_path):
+        sysdir = tmp_path / 'snes'
+        sysdir.mkdir(parents=True)
+        (sysdir / 'game.zip').write_bytes(b'a')
+        (sysdir / 'playlist.m3u').write_text('x', encoding='utf-8')
+        (sysdir / 'gamelist.xml').write_text('x', encoding='utf-8')
+        clean_destination(tmp_path, 'snes', False, {'game.zip'})
+        assert (sysdir / 'playlist.m3u').exists()
+        assert (sysdir / 'gamelist.xml').exists()
+
+    def test_emptied_directories_are_pruned(self, tmp_path):
+        sysdir = self._tree(tmp_path)
+        clean_destination(tmp_path, 'snes', False, {'usa/game.zip'})
+        assert not (sysdir / 'japan').exists()
+        assert (sysdir / 'usa').exists()
+
+    def test_missing_target_is_a_noop(self, tmp_path):
+        stats = clean_destination(tmp_path, 'nope', False, set())
+        assert stats == {'removed': 0, 'errors': 0}

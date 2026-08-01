@@ -440,6 +440,7 @@ def filter_teknoparrot_network_roms(
     size_map: Dict[str, int] = {}
     total_source_size = 0
     excluded_reasons: Dict[str, str] = {}  # url -> reason
+    unparsed_local: List[Tuple[str, int]] = []  # (entry, size)
 
     for url in rom_urls:
         filename = get_filename_from_entry(url)
@@ -461,6 +462,15 @@ def filter_teknoparrot_network_roms(
             if no_filter:
                 url_map[filename] = url
                 size_map[filename] = file_size
+                continue
+            if '://' not in url:
+                # A local folder is just files on disk and has no reason to
+                # carry the '[TP]' naming convention that network listings
+                # use.  Before local paths reached this filter such files
+                # passed through untouched, so dropping them here would
+                # exclude an entire plainly-named local library -- and
+                # delete it under the 'remove' file action.
+                unparsed_local.append((url, file_size))
                 continue
             excluded_reasons[url] = 'unrecognized filename'
             continue
@@ -526,6 +536,10 @@ def filter_teknoparrot_network_roms(
                         url = url_map.get(rom.filename)
                         if url:
                             excluded_reasons[url] = 'duplicate version'
+
+        for entry, entry_size in unparsed_local:
+            selected_urls.append(entry)
+            selected_size += entry_size
 
     selected_set = set(selected_urls)
     excluded_urls = [u for u in rom_urls if u not in selected_set]

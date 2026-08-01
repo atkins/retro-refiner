@@ -129,6 +129,12 @@ def validate_destination(dest_dir: Path, system: Optional[str],
     return result
 
 
+# Outputs this app generates into the destination itself. They are never
+# in the keep set (which lists ROMs), so cleaning must skip them rather
+# than delete and force a regenerate on every run.
+_GENERATED_SUFFIXES = frozenset(('.m3u', '.xml', '.lpl', '.rrdownload'))
+
+
 def clean_destination(dest_dir: Path, system: Optional[str],
                       flat: bool, keep_files: set,
                       on_progress: Optional[Callable] = None  # pylint: disable=unused-argument
@@ -139,7 +145,9 @@ def clean_destination(dest_dir: Path, system: Optional[str],
         dest_dir: Destination directory.
         system: System code for subdirectory.
         flat: If True, files are directly in dest_dir.
-        keep_files: Set of filenames to keep.
+        keep_files: Set of destination-relative paths to keep, as written
+            by the commit (POSIX separators). Bare filenames are also
+            honoured so a flat destination keeps working.
         on_progress: Optional progress callback.
 
     Returns:
@@ -149,15 +157,30 @@ def clean_destination(dest_dir: Path, system: Optional[str],
     stats = {'removed': 0, 'errors': 0}
     if not target_dir.exists():
         return stats
-    for filepath in target_dir.iterdir():
-        if filepath.is_file() and filepath.name not in keep_files:
+    # Walk recursively: a recursive scan writes ROMs into subdirectories,
+    # so a top-level-only pass would never see them.
+    for filepath in target_dir.rglob('*'):
+        if not filepath.is_file():
+            continue
+        if filepath.suffix.lower() in _GENERATED_SUFFIXES:
+            continue
+        rel = filepath.relative_to(target_dir).as_posix()
+        if rel in keep_files or filepath.name in keep_files:
+            continue
+        try:
+            filepath.unlink()
+            logger.debug("Cleaned: {}", rel)
+            stats['removed'] += 1
+        except OSError as exc:
+            logger.error("Failed to clean {}: {}", rel, exc)
+            stats['errors'] += 1
+    # Prune directories the cleaning emptied, deepest first.
+    for dirpath in sorted(target_dir.rglob('*'), reverse=True):
+        if dirpath.is_dir():
             try:
-                filepath.unlink()
-                logger.debug("Cleaned: {}", filepath.name)
-                stats['removed'] += 1
-            except OSError as exc:
-                logger.error("Failed to clean {}: {}", filepath.name, exc)
-                stats['errors'] += 1
+                dirpath.rmdir()
+            except OSError:
+                pass
     if stats['removed']:
         logger.debug("Cleaned {} files from {}", stats['removed'], target_dir)
     return stats

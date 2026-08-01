@@ -848,3 +848,89 @@ class TestFilterMameLocalEntries:
         assert info['filter_breakdown']['BIOS'] == 1
         assert info['filter_breakdown']['Gambling'] == 1
         assert 'Maze' not in info['filter_breakdown']
+
+
+# =============================================================================
+# MAME: required BIOS sets are re-added to the selection
+# =============================================================================
+# A BIOS is never a selectable game (should_include_mame_game rejects it),
+# but the games that need it do not run without it -- and under the
+# 'remove' file action an excluded file is deleted from the source folder.
+
+class TestRequiredBiosReadded:
+
+    @staticmethod
+    def _neogeo_set():
+        games = {
+            'neogeo': _make_mame_game('neogeo', 'Neo Geo BIOS',
+                                      is_bios=True),
+            'mslug': _make_mame_game('mslug', 'Metal Slug (World)',
+                                     category='Maze', region='World',
+                                     bios_name='neogeo'),
+        }
+        categories = {'neogeo': 'BIOS', 'mslug': 'Maze'}
+        return games, categories
+
+    def test_bios_is_selected_alongside_the_game_that_needs_it(self):
+        games, categories = self._neogeo_set()
+        entries = ['neogeo.zip', 'mslug.zip']
+        selected, info = filter_mame_network_roms(
+            entries, categories=categories, games=games)
+        assert 'mslug.zip' in selected
+        assert 'neogeo.zip' in selected, (
+            'BIOS must be re-added: the kept game does not run without it')
+        assert 'neogeo.zip' not in info['excluded_reasons']
+
+    def test_bios_not_added_when_no_game_needs_it(self):
+        games, categories = self._neogeo_set()
+        # Only the BIOS is present -- nothing depends on it.
+        selected, info = filter_mame_network_roms(
+            ['neogeo.zip'], categories=categories, games=games)
+        assert selected == []
+        assert info['excluded_reasons']['neogeo.zip'] == 'BIOS'
+
+    def test_bios_size_counted_once_in_selected_size(self):
+        games, categories = self._neogeo_set()
+        entries = ['neogeo.zip', 'mslug.zip']
+        sizes = {'neogeo.zip': 500, 'mslug.zip': 1000}
+        _selected, info = filter_mame_network_roms(
+            entries, categories=categories, games=games, url_sizes=sizes)
+        assert info['selected_size'] == 1500
+
+    def test_bios_breakdown_count_is_decremented(self):
+        games, categories = self._neogeo_set()
+        _selected, info = filter_mame_network_roms(
+            ['neogeo.zip', 'mslug.zip'],
+            categories=categories, games=games)
+        # The BIOS was re-added, so it must not still read as excluded.
+        assert 'BIOS' not in info['filter_breakdown']
+
+    def test_bios_re_added_for_local_paths(self, tmp_path):
+        games, categories = self._neogeo_set()
+        entries = []
+        for name in ('neogeo.zip', 'mslug.zip'):
+            p = tmp_path / name
+            p.write_bytes(b'\0' * 10)
+            entries.append(str(p))
+        selected, _info = filter_mame_network_roms(
+            entries, categories=categories, games=games)
+        assert set(selected) == set(entries)
+
+    def test_parent_bios_requirement_is_followed(self):
+        games = {
+            'neogeo': _make_mame_game('neogeo', 'Neo Geo BIOS',
+                                      is_bios=True),
+            'mslug': _make_mame_game('mslug', 'Metal Slug (World)',
+                                     category='Maze', region='World',
+                                     bios_name='neogeo'),
+            'mslugu': _make_mame_game('mslugu', 'Metal Slug (USA)',
+                                      category='Maze', region='USA',
+                                      is_parent=False, parent_name='mslug'),
+        }
+        categories = {'neogeo': 'BIOS', 'mslug': 'Maze', 'mslugu': 'Maze'}
+        selected, _info = filter_mame_network_roms(
+            ['neogeo.zip', 'mslug.zip', 'mslugu.zip'],
+            categories=categories, games=games)
+        # The USA clone wins, and it inherits the BIOS need from its parent.
+        assert 'mslugu.zip' in selected
+        assert 'neogeo.zip' in selected

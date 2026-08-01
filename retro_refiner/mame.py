@@ -538,6 +538,28 @@ def detect_mame_set_format(source_path, games, available_roms):
     return vote_counts.most_common(1)[0][0]
 
 
+def _required_bios(selected_urls, games, chd_to_game):
+    """BIOS set names the selected entries depend on.
+
+    Mirrors the BIOS pass of :func:`build_mame_copy_set`, but keyed off the
+    selected entries rather than game objects so it can run inside the
+    network/local filter.
+    """
+    required = set()
+    for entry in selected_urls:
+        filename = get_filename_from_entry(entry)
+        stem = filename.rsplit('.', 1)[0] if '.' in filename else filename
+        game = games.get(chd_to_game.get(stem, stem))
+        if not game:
+            continue
+        if game.bios_name:
+            required.add(game.bios_name)
+        parent = games.get(game.parent_name) if game.parent_name else None
+        if parent and parent.bios_name:
+            required.add(parent.bios_name)
+    return required
+
+
 def build_mame_copy_set(selected_roms, games, available_roms, set_format):
     """Build the set of zip names to copy based on ROM set format.
 
@@ -804,6 +826,27 @@ def filter_mame_network_roms(rom_urls, categories, games,
                 processed.add(clone)
 
     selected_set = set(selected_urls)  # rebuild for no_filter path
+
+    # Re-add the BIOS sets the selected games depend on.  A BIOS is never
+    # a selectable game (should_include_mame_game rejects it outright), but
+    # the games that need it do not run without it -- and under the
+    # 'remove' file action an excluded file is deleted from the user's own
+    # source folder, so leaving them excluded destroys the kept set.
+    for bios_name in sorted(_required_bios(selected_urls, games,
+                                           chd_to_game)):
+        bios_file = f"{bios_name}.zip"
+        bios_url = url_map.get(bios_file)
+        if not bios_url or bios_url in selected_set:
+            continue
+        selected_urls.append(bios_url)
+        selected_set.add(bios_url)
+        selected_size += size_map.get(bios_file, 0)
+        reason = excluded_reasons.pop(bios_url, None)
+        if reason and excluded_counts.get(reason):
+            excluded_counts[reason] -= 1
+            if not excluded_counts[reason]:
+                del excluded_counts[reason]
+
     excluded_urls = [u for u in rom_urls if u not in selected_set]
     logger.debug("MAME filter result: {} selected, {} excluded",
                  len(selected_urls), len(excluded_urls))
