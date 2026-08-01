@@ -3747,3 +3747,70 @@ class TestFilterNetworkRomsDatEntries:
                                      dat_entries=dat_entries)
         # Both should group under the same DAT title
         assert len(result.selected) == 1
+
+
+# =============================================================================
+# Local ROMs are tracked by source path, not basename
+# =============================================================================
+# A recursive scan can hold several files with the same name in different
+# folders. Keying on the basename silently dropped all but one of them.
+
+class TestSameBasenameLocalFiles:
+
+    @staticmethod
+    def _two_dirs(tmp_path, name, sizes=(100, 200)):
+        paths = []
+        for sub, size in zip(('setA', 'setB'), sizes):
+            d = tmp_path / sub
+            d.mkdir()
+            p = d / name
+            p.write_bytes(b'\0' * size)
+            paths.append(p)
+        return paths
+
+    def test_both_files_survive_when_titles_differ(self, tmp_path):
+        # Distinct titles: neither is a 1G1R loser, so both must be kept.
+        paths = []
+        for sub, fname in (('setA', 'Alpha (USA).zip'),
+                           ('setB', 'Beta (USA).zip')):
+            d = tmp_path / sub
+            d.mkdir()
+            p = d / fname
+            p.write_bytes(b'\0' * 100)
+            paths.append(p)
+        selected, _info = filter_roms_from_files(
+            paths, dest_dir=str(tmp_path / 'dest'), system='snes',
+            dry_run=True, best_version=True)
+        assert len(selected) == 2
+
+    def test_source_path_is_stamped_on_results(self, tmp_path):
+        paths = self._two_dirs(tmp_path, 'Alpha (USA).zip')
+        selected, _info = filter_roms_from_files(
+            paths, dest_dir=str(tmp_path / 'dest'), system='snes',
+            dry_run=True)
+        assert all(r.source_path for r in selected)
+        assert {r.source_path for r in selected} == {str(p) for p in paths}
+
+    def test_selected_size_counts_each_file(self, tmp_path):
+        paths = self._two_dirs(tmp_path, 'Alpha (USA).zip', sizes=(100, 200))
+        _selected, info = filter_roms_from_files(
+            paths, dest_dir=str(tmp_path / 'dest'), system='snes',
+            dry_run=True)
+        # Both files are kept, so both sizes must be counted -- a
+        # basename-keyed size map would report one of them twice.
+        assert info['selected_size'] == 300
+
+    def test_exclusion_reason_points_at_the_right_file(self, tmp_path):
+        proto = tmp_path / 'setA'
+        proto.mkdir()
+        p1 = proto / 'Alpha (USA) (Proto).zip'
+        p1.write_bytes(b'\0' * 100)
+        keep = tmp_path / 'setB'
+        keep.mkdir()
+        p2 = keep / 'Alpha (USA).zip'
+        p2.write_bytes(b'\0' * 100)
+        _selected, info = filter_roms_from_files(
+            [p1, p2], dest_dir=str(tmp_path / 'dest'), system='snes',
+            dry_run=True, exclude_protos=True)
+        assert info['excluded_reasons'][str(p1)] == 'prototype'
+        assert str(p2) not in info['excluded_reasons']

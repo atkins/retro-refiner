@@ -22,12 +22,12 @@ python -m retro_refiner --export-config
 
 ### Run tests
 ```bash
-python -m pytest                     # 1420 tests, ~2s
+python -m pytest                     # 1437 tests, ~2s
 python -m pytest -v                  # verbose output
 python -m pytest tests/test_selection.py  # just core tests
 python tests/test_smoke.py           # network smoke tests (slow, needs Myrient)
 ```
-Uses pytest. Config in `pyproject.toml`. Smoke tests excluded by default. **1420 tests total, all passing.**
+Uses pytest. Config in `pyproject.toml`. Smoke tests excluded by default. **1437 tests total, all passing.**
 
 ### Lint
 ```bash
@@ -204,7 +204,7 @@ Three filtering modes controlled by `all_roms` and `best_version` config flags:
 - `all_roms=False` + `best_version=True` → full 1G1R: group by title, select best per game
 
 ### ROM Picker
-`get_system_roms()` returns all ROMs with region/status/reason. For MAME, display names come from `title_map`, regions from `region_map`, and exclusion reasons from `url_reasons` — all stored in `_last_results[system]` after filtering. For console/TP systems, `parse_rom_filename()` provides region; reasons come from `url_reasons` (network) or `_get_exclusion_reason()` fallback (local). Manual selections stored in `_manual_selections` and `_picker_state` dicts on `Api`. Applied during commit via URL filtering. `reset_picker()` clears cached state. Picker state persists across reopens but clears on new scan. Picker refreshes in-place if a preview completes while the user is in the editor. Search covers filename, region, status, and reason fields.
+`get_system_roms()` returns all ROMs with region/status/reason. For MAME, display names come from `title_map`, regions from `region_map`, and exclusion reasons from `url_reasons` — all stored in `_last_results[system]` after filtering. For console/TP systems, `parse_rom_filename()` provides region; reasons come from `url_reasons` (network) or `_get_exclusion_reason()` fallback (local). Manual selections stored in `_manual_selections` and `_picker_state` dicts on `Api`, keyed by each row's **unique identity** — its `url` field, which holds the URL for a network ROM and `str(path)` for a local one. Never key on the displayed name: arcade rows show the MAME description and two ROMs can share one. `_manual_keep()` falls back to the displayed name only to honour overrides persisted by older builds. Applied during commit via URL filtering. `reset_picker()` clears cached state. Picker state persists across reopens but clears on new scan. Picker refreshes in-place if a preview completes while the user is in the editor. Search covers filename, region, status, and reason fields.
 
 ### Cross-System Dedup
 `_run_dedup()` in api.py walks systems in priority order (configured via ordered pills). Each system claims normalized titles; later systems have duplicates removed. Deduped ROMs show as "excluded" with reason "cross-platform duplicate" in the picker. Exclusion playlists (LaunchBox/RetroArch/XML) can seed the claimed-titles set.
@@ -251,7 +251,7 @@ Platform-native clipboard APIs (no tkinter):
 Module-level `_SYSTEM_ABBREVS` frozenset and `_display_name(system)` helper in api.py convert system codes to human-readable names (e.g., `snes` → `SNES`, `game-boy-advance` → `Game Boy Advance`).
 
 ## Key Dataclasses
-- `RomInfo` (`dat.py`): Parsed ROM metadata (title, region, language, revision, flags)
+- `RomInfo` (`dat.py`): Parsed ROM metadata (title, region, language, revision, flags). `source_path` holds the file a local scan parsed it from — map results back to real files by that, never by `filename`, which is not unique across a recursive scan
 - `DatRomEntry` (`dat.py`): DAT file entry (name, CRC32, region, size)
 - `MameGameInfo` (`mame.py`): MAME game with parent/clone relationships, category, region. `detect_mame_region()` parses descriptions for region tags `(USA)`, `(Japan)`, `(Export)`→World, and Konami version codes (`JAA`=Japan, `UAB`=USA, `EAA`=Europe, `AAA`=Asia, `KAA`=Korea). Returns `'Universal'` (not `'Unknown'`) for region-free arcade games.
 - `TeknoParrotGameInfo` (`teknoparrot.py`): TeknoParrot game with version/platform

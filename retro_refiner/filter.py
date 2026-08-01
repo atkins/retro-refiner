@@ -937,7 +937,11 @@ def filter_roms_from_files(rom_files: list, dest_dir: str, system: str,
                  if crc_to_dat and not no_cache and not no_verify else {})
 
     all_roms = []
+    # Keyed by str(filepath): a recursive scan can hold several files with
+    # the same basename, and keying by name silently drops all but the last.
     file_map = {}
+    path_sizes = {}
+    # Keyed by filename -- returned as 'rom_sizes' for callers.
     size_map = {}
     excluded_reasons: Dict[str, str] = {}  # filepath_str -> reason
     breakdown: Dict[str, int] = defaultdict(int)  # reason -> count
@@ -996,9 +1000,11 @@ def filter_roms_from_files(rom_files: list, dest_dir: str, system: str,
                     excluded_reasons[str(filepath)] = 'year range'
                     continue
 
+        rom_info.source_path = str(filepath)
         all_roms.append(rom_info)
-        file_map[filename] = filepath
+        file_map[str(filepath)] = filepath
         file_size = get_file_size(filepath)
+        path_sizes[str(filepath)] = file_size
         size_map[filename] = file_size
         total_source_size += file_size
 
@@ -1068,7 +1074,7 @@ def filter_roms_from_files(rom_files: list, dest_dir: str, system: str,
         # Post-selection DAT enrichment
         if crc_to_dat and not no_verify:
             for rom in selected_roms:
-                filepath = file_map.get(rom.filename)
+                filepath = file_map.get(rom.source_path)
                 if not filepath:
                     continue
                 crc = get_cached_crc(filepath, crc_cache,
@@ -1091,11 +1097,11 @@ def filter_roms_from_files(rom_files: list, dest_dir: str, system: str,
                            if id(r) in selected_ids), None)
             if winner:
                 for rom in group_roms:
-                    group_winner[rom.filename] = winner
+                    group_winner[rom.source_path] = winner
         for rom in all_roms:
             if id(rom) in selected_ids:
                 continue
-            winner = group_winner.get(rom.filename)
+            winner = group_winner.get(rom.source_path)
             if english_only and not rom.is_english:
                 reason = 'non-english'
             elif winner:
@@ -1103,7 +1109,7 @@ def filter_roms_from_files(rom_files: list, dest_dir: str, system: str,
             else:
                 reason = 'duplicate version'
             breakdown[reason] += 1
-            loser_path = file_map.get(rom.filename)
+            loser_path = file_map.get(rom.source_path)
             if loser_path is not None:
                 excluded_reasons[str(loser_path)] = reason
 
@@ -1114,7 +1120,7 @@ def filter_roms_from_files(rom_files: list, dest_dir: str, system: str,
             selected_roms = apply_top_n_filter(
                 selected_roms, system_ratings, top_n, include_unrated)
 
-    selected_size = sum(size_map.get(rom.filename, 0)
+    selected_size = sum(path_sizes.get(rom.source_path, 0)
                         for rom in selected_roms)
 
     if dry_run:
@@ -1130,7 +1136,7 @@ def filter_roms_from_files(rom_files: list, dest_dir: str, system: str,
     dest_path.mkdir(parents=True, exist_ok=True)
 
     for rom in selected_roms:
-        src = file_map.get(rom.filename)
+        src = file_map.get(rom.source_path)
         if src and src.exists():
             dst = dest_path / rom.filename
             _transfer_file(src, dst, transfer_mode)

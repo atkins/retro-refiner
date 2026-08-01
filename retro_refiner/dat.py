@@ -52,6 +52,10 @@ class RomInfo:
     has_hacks: bool = False
     year: int = 0
     disc_number: int = 0
+    # Source file this was parsed from, for local scans. Filenames are not
+    # unique across a recursive scan, so callers must map results back to
+    # real files by this rather than by ``filename``. Empty for URLs.
+    source_path: str = ''
 
 
 @dataclass

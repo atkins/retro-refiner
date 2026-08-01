@@ -190,6 +190,22 @@ def clean_destination(dest_dir: Path, system: Optional[str],
 # Playlist and gamelist generation
 # =============================================================================
 
+def _rom_entry_path(rom: Path, base: Optional[Path]) -> str:
+    """ROM path relative to ``base``, POSIX-style.
+
+    A recursive scan puts ROMs in subdirectories, so a bare basename is
+    both ambiguous (two subdirectories can hold the same name) and wrong
+    for the emulator to resolve. Falls back to the basename when the ROM
+    is not under ``base``.
+    """
+    if base is not None:
+        try:
+            return rom.relative_to(base).as_posix()
+        except ValueError:
+            pass
+    return rom.name
+
+
 def generate_m3u_playlist(system: str, rom_files: List[Path],
                           dest_path: Path) -> Path:
     """Generate M3U playlist for a system.
@@ -197,7 +213,8 @@ def generate_m3u_playlist(system: str, rom_files: List[Path],
     Args:
         system: System code (used for filename).
         rom_files: List of ROM file paths.
-        dest_path: Directory where the playlist is written.
+        dest_path: Directory where the playlist is written. ROMs under it
+            are listed by their path relative to it.
 
     Returns:
         Path to the generated .m3u file.
@@ -205,19 +222,23 @@ def generate_m3u_playlist(system: str, rom_files: List[Path],
     playlist_path = dest_path / f"{system}.m3u"
     with open(playlist_path, 'w', encoding='utf-8') as f:
         for rom in sorted(rom_files, key=lambda x: x.name.lower()):
-            f.write(f"{rom.name}\n")
+            f.write(f"{_rom_entry_path(rom, dest_path)}\n")
     logger.debug("Generated M3U playlist: {} ({} entries)", playlist_path, len(rom_files))
     return playlist_path
 
 
 def generate_gamelist_xml(_system: str, rom_files: List[Path],
-                          dest_path: Path) -> Path:
+                          dest_path: Path,
+                          rom_dir: Optional[Path] = None) -> Path:
     """Generate EmulationStation gamelist.xml.
 
     Args:
         _system: System code (unused, kept for API symmetry).
         rom_files: List of ROM file paths.
         dest_path: Directory where gamelist.xml is written.
+        rom_dir: Directory the ROMs live in. Given, entries are written as
+            paths relative to it so ROMs in subdirectories resolve; without
+            it they fall back to bare filenames.
 
     Returns:
         Path to the generated gamelist.xml file.
@@ -227,7 +248,8 @@ def generate_gamelist_xml(_system: str, rom_files: List[Path],
     lines = ['<?xml version="1.0"?>', '<gameList>']
     for rom in sorted(rom_files, key=lambda x: x.name.lower()):
         lines.append('  <game>')
-        lines.append(f'    <path>./{xml_escape(rom.name)}</path>')
+        lines.append(
+            f'    <path>./{xml_escape(_rom_entry_path(rom, rom_dir))}</path>')
         lines.append(f'    <name>{xml_escape(rom.stem)}</name>')
         lines.append('  </game>')
     lines.append('</gameList>')
@@ -259,7 +281,9 @@ def generate_retroarch_playlist(system: str, rom_files: List[Path],
     for rom in sorted(rom_files, key=lambda x: x.name.lower()):
         display_name = rom.stem
         entries.append({
-            "path": str(rom_dir / rom.name),
+            # rom is already absolute; joining rom_dir with the basename
+            # would flatten away any subdirectory it lives in.
+            "path": str(rom if rom.is_absolute() else rom_dir / rom.name),
             "label": display_name,
             "core_path": core_path,
             "core_name": "DETECT",

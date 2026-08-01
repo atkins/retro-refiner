@@ -696,7 +696,7 @@ class Api:
                         sys_dir = (dest_dir / system
                                    if not config.output.flat else dest_dir)
                         if sys_dir.exists():
-                            rom_files = list(sys_dir.iterdir())
+                            rom_files = _dest_rom_files(sys_dir)
                             if rom_files:
                                 generate_m3u_playlist(
                                     system, rom_files, sys_dir)
@@ -713,13 +713,13 @@ class Api:
                         sys_dir = (dest_dir / system
                                    if not config.output.flat else dest_dir)
                         if sys_dir.exists():
-                            rom_files = [f for f in sys_dir.iterdir()
-                                         if f.is_file()]
+                            rom_files = _dest_rom_files(sys_dir)
                             if rom_files:
                                 out_dir = gl_path / system
                                 out_dir.mkdir(parents=True, exist_ok=True)
                                 generate_gamelist_xml(
-                                    system, rom_files, out_dir)
+                                    system, rom_files, out_dir,
+                                    rom_dir=sys_dir)
 
                 ra_dir = config.output.retroarch_playlists
                 if ra_dir and self._running:
@@ -733,8 +733,7 @@ class Api:
                         sys_dir = (dest_dir / system
                                    if not config.output.flat else dest_dir)
                         if sys_dir.exists():
-                            rom_files = [f for f in sys_dir.iterdir()
-                                         if f.is_file()]
+                            rom_files = _dest_rom_files(sys_dir)
                             if rom_files:
                                 generate_retroarch_playlist(
                                     system, rom_files, sys_dir,
@@ -1291,13 +1290,11 @@ class Api:
                     # cache into the destination before commit.
                     no_verify=True,
                 )
-                name_to_path = {Path(f).name: Path(f)
-                                for f in local_files}
-                selected_local = [
-                    name_to_path[rom.filename]
-                    for rom in local_roms
-                    if rom.filename in name_to_path
-                ]
+                # Map back by source path, not basename: a recursive scan
+                # can hold several files with the same name, and matching
+                # on the name silently drops all but one of them.
+                selected_local = [Path(rom.source_path)
+                                  for rom in local_roms if rom.source_path]
                 local_size = local_info.get('selected_size', 0)
                 # Merge local file exclusion reasons
                 local_reasons = local_info.get('excluded_reasons', {})
@@ -1943,9 +1940,11 @@ class Api:
             titles = result.get('title_map', {})
             selected_urls = [
                 u for u in selected_urls
-                if _manual_keep(manual, titles, self._url_to_filename(u))]
+                if _manual_keep(manual, titles, u,
+                                self._url_to_filename(u))]
             local_files = [f for f in local_files
-                           if _manual_keep(manual, titles, Path(f).name)]
+                           if _manual_keep(manual, titles, str(f),
+                                           Path(f).name)]
 
         # Remove mode: delete excluded local files from source folders
         if config.output.local_file_action == 'remove':
@@ -2486,7 +2485,8 @@ class Api:
             if manual:
                 titles = result.get('title_map', {})
                 selected = {f for f in selected
-                            if _manual_keep(manual, titles, Path(f).name)}
+                            if _manual_keep(manual, titles, f,
+                                            Path(f).name)}
             # Mirror _commit_system: dependency sets are never deleted, so
             # they must not be counted in the confirmation either.
             reasons = result.get('url_reasons', {})
@@ -2587,20 +2587,32 @@ class Api:
     def update_rom_selection(self, system: str, selections_json: str):
         """Update which ROMs are selected for a system.
 
-        selections_json is a JSON list of {filename, selected} dicts.
+        selections_json is a JSON list of {key, selected} dicts, where key
+        is the row's unique identity -- the URL for a network ROM, the
+        source path for a local one.  It is deliberately not the displayed
+        name: arcade rows show the MAME description, and two ROMs can
+        share one.
         """
         selections = orjson.loads(selections_json)
         if system not in self._manual_selections:
             self._manual_selections[system] = {}
+        sel_map = {}
         for sel in selections:
-            self._manual_selections[system][sel['filename']] = sel['selected']
-        # Update cached picker state to match
+            key = sel.get('key', sel.get('filename'))
+            if key is None:
+                continue
+            sel_map[key] = sel['selected']
+            self._manual_selections[system][key] = sel['selected']
+        # Update cached picker state to match.  Match on the unique key
+        # first, falling back to the displayed name so a payload from an
+        # older UI build still syncs.
         if system in self._picker_state:
-            sel_map = {s['filename']: s['selected'] for s in selections}
             for rom in self._picker_state[system]:
-                if rom['filename'] in sel_map:
-                    rom['status'] = ('selected' if sel_map[rom['filename']]
-                                     else 'excluded')
+                for candidate in (rom['url'], rom['filename']):
+                    if candidate in sel_map:
+                        rom['status'] = ('selected' if sel_map[candidate]
+                                         else 'excluded')
+                        break
         # Sync to config for persistence
         self._config.picker_overrides = dict(self._manual_selections)
 
@@ -2701,13 +2713,19 @@ class Api:
         return ''
 
 
-def _manual_keep(manual, title_map, filename):
-    """Look up a manual picker override for a ROM filename.
+def _manual_keep(manual, title_map, key, filename=None):
+    """Look up a manual picker override for one ROM.
 
-    The picker labels arcade rows with the MAME description rather than
-    the filename, so an override may be keyed by either.  Defaults to
-    keeping the ROM.
+    ``key`` is the row's unique identity (URL, or source path for a local
+    file).  Overrides persisted by older versions were keyed by the
+    displayed name instead, which is ambiguous -- two ROMs can share a
+    MAME description -- so those are still honoured but only as a
+    fallback.  Defaults to keeping the ROM.
     """
+    if key in manual:
+        return manual[key]
+    if filename is None:
+        filename = Path(key).name
     if filename in manual:
         return manual[filename]
     display = title_map.get(Path(filename).stem)
@@ -2784,6 +2802,18 @@ def _local_file_size(path):
         return Path(path).stat().st_size
     except OSError:
         return 0
+
+
+def _dest_rom_files(sys_dir):
+    """ROM files under a committed system directory, recursively.
+
+    A recursive scan writes ROMs into subdirectories, so a top-level-only
+    listing would build playlists that silently omit them.  Skips the
+    outputs this app generates into the same directory.
+    """
+    from retro_refiner.transfer import _GENERATED_SUFFIXES  # pylint: disable=import-outside-toplevel
+    return [f for f in sorted(sys_dir.rglob('*'))
+            if f.is_file() and f.suffix.lower() not in _GENERATED_SUFFIXES]
 
 
 def _volume_id(path):

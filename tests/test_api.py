@@ -16,6 +16,7 @@ from retro_refiner.ui.api import (
     Api, _display_name, _get_exclusion_reason,
     _parse_csv, _int_or_none, _float_or_none, _parse_size_string,
     _SYSTEM_ABBREVS, _manual_keep, _volume_id, _local_transfer_cost,
+    _dest_rom_files,
 )
 from retro_refiner.config import Config
 from retro_refiner.filter import parse_rom_filename
@@ -1013,8 +1014,14 @@ class TestArcadeLocalFiltering:
 
         def _file_spy(rom_files, **_kwargs):
             file_calls.append(list(rom_files))
-            return ([parse_rom_filename(Path(f).name) for f in rom_files],
-                    {'selected_size': 100})
+            # Mirror the real filter_roms_from_files, which stamps
+            # source_path so callers can map results back to real files.
+            roms = []
+            for f in rom_files:
+                rom = parse_rom_filename(Path(f).name)
+                rom.source_path = str(f)
+                roms.append(rom)
+            return roms, {'selected_size': 100}
 
         monkeypatch.setattr(filter_mod, 'filter_roms_from_files', _file_spy)
 
@@ -1537,3 +1544,116 @@ class TestRemoveActionProtectsDependencies:
         _rom, _dep, junk, config = self._setup(api, tmp_path, 'BIOS')
         api._commit_system('mame', config, tmp_path / 'dest')
         assert not junk.exists()
+
+
+# =============================================================================
+# Picker overrides are keyed by unique identity, not display label
+# =============================================================================
+# Arcade rows show the MAME description, and two ROMs can share one.
+# Keying overrides on the label made them collide.
+
+class TestPickerOverrideKeying:
+
+    def test_override_stored_by_key(self, api):
+        api._picker_state['mame'] = [
+            {'filename': 'Street Fighter II (World)', 'url': 'sf2.zip',
+             'status': 'selected', 'region': 'World', 'size': 0,
+             'reason': ''},
+        ]
+        api.update_rom_selection('mame', json.dumps([
+            {'key': 'sf2.zip', 'selected': False},
+        ]))
+        assert api._manual_selections['mame']['sf2.zip'] is False
+        assert api._picker_state['mame'][0]['status'] == 'excluded'
+
+    def test_rows_sharing_a_display_name_are_independent(self, api):
+        # Same MAME description, different files: toggling one must not
+        # move the other.
+        api._picker_state['mame'] = [
+            {'filename': 'Street Fighter II (World)', 'url': 'sf2.zip',
+             'status': 'selected', 'region': 'World', 'size': 0,
+             'reason': ''},
+            {'filename': 'Street Fighter II (World)', 'url': 'sf2b.zip',
+             'status': 'selected', 'region': 'World', 'size': 0,
+             'reason': ''},
+        ]
+        api.update_rom_selection('mame', json.dumps([
+            {'key': 'sf2.zip', 'selected': False},
+            {'key': 'sf2b.zip', 'selected': True},
+        ]))
+        states = [r['status'] for r in api._picker_state['mame']]
+        assert states == ['excluded', 'selected']
+
+    def test_commit_honours_key_keyed_override(self, api, tmp_path):
+        rom = tmp_path / 'sf2.zip'
+        rom.write_bytes(b'\0' * 10)
+        api._last_results = {
+            'mame': {
+                'urls': [], 'sizes': {}, 'local_files': [str(rom)],
+                'selected_urls': [], 'selected_local': [str(rom)],
+                'title_map': {'sf2': 'Street Fighter II (World)'},
+            },
+        }
+        api._manual_selections = {'mame': {str(rom): False}}
+        config = Config()
+        config.output.local_file_action = 'copy'
+        dest = tmp_path / 'dest'
+        api._commit_system('mame', config, dest)
+        assert not (dest / 'mame' / 'sf2.zip').exists(), (
+            'deselected ROM must not be committed')
+
+    def test_legacy_display_keyed_override_still_honoured(self, api,
+                                                          tmp_path):
+        # Overrides persisted by older builds were keyed by display name.
+        rom = tmp_path / 'sf2.zip'
+        rom.write_bytes(b'\0' * 10)
+        api._last_results = {
+            'mame': {
+                'urls': [], 'sizes': {}, 'local_files': [str(rom)],
+                'selected_urls': [], 'selected_local': [str(rom)],
+                'title_map': {'sf2': 'Street Fighter II (World)'},
+            },
+        }
+        api._manual_selections = {
+            'mame': {'Street Fighter II (World)': False}}
+        config = Config()
+        dest = tmp_path / 'dest'
+        api._commit_system('mame', config, dest)
+        assert not (dest / 'mame' / 'sf2.zip').exists()
+
+    def test_legacy_filename_payload_still_syncs(self, api):
+        api._picker_state['nes'] = [
+            {'filename': 'Mario (USA).zip', 'url': 'http://x/Mario.zip',
+             'status': 'selected', 'region': 'USA', 'size': 0,
+             'reason': ''},
+        ]
+        api.update_rom_selection('nes', json.dumps([
+            {'filename': 'Mario (USA).zip', 'selected': False},
+        ]))
+        assert api._picker_state['nes'][0]['status'] == 'excluded'
+
+
+# =============================================================================
+# Playlist generation walks committed subdirectories
+# =============================================================================
+
+class TestDestRomFilesRecursive:
+
+    def test_finds_nested_roms(self, tmp_path):
+        (tmp_path / 'usa').mkdir()
+        (tmp_path / 'usa' / 'a.zip').write_bytes(b'a')
+        (tmp_path / 'b.zip').write_bytes(b'b')
+        found = {f.name for f in _dest_rom_files(tmp_path)}
+        assert found == {'a.zip', 'b.zip'}
+
+    def test_skips_generated_outputs(self, tmp_path):
+        (tmp_path / 'a.zip').write_bytes(b'a')
+        (tmp_path / 'snes.m3u').write_text('x', encoding='utf-8')
+        (tmp_path / 'gamelist.xml').write_text('x', encoding='utf-8')
+        (tmp_path / 'c.zip.rrdownload').write_bytes(b'x')
+        found = {f.name for f in _dest_rom_files(tmp_path)}
+        assert found == {'a.zip'}
+
+    def test_excludes_directories(self, tmp_path):
+        (tmp_path / 'usa').mkdir()
+        assert _dest_rom_files(tmp_path) == []

@@ -458,3 +458,55 @@ class TestCleanDestinationRecursive:
     def test_missing_target_is_a_noop(self, tmp_path):
         stats = clean_destination(tmp_path, 'nope', False, set())
         assert stats == {'removed': 0, 'errors': 0}
+
+
+# =============================================================================
+# Playlist entries keep subdirectory structure
+# =============================================================================
+# A recursive scan writes ROMs into subdirectories; a bare basename is
+# both ambiguous and unresolvable by the emulator.
+
+def test_m3u_entries_are_relative_to_rom_dir(tmp_path):
+    (tmp_path / 'usa').mkdir()
+    (tmp_path / 'japan').mkdir()
+    roms = [tmp_path / 'usa' / 'game.zip',
+            tmp_path / 'japan' / 'game.zip']
+    for r in roms:
+        r.write_bytes(b'x')
+    path = generate_m3u_playlist('snes', roms, tmp_path)
+    lines = sorted(l for l in path.read_text(encoding='utf-8').split('\n')
+                   if l)
+    assert lines == ['japan/game.zip', 'usa/game.zip']
+
+
+def test_m3u_falls_back_to_name_outside_rom_dir(tmp_path):
+    path = generate_m3u_playlist('snes', [Path('/elsewhere/a.zip')],
+                                 tmp_path)
+    assert path.read_text(encoding='utf-8').strip() == 'a.zip'
+
+
+def test_gamelist_paths_are_relative_when_rom_dir_given(tmp_path):
+    rom_dir = tmp_path / 'roms'
+    (rom_dir / 'usa').mkdir(parents=True)
+    rom = rom_dir / 'usa' / 'game.zip'
+    rom.write_bytes(b'x')
+    out = tmp_path / 'out'
+    out.mkdir()
+    path = generate_gamelist_xml('snes', [rom], out, rom_dir=rom_dir)
+    assert '<path>./usa/game.zip</path>' in path.read_text(encoding='utf-8')
+
+
+def test_gamelist_without_rom_dir_uses_basename(tmp_path):
+    path = generate_gamelist_xml('snes', [Path('/roms/usa/game.zip')],
+                                 tmp_path)
+    assert '<path>./game.zip</path>' in path.read_text(encoding='utf-8')
+
+
+def test_retroarch_paths_keep_subdirectory(tmp_path):
+    rom_dir = tmp_path / 'roms'
+    (rom_dir / 'usa').mkdir(parents=True)
+    rom = rom_dir / 'usa' / 'game.zip'
+    rom.write_bytes(b'x')
+    path = generate_retroarch_playlist('snes', [rom], rom_dir, tmp_path)
+    data = json.loads(path.read_text(encoding='utf-8'))
+    assert data['items'][0]['path'] == str(rom)

@@ -1730,7 +1730,10 @@ function doRun() {
     showView('log');
     return;
   }
-  var lfa = document.getElementById('local-file-action');
+  /* The select is 'opt-transfer'; 'local-file-action' is only the wrapper
+     div's id, so looking that up returned null and silently skipped the
+     deletion confirmation below. */
+  var lfa = document.getElementById('opt-transfer');
   var isRemove = lfa && lfa.value === 'remove';
   function startCommit() {
     setRunning(true);
@@ -2660,7 +2663,7 @@ function updatePickerTable() {
     var checked = rom.status === 'selected' ? ' checked' : '';
     var statusClass = rom.status === 'selected' ? 'selected' : 'excluded';
     html += '<tr class="' + rowClass + '">' +
-      '<td><input type="checkbox"' + checked + ' onchange="pickerToggleRow(\'' + escapeHtml(rom.filename).replace(/'/g, "&#39;") + '\',this.checked)"></td>' +
+      '<td><input type="checkbox"' + checked + ' onchange="pickerToggleRow(\'' + escapeHtml(rom.url).replace(/'/g, "&#39;") + '\',this.checked)"></td>' +
       (hasSystem ? '<td>' + escapeHtml((rom.system || '').toUpperCase()) + '</td>' : '') +
       '<td class="rom-fname">' + escapeHtml(rom.filename) + '</td>' +
       '<td class="rom-size-cell">' + formatSize(rom.size) + '</td>' +
@@ -2720,8 +2723,11 @@ function pickerToggleAll(checked) {
   savePickerSelections();
 }
 
-function pickerToggleRow(filename, checked) {
-  var rom = pickerRoms.find(function(r) { return r.filename === filename; });
+/* Rows are identified by rom.url (the source URL or local path). The
+   displayed name is not unique -- arcade rows show the MAME description,
+   and two ROMs can share one. */
+function pickerToggleRow(key, checked) {
+  var rom = pickerRoms.find(function(r) { return r.url === key; });
   if (rom) {
     if (checked) { rom.status = 'selected'; rom.reason = ''; }
     else { rom.status = 'excluded'; rom.reason = 'User removed'; }
@@ -2766,7 +2772,7 @@ function savePickerSelections() {
   if (pickerSystem) {
     /* Single system */
     var selections = pickerRoms.map(function(r) {
-      return { filename: r.filename, selected: r.status === 'selected' };
+      return { key: r.url, selected: r.status === 'selected' };
     });
     window.pywebview.api.update_rom_selection(pickerSystem, JSON.stringify(selections));
   } else {
@@ -2775,7 +2781,7 @@ function savePickerSelections() {
     pickerRoms.forEach(function(r) {
       var sys = r.system || '';
       if (!bySystem[sys]) bySystem[sys] = [];
-      bySystem[sys].push({ filename: r.filename, selected: r.status === 'selected' });
+      bySystem[sys].push({ key: r.url, selected: r.status === 'selected' });
     });
     Object.keys(bySystem).forEach(function(sys) {
       window.pywebview.api.update_rom_selection(sys, JSON.stringify(bySystem[sys]));
